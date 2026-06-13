@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:15
+    container_name: qansr-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: qansr
+      POSTGRES_PASSWORD: qansr
+      POSTGRES_DB: qansr
+    ports:
+      - "5433:5432"   # 5432 is taken by leelas-db locally
+    volumes:
+      - qansr-pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qansr -d qansr"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  qansr-pgdata:

@@ -1,0 +1,37 @@
+/* ANSR — brand design tokens
+   Source: &ANSR logo (brand/assets/logos/QAnsr-logo.png), sampled 2026-06-14.
+   Company: ansr.com — Global Capability Centers (GCC) enablement. */
+
+:root {
+  /* Brand core — orange mark (sunburst + ampersand) */
+  --ansr-orange:        #FD5001; /* primary brand */
+  --ansr-orange-light:  #FF7338;
+  --ansr-orange-soft:   #FF9466;
+  --ansr-orange-deep:   #D63F00;
+
+  /* Dark — navy/petrol wordmark */
+  --ansr-navy:          #002835; /* headings + body text, dark sections */
+  --ansr-navy-light:    #0A3D4D;
+  --ansr-slate:         #1B3A47;
+
+  /* Neutrals */
+  --ansr-gray:          #5B6B72; /* secondary text */
+  --ansr-gray-light:    #9AAAB0; /* muted / borders */
+  --ansr-cloud:         #F4F6F7; /* light background */
+  --ansr-cloud-alt:     #EAEEF0;
+  --ansr-white:         #FFFFFF;
+
+  /* Semantic */
+  --ansr-bg:            var(--ansr-white);
+  --ansr-bg-alt:        var(--ansr-cloud);
+  --ansr-bg-dark:       var(--ansr-navy);
+  --ansr-text:          var(--ansr-navy);
+  --ansr-text-muted:    var(--ansr-gray);
+  --ansr-primary:       var(--ansr-orange);
+  --ansr-link:          var(--ansr-orange);
+  --ansr-accent:        var(--ansr-navy);
+
+  /* Type — modern grotesque; swap when ANSR's licensed face is sourced */
+  --ansr-font-display:  'Inter', 'Helvetica Neue', system-ui, sans-serif;
+  --ansr-font-body:     'Inter', system-ui, -apple-system, sans-serif;
+}
