@@ -8,12 +8,8 @@
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <div class="topbar">
-    <img src="/brand/assets/logos/QAnsr-logo.png" alt="ANSR" style="height:26px">
-    <a href="/contracts.html" style="text-decoration:none;color:var(--ansr-gray)">←</a>
-    <strong style="color:var(--ansr-navy)">Mint</strong>
-    <span id="runmeta" class="lbl" style="margin-left:auto;font-size:13px;color:var(--ansr-gray)"></span>
-  </div>
+  <div id="appbar"></div>
+  <div class="wrap" style="padding-top:8px"><span id="runmeta" class="lbl" style="font-size:13px;color:var(--ansr-gray)"></span></div>
 
   <div class="wrap">
     <div id="summary" class="grid" style="margin:14px 0"></div>
@@ -47,6 +43,8 @@
     </div>
   </div>
 
+  <script src="/q.js"></script>
+  <script>qHeader("mint");</script>
   <script src="/invoice.js"></script>
 </body>
 </html>
