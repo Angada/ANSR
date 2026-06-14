@@ -129,7 +129,9 @@ function wireTabs() {
     document.querySelectorAll(".tab").forEach((t) => { t.classList.remove("active"); t.setAttribute("aria-selected", "false"); });
     tab.classList.add("active"); tab.setAttribute("aria-selected", "true");
     document.querySelectorAll(".pane").forEach((p) => (p.hidden = true));
-    $(`#pane-${tab.dataset.tab}`).hidden = false;
+    const pane = $(`#pane-${tab.dataset.tab}`); pane.hidden = false;
+    // re-fire fade-in for any image revealed in this pane
+    pane.querySelectorAll(".fade-in").forEach((el) => { el.classList.remove("fade-in"); void el.offsetWidth; el.classList.add("fade-in"); });
   }));
 }
 
