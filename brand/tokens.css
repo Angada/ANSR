@@ -1,37 +1,83 @@
 /* ANSR — brand design tokens
-   Source: &ANSR logo (brand/assets/logos/QAnsr-logo.png), sampled 2026-06-14.
-   Company: ansr.com — Global Capability Centers (GCC) enablement. */
+   Source: live ansr.com CSS (Elementor kit-20545 + Astra globals), pulled 2026-06-14.
+   Logo-asset hexes (#FD5001 orange / #002835 navy) differ slightly from the web
+   palette below — use these web values for UI; use logo hexes only to match the
+   raster logo file exactly. */
 
 :root {
-  /* Brand core — orange mark (sunburst + ampersand) */
-  --ansr-orange:        #FD5001; /* primary brand */
-  --ansr-orange-light:  #FF7338;
-  --ansr-orange-soft:   #FF9466;
-  --ansr-orange-deep:   #D63F00;
+  /* Brand core */
+  --ansr-orange:        #FF5400; /* primary / CTA / links (accent) */
+  --ansr-orange-hover:  #CF4400; /* pressed / darker */
+  --ansr-orange-deep:   #CE4502;
+  --ansr-orange-tint:   #FFF1E9; /* pale section bg */
+  --ansr-orange-soft:   #FFBC7D; /* page-transition / light accent */
 
-  /* Dark — navy/petrol wordmark */
-  --ansr-navy:          #002835; /* headings + body text, dark sections */
-  --ansr-navy-light:    #0A3D4D;
-  --ansr-slate:         #1B3A47;
+  --ansr-teal:          #005465; /* primary dark (Astra color-0) */
+  --ansr-navy:          #00242E; /* secondary / link-hover / dark sections */
+  --ansr-slate:         #1E293B; /* ink alt */
 
-  /* Neutrals */
-  --ansr-gray:          #5B6B72; /* secondary text */
-  --ansr-gray-light:    #9AAAB0; /* muted / borders */
-  --ansr-cloud:         #F4F6F7; /* light background */
-  --ansr-cloud-alt:     #EAEEF0;
+  /* Neutrals (Astra slate scale) */
+  --ansr-text:          #1E1E1E; /* body text */
+  --ansr-gray:          #777777; /* muted text */
+  --ansr-gray-mid:      #94A3B8;
+  --ansr-line:          #CBD5E1;
+  --ansr-border:        #E2E8F0;
+  --ansr-surface:       #F9FAFB; /* off-white surface */
+  --ansr-fill:          #F3F3F3;
   --ansr-white:         #FFFFFF;
 
   /* Semantic */
   --ansr-bg:            var(--ansr-white);
-  --ansr-bg-alt:        var(--ansr-cloud);
+  --ansr-bg-alt:        var(--ansr-surface);
   --ansr-bg-dark:       var(--ansr-navy);
-  --ansr-text:          var(--ansr-navy);
-  --ansr-text-muted:    var(--ansr-gray);
+  --ansr-bg-accent:     var(--ansr-orange-tint);
   --ansr-primary:       var(--ansr-orange);
   --ansr-link:          var(--ansr-orange);
-  --ansr-accent:        var(--ansr-navy);
+  --ansr-link-hover:    var(--ansr-navy);
+  --ansr-accent:        var(--ansr-teal);
 
-  /* Type — modern grotesque; swap when ANSR's licensed face is sourced */
-  --ansr-font-display:  'Inter', 'Helvetica Neue', system-ui, sans-serif;
-  --ansr-font-body:     'Inter', system-ui, -apple-system, sans-serif;
+  /* Type — Moderat (self-hosted on ansr.com, weights 300/400 only; 500/600/700
+     are synthesized). Drop Moderat-Light.woff + Moderat-Regular.woff in
+     assets/fonts/ for fidelity, else the grotesque fallback stands in. */
+  --ansr-font:          'Moderat', 'Inter', 'Helvetica Neue', system-ui, sans-serif;
+  --ansr-font-accent:   'Roboto', var(--ansr-font);
+  --ansr-fs-base:       18px;   /* body, weight 300, line-height 1.5 */
+  --ansr-fs-small:      16px;
+  --ansr-fw-body:       300;
+
+  /* Shape / motion (flat design — no shadows on brand site) */
+  --ansr-radius-pill:   100px;  /* CTA buttons */
+  --ansr-radius-input:  2px;    /* inputs / cards */
+  --ansr-container:     1140px;
+  --ansr-gap:           20px;
+  --ansr-transition:    all .2s linear;
 }
+
+/* Type scale (all Moderat, line-height 1.5) */
+/* h1/h2 40px/700 · sub 38px/400 · card 24px/600 · feature 22px/500
+   · small-head 20px/700 · body 18px/300 · small 16px/300 */
+
+/* Buttons -------------------------------------------------------------- */
+.ansr-btn {
+  font-family: var(--ansr-font);
+  font-size: 18px; font-weight: 500;
+  padding: 12px 24px;
+  border: 0; border-radius: var(--ansr-radius-pill);
+  background: var(--ansr-orange); color: var(--ansr-white); fill: var(--ansr-white);
+  cursor: pointer; transition: var(--ansr-transition);
+}
+.ansr-btn:hover, .ansr-btn:focus {
+  background: var(--ansr-orange); border: 1px solid var(--ansr-orange);
+}
+.ansr-btn--outline {
+  background: transparent; color: var(--ansr-text);
+  border: 1px solid var(--ansr-text); border-radius: var(--ansr-radius-input);
+  font-size: 16px; padding: 14px 28px;
+}
+.ansr-btn--outline:hover {
+  background: var(--ansr-navy); color: var(--ansr-white); border-color: var(--ansr-navy);
+}
+
+/* Links ---------------------------------------------------------------- */
+.ansr a, a.ansr-link { color: var(--ansr-link); text-decoration: none; transition: var(--ansr-transition); }
+.ansr a:hover, a.ansr-link:hover { color: var(--ansr-link-hover); }

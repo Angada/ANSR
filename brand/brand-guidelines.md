@@ -1,62 +1,91 @@
 # ANSR — Brand Guidelines
 
-Derived from the **&ANSR** logo and [ansr.com](https://ansr.com) on 2026-06-14.
+Source: live [ansr.com](https://ansr.com) CSS (WordPress · Astra theme · Elementor
+kit-20545) + the **&ANSR** logo. Pulled 2026-06-14.
 Company: builds, manages, and scales high-performing **Global Capability Centers (GCCs)**.
 
 ## Logo
-- File: [assets/logos/QAnsr-logo.png](assets/logos/QAnsr-logo.png) (1672×941, transparent/white).
-- Mark: orange radial **sunburst** enclosing a hollow center, joined to an
-  orange **ampersand**, followed by the **ANSR** wordmark in deep navy.
-- **Need**: SVG + transparent-background PNG, plus reversed (white-on-navy) and
-  mono variants. Re-export when vector source is available.
+- File: [assets/logos/QAnsr-logo.png](assets/logos/QAnsr-logo.png) (1672×941).
+- Mark: orange radial **sunburst** + **ampersand**, then **ANSR** wordmark in deep navy.
+- Logo-asset hexes: orange `#FD5001`, navy `#002835` (raster match only — web UI uses the live palette below).
+- **Need**: SVG + transparent PNG, reversed (white-on-dark), and mono variants.
 
 ### Usage
-- Keep clear space ≥ the height of the wordmark cap around the mark.
-- Place on white or cloud (`#F4F6F7`) backgrounds; on dark use the navy
-  (`#002835`) section with a white/reversed logo.
-- Don't recolor the mark, stretch, rotate, or add effects.
+- Clear space ≥ wordmark cap-height around the mark.
+- On white / surface (`#F9FAFB`) backgrounds, or reversed on navy (`#00242E`).
+- Don't recolor, stretch, rotate, or add effects (brand is flat — no shadows).
 
-## Color palette
+## Color palette (live web values)
 
-| Role | Hex | Name |
-|------|-----|------|
-| Primary | `#FD5001` | Orange |
-| | `#FF7338` | Orange light |
-| | `#FF9466` | Orange soft |
-| | `#D63F00` | Orange deep |
-| Dark | `#002835` | Navy (text, dark sections) |
-| Dark | `#0A3D4D` | Navy light |
-| Dark | `#1B3A47` | Slate |
-| Text muted | `#5B6B72` | Gray |
-| Border / muted | `#9AAAB0` | Gray light |
-| Background | `#FFFFFF` | White |
-| Background | `#F4F6F7` | Cloud |
+| Role | Hex | Token |
+|------|-----|-------|
+| Primary / CTA / link | `#FF5400` | orange |
+| Orange hover / pressed | `#CF4400` · `#CE4502` | orange-hover / deep |
+| Pale orange section bg | `#FFF1E9` | orange-tint |
+| Primary dark | `#005465` | teal |
+| Secondary / link-hover / dark sections | `#00242E` | navy |
+| Ink alt | `#1E293B` | slate |
+| Body text | `#1E1E1E` | text |
+| Muted text | `#777777` | gray |
+| Border | `#E2E8F0` | border |
+| Surface | `#F9FAFB` | surface |
+| White | `#FFFFFF` | white |
 
-- **Orange** = primary CTA, links, key accents, the mark. Use deliberately —
-  it's the single loud color against a restrained navy/neutral base.
-- **Navy** = body text, headings, dark hero/footer sections.
-- **Gray** = secondary text, captions. **Cloud** = alternating section bg.
-- Keep it corporate-clean: lots of white space, 1 loud accent, no clutter.
+- **Orange** = the single loud accent: CTAs, links, key highlights. Don't overuse.
+- **Teal + navy** = headings, dark hero/footer sections, link-hover.
+- **Neutrals** = text, borders, alternating surfaces. Lots of white space.
 
 ## Typography
-- **Display & Body — Inter** (placeholder): modern grotesque, professional and
-  highly legible. Headlines tight/semibold, body regular.
-- Fallback stack: `system-ui, -apple-system, sans-serif`.
-- **Need**: confirm ANSR's licensed brand face from ansr.com CSS and swap into
-  [tokens.css](tokens.css) + drop files in [assets/fonts/](assets/fonts/).
+- **Moderat** for everything (headings + body). Self-hosted on ansr.com; only
+  **300 (Light)** and **400 (Regular)** ship — 500/600/700 are browser-synthesized.
+- Accent/button font nominally **Roboto 500**, usually overridden to Moderat 500.
+- Fallback: `Inter, 'Helvetica Neue', system-ui, sans-serif`.
+- Base: 18px / weight 300 / line-height 1.5.
+
+| Use | Size / weight |
+|-----|---------------|
+| H1 / H2 | 40px / 700 |
+| Sub-headline | 38px / 400 |
+| Card title | 24px / 600 |
+| Feature title | 22px / 500 |
+| Small heading | 20px / 700 |
+| Body | 18px / 300 |
+| Small | 16px / 300 |
+
+- **Need**: source `Moderat-Light.woff` + `Moderat-Regular.woff` (from ansr.com or a license) → drop in [assets/fonts/](assets/fonts/).
+
+## Buttons
+**Primary CTA** — orange pill:
+```css
+background:#FF5400; color:#fff; font-weight:500; font-size:18px;
+padding:12px 24px; border:0; border-radius:100px; transition:all .2s linear;
+/* hover: same bg + 1px solid #FF5400 border */
+```
+**Secondary** — outline → fills navy on hover:
+```css
+background:transparent; color:#1E1E1E; border:1px solid #1E1E1E;
+border-radius:2px; font-weight:500; font-size:16px; padding:14px 28px;
+/* hover: background:#00242E; color:#fff; border-color:#00242E */
+```
+Ready-made classes in [tokens.css](tokens.css): `.ansr-btn`, `.ansr-btn--outline`.
+
+## Links & motion
+- Links: orange `#FF5400`, **no underline**, hover → navy `#00242E`.
+- Transition: `all .2s linear` (interactive), `0.3s` (sections).
+- **Flat** — no box-shadows anywhere on the brand site.
+
+## Shape & layout
+- Radius: CTA pill `100px`; inputs/cards `2px`. Container max `1140px`. Widget gap `20px`.
 
 ## Voice & tone
 - **Tagline**: "Empowering global team solutions with GCCs."
-- Professional, strategic, aspirational. Positions GCCs as essential business
-  infrastructure; emphasizes innovation, efficiency, scale, talent excellence.
-- Proof points (from site): "225K+ professionals hired · 210+ global centers
-  established · 20+ years of experience."
+- Professional, strategic, aspirational. GCCs as essential business infrastructure;
+  innovation, efficiency, scale, talent excellence.
+- Proof points: "225K+ professionals hired · 210+ global centers established · 20+ years."
 
 ## Use in code
 ```css
 @import 'tokens.css';
-
-button { background: var(--ansr-primary); color: var(--ansr-white); }
-body   { color: var(--ansr-text); background: var(--ansr-bg);
-         font-family: var(--ansr-font-body); }
+.cta { /* or just use class="ansr-btn" */ }
+body { color: var(--ansr-text); background: var(--ansr-bg); font-family: var(--ansr-font); }
 ```
