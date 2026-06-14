@@ -89,6 +89,11 @@ async function runValidation() {
 
 async function acceptFile() {
   const o = $("#outcome");
+  if (window.READY === false) {
+    o.innerHTML = `<div class="band" style="margin-top:16px;border-left:3px solid var(--ansr-orange)"><b style="color:var(--ansr-navy)">Not ready</b><p class="lbl" style="margin:4px 0 0">Contract readiness has missing items — resolve them in the checklist above before results.</p></div>`;
+    document.querySelector(".sectionhead .chip--flag")?.scrollIntoView({ block: "center" });
+    return;
+  }
   o.innerHTML = `<p class="lbl" style="margin-top:16px">Calculating invoice…</p>`;
   await new Promise((r) => setTimeout(r, 800));
   o.innerHTML = `
@@ -190,7 +195,7 @@ function boxCard(b) {
   const chips = chipsFor(b).map((q) => `<span class="ai-chip" onclick="askBox('${b.id}', this.textContent)">${esc(q)}</span>`).join("");
   return `
   <div class="boxcard">
-    <section class="section" style="margin:0">
+    <details class="section" style="margin:0">
       <summary><span><span class="conf-dot ${cc}"></span><b>${esc(b.title)}</b></span>
         <span class="chip ${b.status === "approved" ? "chip--approved" : "chip--draft"}">${esc(b.status)}</span></summary>
       <div class="body">
@@ -206,7 +211,7 @@ function boxCard(b) {
           <div class="ai-row"><input id="ask-${b.id}" placeholder="ask or instruct…" onkeydown="if(event.key==='Enter')askBox('${b.id}', this.value)"><button class="btn" onclick="askBox('${b.id}', document.getElementById('ask-${b.id}').value)">Send</button></div>
         </div>
       </div>
-    </section>
+    </details>
   </div>`;
 }
 
@@ -233,22 +238,55 @@ window.acceptInstr = async (boxId, btn) => {
 
 window.scrollRail = (dir) => { const r = $("#boxrail"); r.scrollBy({ left: dir * (r.clientWidth * 0.8), behavior: "smooth" }); };
 
+// readiness checklist — "do we have everything about the contract to analyse?"
+function readiness() {
+  const rb = DATA.boxes.find((b) => b.box_type_code === "billing_rules")?.content || {};
+  const has = (k) => { const v = rb[k]; return Array.isArray(v) ? v.length > 0 : !!v; };
+  const levelMapped = Array.isArray(rb.ta_rate_table) && rb.ta_rate_table.some((r) => r.level);
+  return [
+    { k: "CTC definition", ok: has("ctc_definition") },
+    { k: "TA rate table (band × level × referral)", ok: has("ta_rate_table") },
+    { k: "Milestone split (sourcing / acceptance / balance)", ok: has("milestones") },
+    { k: "OSS slabs", ok: has("oss_slabs") },
+    { k: "Currency / FX basis", ok: has("currency") },
+    { k: "Role → level map", ok: levelMapped },
+  ];
+}
+
+const SECDESC = {
+  summary: "Plain-English read of the SOW and the key billing facts.",
+  boxes: "Each clause area as a box — open one to see detail and ask its AI.",
+  ready: "Everything Mint needs from the contract before it can calculate. Missing items must be resolved first.",
+};
+
 function render() {
   if (!DATA) return;
+  const chk = readiness();
+  const allOk = chk.every((c) => c.ok);
+  window.READY = allOk;
+  const chkHtml = chk.map((c) => `<div class="chk ${c.ok ? "ok" : "miss"}"><span class="ic">${c.ok ? "✓" : "✕"}</span><span>${esc(c.k)}</span>${c.ok ? "" : `<button class="chip ask" onclick="askMissing('${esc(c.k)}')">Ask me</button>`}</div>`).join("");
   $("#result").innerHTML = `
-    <section class="section" open style="margin:16px 0 0">
-      <summary><b>${esc(DATA.summary.title)}</b><span class="chip">Run ${DATA.run_no}</span></summary>
+    <div class="sectionhead teal"><div><div class="st">Contract summary</div><div class="sd">${SECDESC.summary}</div></div><span class="chip">Run ${DATA.run_no}</span></div>
+    <details class="section" open style="margin:0">
+      <summary><b>Summary &amp; key findings</b></summary>
       <div class="body">
         <p class="sum-text" style="margin:0 0 10px">${esc(DATA.summary.text)}</p>
         <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:2px">Key findings</div>
         <ul class="findings sm">${DATA.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
       </div>
-    </section>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 0">
-      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0">Analysis boxes</h3>
-      <div class="railnav"><button class="railbtn" onclick="scrollRail(-1)">‹</button><button class="railbtn" onclick="scrollRail(1)">›</button></div>
-    </div>
-    <div class="boxrail" id="boxrail">${DATA.boxes.map(boxCard).join("")}</div>`;
+    </details>
+
+    <div class="sectionhead"><div><div class="st">Analysis boxes</div><div class="sd">${SECDESC.boxes}</div></div>
+      <div class="railnav"><button class="railbtn" onclick="scrollRail(-1)">‹</button><button class="railbtn" onclick="scrollRail(1)">›</button></div></div>
+    <div class="boxrail" id="boxrail">${DATA.boxes.map(boxCard).join("")}</div>
+
+    <div class="sectionhead ${allOk ? "teal" : ""}"><div><div class="st">Contract readiness</div><div class="sd">${SECDESC.ready}</div></div>
+      <span class="chip ${allOk ? "chip--approved" : "chip--flag"}">${allOk ? "ready to analyse" : chk.filter((c) => !c.ok).length + " missing"}</span></div>
+    <div class="band" style="margin-top:0">${chkHtml}</div>`;
 }
+
+window.askMissing = (item) => {
+  alert(`Tell me the “${item}” for this contract and I'll add it to the rule book before analysis. (chat wiring next)`);
+};
 
 init();

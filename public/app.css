@@ -192,6 +192,34 @@ input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padd
 .boxrail > .boxcard { flex: 0 0 calc(46% - 7px); scroll-snap-align: start; }
 @media (max-width: 680px) { .boxrail > .boxcard { flex: 0 0 80%; } }
 
+/* section header band — coloured/gradient, title + one-line description */
+.sectionhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  background: linear-gradient(100deg, var(--ansr-orange-tint), #ffffff 70%); border: 1px solid var(--ansr-border);
+  border-left: 3px solid var(--ansr-orange); border-radius: 10px; padding: 10px 14px; margin: 18px 0 10px; }
+.sectionhead .st { color: var(--ansr-navy); font-weight: 500; font-size: 15px; }
+.sectionhead .sd { color: var(--ansr-gray); font-size: 12px; margin-top: 1px; }
+.sectionhead.teal { background: linear-gradient(100deg, #e3f0f1, #ffffff 70%); border-left-color: var(--ansr-teal); }
+
+/* business-density: consistent smaller type across the Mint result area */
+#result { font-size: 13.5px; }
+#result .section > summary { min-height: 42px; padding: 10px 14px; font-size: 13.5px; }
+#result .section .body { padding: 12px 14px; }
+#result .findings li { font-size: 13px; }
+
+/* Mint page — consistent business-density type */
+.mint { font-size: 13.5px; }
+.mint .band > h3 { font-size: 15px; font-weight: 500; }
+.mint .band p, .mint .band .lbl { font-size: 13px; }
+.mint h3 { font-size: 15px; }
+.mint label.lbl, .mint .bar label { font-size: 12px; }
+
+/* readiness checklist */
+.chk { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--ansr-border); font-size: 13px; }
+.chk:last-child { border-bottom: 0; }
+.chk .ic { flex: 0 0 18px; font-size: 14px; }
+.chk.ok .ic { color: var(--ansr-teal); } .chk.miss .ic { color: var(--ansr-orange-deep); }
+.chk .ask { margin-left: auto; }
+
 /* compact type inside analysis boxes */
 .boxcard { font-size: 13px; line-height: 1.45; }
 .boxcard summary b { font-size: 14px; }
