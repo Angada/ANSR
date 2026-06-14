@@ -27,7 +27,7 @@
   --ansr-white:         #FFFFFF;
 
   /* Semantic */
-  --ansr-bg:            var(--ansr-white);
+  --ansr-bg:            #F4F3EF; /* soft off-white canvas (cards stay white) */
   --ansr-bg-alt:        var(--ansr-surface);
   --ansr-bg-dark:       var(--ansr-navy);
   --ansr-bg-accent:     var(--ansr-orange-tint);
