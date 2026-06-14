@@ -69,6 +69,13 @@ Every money fact = `(amount, ccy)` + `(base_amount, base_ccy)` + `fx_rate + date
 ccy columns on customer/milestone/oss_slab/placement/ta_calc/oss_calc/credit_note). Conversion is a
 visible trace step; convert-then-% vs %-then-convert is **clause-defined**, not assumed.
 
+**Date/time normalization (003_qansr_dates.sql):** Excel dates drive billing (milestone months +
+OSS month-end HC). Parse any input → ISO (Excel serial, dd/mm, mm/dd, dd-Mon-yy, text, blank, #N/A).
+`dd/mm` vs `mm/dd` ambiguity resolved once per source (detect day>12, else AI/user → persisted
+`decision` `date_format:<doc>`, auto-applies next month). OSS month boundary measured in `customer.tz`.
+Store raw + normalized + format + `date_flags`; unparseable/ambiguous/missing → `exception_item`
+(missing_join_date | unparseable_date | ambiguous_date), fixable in natural language.
+
 **Cost-head framework (`cost_head`):** the bill is composed of typed heads — ta_sourcing/acceptance/balance,
 oss, advance, phase, milestone, recurring, one_off, clawback, credit, tax — each with calc_logic + clause_ref.
 
