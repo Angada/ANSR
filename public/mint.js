@@ -141,11 +141,23 @@ async function generate() {
   $("#gen").disabled = false;
 }
 
-async function purge() {
-  if (!confirm(`Hard-delete every run for ${$("#client").value}? Cannot be undone.`)) return;
-  await fetch("/api/mint/purge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value }) });
-  DATA = null; $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">All runs purged. Press Generate to start fresh.</p>`;
-  $("#stepwrap").style.display = "none";
+function appModal(title, msg, onConfirm, confirmLabel = "Delete all") {
+  const bg = document.createElement("div"); bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal"><h3>${esc(title)}</h3><p>${esc(msg)}</p>
+    <div class="row"><button class="btn btn--ghost" data-x>Cancel</button><button class="btn" data-ok style="background:#b3261e">${esc(confirmLabel)}</button></div></div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  bg.querySelector("[data-x]").onclick = close;
+  bg.querySelector("[data-ok]").onclick = () => { close(); onConfirm(); };
+}
+
+function purge() {
+  appModal("Purge all runs", `Hard-delete every run for ${$("#client").value}? This removes all runs, ledger rows and archives permanently and cannot be undone.`, async () => {
+    await fetch("/api/mint/purge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value }) });
+    DATA = null; $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">All runs purged. Press Generate to start fresh.</p>`;
+    $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
+  });
 }
 
 // ---- render summary + findings + boxes ----
@@ -161,21 +173,64 @@ function renderContent(content) {
   }).join("");
 }
 
+// per-box AI shortcut chips, generated on the fly from the box
+function chipsFor(b) {
+  const t = b.box_type_code;
+  if (t === "billing_rules") return ["Explain the TA% bands", "Why 3 milestones?", "How is CTC defined?", "Show a worked example"];
+  if (t === "commercial_terms") return ["What are the revenue lines?", "Explain OSS vs TA"];
+  if (t === "payment_terms") return ["When is it billed?", "What are the terms?"];
+  if (t === "flags") return ["What needs a decision?", "How do I resolve these?"];
+  if (t === "caveats") return ["What could go wrong?"];
+  return ["Explain this box", "Which clause backs it?", "Any risks?"];
+}
+
 function boxCard(b) {
   const cc = confClass(b.confidence);
+  const chips = chipsFor(b).map((q) => `<span class="ai-chip" onclick="askBox('${b.id}', this.textContent)">${esc(q)}</span>`).join("");
   return `
-  <section class="section" style="margin:0">
-    <summary><span><span class="conf-dot ${cc}"></span><b>${esc(b.title)}</b></span>
-      <span class="chip ${b.status === "approved" ? "chip--approved" : "chip--draft"}">${esc(b.status)}</span></summary>
-    <div class="body">
-      <div class="conf-${cc}" style="padding:10px;border-radius:8px;margin-bottom:10px">
-        <div class="lbl" style="color:var(--ansr-gray);margin-bottom:4px">AI · conf ${(b.confidence * 100).toFixed(0)}% · <em>${esc(b.clause_ref)}</em></div>
-        ${esc(b.ai_explain)}
+  <div class="boxcard">
+    <section class="section" style="margin:0">
+      <summary><span><span class="conf-dot ${cc}"></span><b>${esc(b.title)}</b></span>
+        <span class="chip ${b.status === "approved" ? "chip--approved" : "chip--draft"}">${esc(b.status)}</span></summary>
+      <div class="body">
+        <div class="conf-${cc}" style="padding:10px;border-radius:8px;margin-bottom:10px">
+          <div class="lbl" style="color:var(--ansr-gray);margin-bottom:4px">AI · conf ${(b.confidence * 100).toFixed(0)}% · <em>${esc(b.clause_ref)}</em></div>
+          ${esc(b.ai_explain)}
+        </div>
+        ${renderContent(b.content)}
+        <div class="ai-box">
+          <div class="ai-head"><span class="tw">✨</span> Ask this box</div>
+          <div class="ai-chips">${chips}</div>
+          <div class="ai-log" id="log-${b.id}"></div>
+          <div class="ai-row"><input id="ask-${b.id}" placeholder="ask or instruct…" onkeydown="if(event.key==='Enter')askBox('${b.id}', this.value)"><button class="btn" onclick="askBox('${b.id}', document.getElementById('ask-${b.id}').value)">Send</button></div>
+        </div>
       </div>
-      ${renderContent(b.content)}
-    </div>
-  </section>`;
+    </section>
+  </div>`;
 }
+
+const INSTRUCTION = /^(set|change|add|remove|use|map|exclude|include|rename|update|make|apply|override)\b/i;
+
+window.askBox = async (boxId, text) => {
+  text = (text || "").trim(); if (!text) return;
+  const log = document.getElementById(`log-${boxId}`);
+  const inp = document.getElementById(`ask-${boxId}`); if (inp) inp.value = "";
+  log.insertAdjacentHTML("beforeend", `<div class="ai-msg"><span class="who">You:</span> ${esc(text)}</div>`);
+  const isInstr = INSTRUCTION.test(text);
+  const r = await (await fetch(`/api/box/${boxId}/chat`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: text }) })).json();
+  if (isInstr) {
+    log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">✨ AI:</span> Got it — apply this change to <b>${esc(boxId)}</b>? <div style="margin-top:6px"><button class="btn" style="padding:5px 12px;min-height:32px" onclick="acceptInstr('${boxId}',this)">Accept</button> <button class="btn btn--ghost" style="padding:5px 12px;min-height:32px" onclick="this.closest('.ai-msg').remove()">Discard</button></div></div>`);
+  } else {
+    log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">✨ AI:</span> ${esc(r.reply)}</div>`);
+  }
+  log.scrollTop = log.scrollHeight;
+};
+window.acceptInstr = async (boxId, btn) => {
+  await fetch(`/api/box/${boxId}/amend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ after: "chat instruction" }) });
+  btn.closest(".ai-msg").innerHTML = `<span class="who">✨ AI:</span> <span style="color:var(--ansr-teal)">✓ Applied — box re-version queued (recompiles on the real engine).</span>`;
+};
+
+window.scrollRail = (dir) => { const r = $("#boxrail"); r.scrollBy({ left: dir * (r.clientWidth * 0.8), behavior: "smooth" }); };
 
 function render() {
   if (!DATA) return;
@@ -183,13 +238,16 @@ function render() {
     <section class="section" open style="margin:16px 0 0">
       <summary><b>${esc(DATA.summary.title)}</b><span class="chip">Run ${DATA.run_no}</span></summary>
       <div class="body">
-        <p style="margin:0 0 10px">${esc(DATA.summary.text)}</p>
+        <p class="sum-text" style="margin:0 0 10px">${esc(DATA.summary.text)}</p>
         <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:2px">Key findings</div>
-        <ul class="findings">${DATA.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
+        <ul class="findings sm">${DATA.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
       </div>
     </section>
-    <h3 style="color:var(--ansr-navy);font-weight:500;margin:18px 0 4px">Analysis boxes</h3>
-    <div class="grid">${DATA.boxes.map(boxCard).join("")}</div>`;
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:18px 0 0">
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0">Analysis boxes</h3>
+      <div class="railnav"><button class="railbtn" onclick="scrollRail(-1)">‹</button><button class="railbtn" onclick="scrollRail(1)">›</button></div>
+    </div>
+    <div class="boxrail" id="boxrail">${DATA.boxes.map(boxCard).join("")}</div>`;
 }
 
 init();
