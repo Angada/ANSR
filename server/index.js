@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { extractFile, toMarkdown } from "./extract.js";
 import { q } from "./db/client.js";
 import { loadConfig, saveConfig, publicConfig, encryptKey } from "./store.js";
-import { stubRun } from "./stub.js";
+import { stubRun, stubOps, stubContracts, stubContract, stubRuns } from "./stub.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const docstore = join(root, "docstore");
@@ -72,9 +72,22 @@ app.get("/api/docs/:customer", (req, res) => {
   res.json({ docs: readdirSync(dir).filter((f) => extname(f) === ".md").map((f) => f.replace(/\.md$/, "")) });
 });
 
-// ---- run data for the invoice page (stub until calc engine lands) ----------
+// ---- shell data (stub until Phase A + calc engine land) --------------------
+app.get("/api/ops", (_req, res) => res.json({ ops: stubOps() }));
+app.get("/api/contracts", (_req, res) => res.json({ contracts: stubContracts() }));
+app.get("/api/contract/:id", (req, res) => res.json(stubContract(slug(req.params.id))));
+app.get("/api/runs/:customer", (req, res) => res.json({ runs: stubRuns(slug(req.params.customer)) }));
 app.get("/api/run/:customer/:runNo", (req, res) => {
   res.json(stubRun(slug(req.params.customer), Number(req.params.runNo) || 1));
+});
+
+// box interactions (stub AI until pipelines wired)
+app.post("/api/box/:id/chat", (req, res) => {
+  const msg = (req.body?.message || "").slice(0, 500);
+  res.json({ reply: `(stub AI) On "${req.params.id}": ${msg ? `re "${msg}" — ` : ""}I'd cite the relevant SOW clause + show the calc. Wire the contract-intake pipeline + upload the SOW for real answers.` });
+});
+app.post("/api/box/:id/amend", (req, res) => {
+  res.json({ ok: true, box_id: req.params.id, version: 2, note: "stub — amendment recorded; recompiles rule on real engine" });
 });
 
 // ---- AI-pipeline registry + config -----------------------------------------

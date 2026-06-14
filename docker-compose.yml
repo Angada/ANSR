@@ -1,4 +1,21 @@
 services:
+  app:
+    build: .
+    container_name: qansr-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: qansr
+      PGUSER: qansr
+      PGPASSWORD: qansr
+      PORT: 4100
+    ports:
+      - "4100:4100"
+
   db:
     image: postgres:15
     container_name: qansr-db

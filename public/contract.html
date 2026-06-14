@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Contract — Q&ANSR</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="topbar">
+    <a href="/contracts.html" style="text-decoration:none;color:var(--ansr-gray)">←</a>
+    <img src="/brand/assets/logos/QAnsr-logo.png" alt="ANSR" style="height:26px">
+    <strong id="cname" style="color:var(--ansr-navy)">Contract</strong>
+  </div>
+  <div class="wrap">
+    <div id="meta" class="lbl" style="color:var(--ansr-gray);margin:12px 0"></div>
+
+    <section class="section" open>
+      <summary>Runs</summary>
+      <div class="body">
+        <div id="runs" class="tabs" style="border:0"></div>
+        <button class="btn btn--ghost" style="margin-top:6px" onclick="alert('(stub) New run → upload this month\\'s EMP list → normalize → process.')">+ New run</button>
+      </div>
+    </section>
+
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:16px 0 8px">
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0">Contract analysis</h3>
+      <button class="btn" onclick="alert('(stub) Upload SOW → Phase A re-derives these boxes for real.')">↑ Add SOW</button>
+    </div>
+    <p class="lbl" style="color:var(--ansr-gray);font-size:13px;margin:0 0 10px">Each box: AI explanation · chat to clarify · amend · approve. The Rule book drives all billing.</p>
+    <div id="boxes"></div>
+  </div>
+  <script src="/contract.js"></script>
+</body>
+</html>
