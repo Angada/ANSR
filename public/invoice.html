@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Invoice Studio — Q&ANSR</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="topbar">
+    <img src="/brand/assets/logos/QAnsr-logo.png" alt="ANSR" style="height:26px">
+    <strong style="color:var(--ansr-navy)">Invoice Studio</strong>
+    <span id="runmeta" class="lbl" style="margin-left:auto;font-size:13px;color:var(--ansr-gray)"></span>
+  </div>
+
+  <div class="wrap">
+    <div id="summary" class="grid" style="margin:14px 0"></div>
+
+    <!-- replay slider -->
+    <section class="section" open>
+      <summary>Invoice replay</summary>
+      <div class="body">
+        <div class="replay no-print">
+          <button class="btn--ghost btn" id="play" style="min-width:64px">▶</button>
+          <input type="range" id="slider" min="0" value="0">
+          <span id="seqlbl" class="lbl"></span>
+        </div>
+        <div id="steps"></div>
+      </div>
+    </section>
+
+    <div class="tabs no-print" role="tablist">
+      <button class="tab active" data-tab="ta" role="tab" aria-selected="true">TA breakdown</button>
+      <button class="tab" data-tab="oss" role="tab" aria-selected="false">OSS</button>
+      <button class="tab" data-tab="exceptions" role="tab" aria-selected="false">Exceptions</button>
+    </div>
+
+    <div id="pane-ta" class="pane"></div>
+    <div id="pane-oss" class="pane" hidden></div>
+    <div id="pane-exceptions" class="pane" hidden></div>
+
+    <div style="display:flex;gap:10px;margin:18px 0" class="no-print">
+      <button class="btn" id="audit">⬇ Audit pack</button>
+      <span class="lbl" style="align-self:center;color:var(--ansr-gray);font-size:13px">color = AI confidence · drag slider to replay the calc</span>
+    </div>
+  </div>
+
+  <script src="/invoice.js"></script>
+</body>
+</html>

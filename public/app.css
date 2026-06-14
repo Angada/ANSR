@@ -81,5 +81,23 @@ input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padd
 .chip--approved { background: #e3f0f1; color: var(--ansr-teal); }
 .chip--flag { background: var(--ansr-orange-tint); color: var(--ansr-orange-deep); }
 
+/* ---- confidence heatmap (cells/rows colored by trust) ---- */
+.conf-hi  { background: #e6f4ea; }            /* ≥ .85  green  */
+.conf-mid { background: var(--ansr-orange-tint); } /* .60–.85 amber */
+.conf-lo  { background: #fde2dc; }            /* < .60  red    */
+.conf-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+.conf-dot.hi { background: #2e7d4f; } .conf-dot.mid { background: var(--ansr-orange); } .conf-dot.lo { background: #d6402a; }
+
+/* ---- replay slider ---- */
+.replay { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
+.replay input[type=range] { flex: 1; min-height: 44px; accent-color: var(--ansr-orange); }
+.step { padding: 8px 12px; border-left: 3px solid var(--ansr-border); margin: 4px 0; opacity: .35; transition: opacity .2s linear; }
+.step.on { opacity: 1; border-left-color: var(--ansr-orange); }
+.step .v { float: right; font-weight: 500; color: var(--ansr-navy); }
+td.pending, .pending-val { color: var(--ansr-gray-mid); }
+
+/* print: audit pack */
+@media print { .no-print { display: none !important; } .section { break-inside: avoid; } body { font-size: 12px; } }
+
 /* safe-area for notched phones */
 @supports (padding: max(0px)) { .wrap, .topbar { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); } }

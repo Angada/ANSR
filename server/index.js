@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { extractFile, toMarkdown } from "./extract.js";
 import { q } from "./db/client.js";
 import { loadConfig, saveConfig, publicConfig, encryptKey } from "./store.js";
+import { stubRun } from "./stub.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const docstore = join(root, "docstore");
@@ -69,6 +70,11 @@ app.get("/api/docs/:customer", (req, res) => {
   const dir = join(docstore, slug(req.params.customer));
   if (!existsSync(dir)) return res.json({ docs: [] });
   res.json({ docs: readdirSync(dir).filter((f) => extname(f) === ".md").map((f) => f.replace(/\.md$/, "")) });
+});
+
+// ---- run data for the invoice page (stub until calc engine lands) ----------
+app.get("/api/run/:customer/:runNo", (req, res) => {
+  res.json(stubRun(slug(req.params.customer), Number(req.params.runNo) || 1));
 });
 
 // ---- AI-pipeline registry + config -----------------------------------------
