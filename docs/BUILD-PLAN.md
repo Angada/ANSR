@@ -93,6 +93,13 @@ for the SOA sheet (sticky header + frozen first col via `.pin`); touch targets �
 (no iOS zoom); safe-area insets. All colors/fonts via brand tokens (`var(--ansr-*)`), never hardcoded.
 Server serves `/app.css` + `/brand/tokens.css`.
 
+## Contract Aggregator (portfolio op — 004_qansr_aggregator.sql)
+Across all contracts: **complete billing** (actuals = released runs rolled up, FX-normalized to base;
+`portfolio_billing` view) + **forecast** (`forecast` table) + **reason for forecast** (`forecast_driver`:
+pipeline_acceptance/balance, oss_runrate, milestone, rate_change, churn_clawback, seasonality).
+Every forecast line keeps its drivers + contribution + confidence + assumptions — explainable like the
+invoice trace. Its own card on the ops hub; reuses the box/trace/heatmap UI primitives.
+
 ## Backlog — power-ups ("what more crazy")
 1. Clause→rule compiler w/ effective dates ✅ schema (`rule_version`)
 2. Clawback / replacement ✅ schema (`credit_note`)
