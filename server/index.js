@@ -55,7 +55,8 @@ app.use((req, res, next) => {
 
 app.use(express.static(join(root, "public")));
 app.use("/brand", express.static(join(root, "brand"))); // tokens.css + logo for the UI
-const upload = multer({ dest: uploads });
+const MAX_UPLOAD = 25 * 1024 * 1024; // 25 MB
+const upload = multer({ dest: uploads, limits: { fileSize: MAX_UPLOAD } });
 
 const slug = (s) => String(s || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
 
@@ -234,6 +235,13 @@ app.post("/api/providers/:provider", (req, res) => {
   if (req.body?.apiKey) cfg.providers[req.params.provider].apiKey = encryptKey(req.body.apiKey);
   saveConfig(cfg);
   res.json({ ok: true });
+});
+
+// multer / upload errors → clean JSON (e.g. file too large)
+app.use((err, _req, res, _next) => {
+  if (err && err.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "File too large — max 25 MB." });
+  if (err) return res.status(500).json({ error: err.message || "upload error" });
+  res.status(500).json({ error: "error" });
 });
 
 const PORT = process.env.PORT || 4100;

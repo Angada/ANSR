@@ -22,6 +22,7 @@ const FIELD_LABEL = { ext_id: "Employee ID", name: "Name", role: "Role / level",
 async function mapRoster() {
   const f = $("#rfile").files[0];
   if (!f) { alert("Choose a working sheet first."); return; }
+  if (f.size > 25 * 1024 * 1024) { alert("File too large — max 25 MB."); return; }
   $("#rmap").disabled = true; $("#rout").innerHTML = `<p class="lbl" style="margin-top:10px">Reading + mapping…</p>`;
   const fd = new FormData(); fd.append("file", f); fd.append("client", $("#client").value);
   ROSTER = await (await fetch("/api/mint/roster/map", { method: "POST", body: fd })).json();
