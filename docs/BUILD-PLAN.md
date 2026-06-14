@@ -4,6 +4,15 @@ Contract-aware finance/AR calculation assistant. Reproduces ANSR's customer
 invoicing (TA + OSS) from the SOW + employee Excel, deterministically, with a
 clause + calc audit trail. First case: **ANSR–Kenvue**.
 
+## Input model (IMPORTANT)
+User provides **only the SOW + a raw EMP list** (employee facts: dates, role, source, CTC).
+**No pre-built calc workbook.** Q&ANSR **derives** the rule book + formulas from the contract
+(Phase A) and computes everything itself → **Q&ANSR is the source of truth**, not a workbook checker.
+Phase A central box = **"Rule book & formulas"** (`box_type=billing_rules`): the derived executable
+billing logic, reviewed/chatted/approved → compiles to ta_rate/milestone/oss_slab/cost_head/rule_version.
+Trust (no workbook to reconcile): clause refs + replay trace · **AI worked-example tests** (`formula_test`)
+the engine must reproduce · confidence heatmap + human approval.
+
 ## Architecture
 - **Base**: ESPL Node/Express engine (Postgres audit spine, hybrid md/db doc store, AI clarification).
 - **Layer**: Leela AI-pipeline registry + admin panel + listeners + chatbot gate.
