@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Q&ANSR — Sign in</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="wrap" style="max-width:380px;min-height:100vh;display:flex;flex-direction:column;justify-content:center">
+    <div style="text-align:center;margin-bottom:8px">
+      <img src="/favicon.png" alt="Q&ANSR" style="width:84px;height:84px">
+      <h1 style="font-size:26px;font-weight:500;color:var(--ansr-navy);margin:14px 0 4px">The Q&amp; Universe</h1>
+      <p class="lbl" style="color:var(--ansr-gray);margin:0">Your armoury of super agents.</p>
+    </div>
+    <div class="section" style="margin-top:18px"><div class="body">
+      <label class="lbl">Login</label>
+      <input id="user" autocomplete="username" placeholder="login">
+      <label class="lbl" style="margin-top:10px;display:block">Password</label>
+      <input id="pw" type="password" autocomplete="current-password" placeholder="password" onkeydown="if(event.key==='Enter')signIn()">
+      <button class="btn" style="width:100%;margin-top:14px" onclick="signIn()">Sign in</button>
+      <p id="err" class="lbl" style="color:var(--ansr-orange-deep);margin:10px 0 0;display:none"></p>
+    </div></div>
+  </div>
+  <script src="/login.js"></script>
+</body>
+</html>

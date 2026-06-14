@@ -3,18 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Q&ANSR</title>
+  <title>The Q&ANSR Universe</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
   <div class="topbar">
-    <img src="/brand/assets/logos/QAnsr-logo.png" alt="ANSR" style="height:26px">
-    <span class="lbl" style="color:var(--ansr-gray)">Q&amp;ANSR</span>
+    <span class="lbl" style="color:var(--ansr-gray)">The Q&amp; Universe</span>
+    <a href="#" class="lbl no-print" style="margin-left:auto;color:var(--ansr-orange);font-size:14px" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login.html');return false">Sign out</a>
   </div>
   <div class="wrap">
-    <div class="hero">
-      <div class="eyebrow">Q&amp;ANSR</div>
-      <h1>Welcome to Q&amp;ANSR</h1>
+    <div class="hero" style="text-align:center">
+      <img src="/brand/assets/logos/QAnsr-logo.png" alt="Q&ANSR" style="height:84px;margin-bottom:10px">
+      <div class="eyebrow">The Q&amp; Universe</div>
+      <h1>Your armoury of super agents</h1>
       <p>Your finance &amp; AR agents. Pick one to begin.</p>
     </div>
     <div id="agents" class="agents"></div>

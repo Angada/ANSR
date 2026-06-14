@@ -19,6 +19,34 @@ for (const d of [docstore, uploads]) if (!existsSync(d)) mkdirSync(d, { recursiv
 
 const app = express();
 app.use(express.json({ limit: "4mb" }));
+
+// ---- soft login (prototype gate — not hardened security) --------------------
+const AUTH_USER = process.env.QANSR_USER || "vik";
+const AUTH_PW = process.env.QANSR_PW || "thedik";
+const AUTH_TOKEN = createHash("sha256").update(`${AUTH_USER}:${AUTH_PW}:qansr-soft`).digest("hex");
+const OPEN = ["/login.html", "/login.js", "/app.css", "/favicon.png", "/apple-touch-icon.png", "/api/login", "/health"];
+const cookieToken = (req) => (req.headers.cookie || "").split(";").map((c) => c.trim()).find((c) => c.startsWith("qansr_auth="))?.slice(11);
+
+app.post("/api/login", (req, res) => {
+  const { user, pw } = req.body || {};
+  if (user === AUTH_USER && pw === AUTH_PW) {
+    res.setHeader("Set-Cookie", `qansr_auth=${AUTH_TOKEN}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`);
+    return res.json({ ok: true });
+  }
+  res.status(401).json({ error: "wrong login or password" });
+});
+app.post("/api/logout", (_req, res) => {
+  res.setHeader("Set-Cookie", "qansr_auth=; HttpOnly; Path=/; Max-Age=0");
+  res.json({ ok: true });
+});
+
+app.use((req, res, next) => {
+  if (OPEN.some((p) => req.path === p) || req.path.startsWith("/brand/")) return next();
+  if (cookieToken(req) === AUTH_TOKEN) return next();
+  if (req.path.startsWith("/api/")) return res.status(401).json({ error: "auth required" });
+  return res.redirect("/login.html");
+});
+
 app.use(express.static(join(root, "public")));
 app.use("/brand", express.static(join(root, "brand"))); // tokens.css + logo for the UI
 const upload = multer({ dest: uploads });
