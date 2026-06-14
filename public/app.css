@@ -191,6 +191,19 @@ input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padd
 .boxrail > .boxcard { flex: 0 0 calc(50% - 7px); scroll-snap-align: start; }
 @media (max-width: 680px) { .boxrail > .boxcard { flex: 0 0 88%; } }
 
+/* compact type inside analysis boxes */
+.boxcard { font-size: 13px; line-height: 1.45; }
+.boxcard summary b { font-size: 14px; }
+.boxcard .body { padding: 12px; }
+.boxcard .body > div, .boxcard .body p { font-size: 13px; }
+.boxcard .lbl { font-size: 11px; }
+.boxcard table { font-size: 12px; }
+.boxcard th, .boxcard td { padding: 5px 8px; }
+.boxcard .conf-hi, .boxcard .conf-mid, .boxcard .conf-lo { font-size: 12.5px; }
+.boxcard .ai-box { font-size: 12.5px; }
+.boxcard .ai-box .ai-head { font-size: 13px; }
+.boxcard .ai-box input { font-size: 13px; }
+
 /* ---- app modal (replaces browser confirm) ---- */
 .modal-bg { position: fixed; inset: 0; background: rgba(0,36,46,.45); display: flex; align-items: center; justify-content: center; z-index: 80; padding: 16px; }
 .modal { background: var(--ansr-white); border-radius: 14px; padding: 20px; max-width: 380px; width: 100%; }
