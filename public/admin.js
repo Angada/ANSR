@@ -22,20 +22,45 @@ function renderConnectors() {
 
 window.editKey = (id) => {
   const p = CFG.providers[id];
+  const modelOpts = p.models.map((m) => `<option value="${m}">${m}</option>`).join("");
   $("#keyedit").innerHTML = `
     <div class="band" style="margin:10px 0 0">
-      <div style="display:flex;justify-content:space-between"><strong style="color:var(--ansr-navy)">${p.label}</strong>
+      <div style="display:flex;justify-content:space-between;align-items:center"><strong style="color:var(--ansr-navy)">${p.label}</strong>
         <span class="chip ${p.hasKey ? "chip--approved" : "chip--draft"}">${p.hasKey ? "key " + p.keyHint : "no key"}</span></div>
-      <div class="lbl" style="margin:8px 0 4px">models: ${p.models.join(", ")}</div>
-      <input type="password" id="key-${id}" placeholder="paste ${p.label} key — stored encrypted">
-      <button class="btn" style="margin-top:8px" onclick="saveKey('${id}')">Save key</button>
+      <input type="password" id="key-${id}" placeholder="paste ${p.label} key — stored encrypted" style="margin-top:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button class="btn" onclick="saveKey('${id}')">Save key</button>
+        <button class="btn btn--ghost" onclick="testKey('${id}')">Test connection</button>
+        <span id="test-${id}" class="lbl" style="align-self:center"></span>
+      </div>
+      <div style="border-top:1px solid var(--ansr-border);margin-top:12px;padding-top:10px">
+        <label class="lbl">Make default · apply to all journeys</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+          <select id="def-${id}" style="flex:1;min-width:140px">${modelOpts}</select>
+          <button class="btn" onclick="makeDefault('${id}')">Apply to all</button>
+        </div>
+        <span id="def-msg-${id}" class="lbl"></span>
+      </div>
     </div>`;
 };
 
 window.saveKey = async (id) => {
   const apiKey = $(`#key-${id}`).value; if (!apiKey) return;
   await fetch(`/api/providers/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apiKey }) });
-  CFG = await (await fetch("/api/config")).json(); renderConnectors();
+  CFG = await (await fetch("/api/config")).json(); renderConnectors(); editKey(id);
+};
+
+window.testKey = async (id) => {
+  const el = $(`#test-${id}`); el.textContent = "testing…";
+  const r = await (await fetch(`/api/providers/${id}/test`, { method: "POST" })).json();
+  el.innerHTML = r.ok ? `<span style="color:var(--ansr-teal)">✓ ${r.detail}${r.ms ? " · " + r.ms + "ms" : ""}</span>` : `<span style="color:var(--ansr-orange-deep)">✗ ${r.detail}</span>`;
+};
+
+window.makeDefault = async (id) => {
+  const model = $(`#def-${id}`).value;
+  const r = await (await fetch(`/api/pipelines/default`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: id, model }) })).json();
+  $(`#def-msg-${id}`).textContent = `applied to ${r.applied} journeys ✓`;
+  CFG = await (await fetch("/api/config")).json(); renderProducts();
 };
 
 // ---- pipelines grouped by product ----
@@ -54,24 +79,27 @@ function renderProducts() {
 
 function pipeHtml(p) {
   const det = p.kind === "deterministic";
+  const provLabel = CFG.providers[p.provider]?.label || "—";
   const provOpts = Object.entries(CFG.providers).map(([id, pr]) => `<option value="${id}" ${p.provider === id ? "selected" : ""}>${pr.label}</option>`).join("");
   const models = (CFG.providers[p.provider]?.models) || [];
   const modelOpts = models.map((m) => `<option value="${m}" ${p.model === m ? "selected" : ""}>${m}</option>`).join("");
   return `
-  <section class="section" data-id="${p.id}" style="margin:8px 0">
-    <summary>
-      <span>${p.name}
-        <span class="chip ${det ? "chip--draft" : "chip--approved"}">${p.kind}</span></span>
-      <span class="chip ${p.enabled ? "chip--approved" : "chip--draft"}">${p.enabled ? "gate on" : "gate off"}</span>
-    </summary>
-    <div class="body">
+  <section class="pipe" data-id="${p.id}">
+    <div class="pipe-head" onclick="this.parentElement.classList.toggle('open')">
+      <b>${p.name}</b>
+      <span class="chip ${det ? "chip--draft" : "chip--approved"}">${p.kind}</span>
+      ${det ? "" : `<span class="chip">${provLabel} · ${p.model || "—"}</span>`}
+      <span class="chip ${p.enabled ? "chip--approved" : "chip--draft"}" style="margin-left:auto">${p.enabled ? "gate on" : "off"}</span>
+      <span class="caret">⌄</span>
+    </div>
+    <div class="pipe-body">
       <div class="lbl" style="margin-bottom:6px">${p.description}</div>
       <div class="chips" style="margin-bottom:10px">${(p.skills || []).map((s) => `<span class="chip">${s}</span>`).join("")}</div>
       ${det ? `<div class="lbl">Deterministic — no model call.</div>` : `
-        <div style="display:flex;gap:10px;flex-wrap:wrap">
-          <div style="flex:1;min-width:140px"><label class="lbl">Provider</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="flex:1;min-width:130px"><label class="lbl">Provider</label>
             <select id="prov-${p.id}" onchange="syncModels('${p.id}')">${provOpts}</select></div>
-          <div style="flex:1;min-width:140px"><label class="lbl">Model</label>
+          <div style="flex:1;min-width:130px"><label class="lbl">Model</label>
             <select id="model-${p.id}">${modelOpts}</select></div>
         </div>
         <details class="section" style="margin:10px 0 0"><summary>Edit prompt</summary>

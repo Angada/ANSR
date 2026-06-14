@@ -9,8 +9,9 @@ import { dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractFile, toMarkdown } from "./extract.js";
 import { q } from "./db/client.js";
-import { loadConfig, saveConfig, publicConfig, encryptKey } from "./store.js";
+import { loadConfig, saveConfig, publicConfig, encryptKey, getApiKey } from "./store.js";
 import { stubRun, stubOps, stubContracts, stubContract, stubRuns } from "./stub.js";
+import Anthropic from "@anthropic-ai/sdk";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const docstore = join(root, "docstore");
@@ -125,6 +126,20 @@ app.post("/api/box/:id/amend", (req, res) => {
 // ---- AI-pipeline registry + config -----------------------------------------
 app.get("/api/config", (_req, res) => res.json(publicConfig()));
 app.get("/api/pipelines", (_req, res) => res.json({ pipelines: loadConfig().pipelines }));
+// make a provider+model the default across all (non-deterministic) journeys.
+// MUST be declared before /api/pipelines/:id so "default" isn't read as an id.
+app.post("/api/pipelines/default", (req, res) => {
+  const { provider, model } = req.body || {};
+  if (!provider) return res.status(400).json({ error: "provider required" });
+  const cfg = loadConfig();
+  let applied = 0;
+  for (const [pid, p] of Object.entries(cfg.pipelines)) {
+    if (p.kind !== "deterministic") { cfg.pipelines[pid] = { ...p, provider, ...(model && { model }) }; applied++; }
+  }
+  saveConfig(cfg);
+  res.json({ ok: true, applied });
+});
+
 app.post("/api/pipelines/:id", (req, res) => {
   const cfg = loadConfig();
   const p = cfg.pipelines[req.params.id];
@@ -134,6 +149,26 @@ app.post("/api/pipelines/:id", (req, res) => {
   saveConfig(cfg);
   res.json({ ok: true, pipeline: cfg.pipelines[req.params.id] });
 });
+// test a connector: live ping for anthropic-compatible, key-presence else.
+app.post("/api/providers/:id/test", async (req, res) => {
+  const id = req.params.id;
+  const key = getApiKey(id);
+  if (!key) return res.json({ ok: false, detail: "no key saved" });
+  const cfg = loadConfig().providers[id] || {};
+  const model = (cfg.models || [])[0];
+  try {
+    const t0 = Date.now();
+    if (id === "anthropic" || cfg.baseURL) {
+      const client = new Anthropic({ apiKey: key, baseURL: cfg.baseURL || undefined });
+      await client.messages.create({ model, max_tokens: 1, messages: [{ role: "user", content: "ping" }] });
+      return res.json({ ok: true, detail: `live ok · ${model}`, ms: Date.now() - t0 });
+    }
+    return res.json({ ok: true, detail: "key present (live test not wired for this provider)" });
+  } catch (e) {
+    return res.json({ ok: false, detail: String(e.message || e).slice(0, 120) });
+  }
+});
+
 app.post("/api/providers/:provider", (req, res) => {
   const cfg = loadConfig();
   if (!cfg.providers[req.params.provider]) return res.status(404).json({ error: "unknown provider" });

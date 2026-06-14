@@ -84,7 +84,17 @@ input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padd
 /* ============ app header (logo home · Admin tab · user/role) ============ */
 .appbar { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 16px;
   padding: 10px 16px; background: var(--ansr-white); border-bottom: 1px solid var(--ansr-border); }
-.appbar .logo img { height: 40px; display: block; }
+.appbar .logo img { height: 80px; display: block; }
+@media (max-width: 480px) { .appbar .logo img { height: 60px; } }
+
+/* compact pipeline rows (Leela-dense) */
+.pipe { border: 1px solid var(--ansr-border); border-radius: 10px; margin: 8px 0; background: var(--ansr-white); overflow: hidden; }
+.pipe-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 9px 12px; cursor: pointer; min-height: 44px; }
+.pipe-head b { color: var(--ansr-navy); font-weight: 500; font-size: 14px; }
+.pipe-head .caret { color: var(--ansr-gray-mid); transition: transform .2s linear; }
+.pipe.open .caret { transform: rotate(180deg); }
+.pipe-body { display: none; padding: 0 12px 12px; }
+.pipe.open .pipe-body { display: block; }
 .appbar nav { display: flex; gap: 4px; }
 .appbar .navtab { text-decoration: none; color: var(--ansr-gray); font-weight: 500; font-size: 15px;
   padding: 8px 12px; border-radius: 8px; transition: var(--ansr-transition); }
