@@ -95,9 +95,11 @@ async function acceptFile() {
   const o = $("#outcome");
   if (window.READY === false) {
     o.innerHTML = `<div class="band" style="margin-top:16px;border-left:3px solid var(--ansr-orange)"><b style="color:var(--ansr-navy)">Not ready</b><p class="lbl" style="margin:4px 0 0">Contract readiness has missing items — resolve them in the checklist above before results.</p></div>`;
-    document.querySelector(".sectionhead .chip--flag")?.scrollIntoView({ block: "center" });
+    document.querySelector('.flowstep[data-n="3"] .chip--flag')?.scrollIntoView({ block: "center" });
     return;
   }
+  // analyzing → fold all 4 steps behind so the result is front-and-centre
+  foldFlow(true);
   o.innerHTML = `<p class="lbl" style="margin-top:16px">Calculating invoice…</p>`;
   await new Promise((r) => setTimeout(r, 800));
   o.innerHTML = `
@@ -121,6 +123,7 @@ function createClient() {
   sel.value = id; _lastClient = id;
   // fresh client — no runs yet; prompt the contract-first journey
   DATA = null; $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
+  clearSteps();
   $("#run").innerHTML = `<option value="">— no runs yet —</option>`;
   $("#result").innerHTML = `<div class="band grad-accent" style="margin-top:14px">
     <b style="color:var(--ansr-navy)">${name} created.</b>
@@ -135,7 +138,7 @@ async function loadRuns(selectLast) {
     ? runs.map((r) => `<option value="${r.run_no}">Run ${r.run_no} · ${r.month} · ${r.status}</option>`).join("")
     : `<option value="">— no runs —</option>`;
   if (runs.length) { if (selectLast) $("#run").value = runs[runs.length - 1].run_no; await openRun($("#run").value); }
-  else { $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">No runs yet — press Generate Contract Analysis.</p>`; }
+  else { clearSteps(); $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">No runs yet — press Generate Contract Analysis.</p>`; }
 }
 
 async function openRun(no) {
@@ -183,7 +186,7 @@ function appModal(title, msg, onConfirm, confirmLabel = "Delete all") {
 function purge() {
   appModal("Purge all runs", `Hard-delete every run for ${$("#client").value}? This removes all runs, ledger rows and archives permanently and cannot be undone.`, async () => {
     await fetch("/api/mint/purge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value }) });
-    DATA = null; $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">All runs purged. Press Generate to start fresh.</p>`;
+    DATA = null; clearSteps(); $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">All runs purged. Press Generate to start fresh.</p>`;
     $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
   });
 }
@@ -215,29 +218,31 @@ function chipsFor(b) {
 function boxCard(b) {
   const cc = confClass(b.confidence);
   const chips = chipsFor(b).map((q) => `<span class="ai-chip" onclick="askBox('${b.id}', this.textContent)">${esc(q)}</span>`).join("");
+  // equal-height card: fixed head · scrollable data · pinned AI footer
   return `
   <div class="boxcard">
-    <details class="section" style="margin:0">
-      <summary><span><span class="conf-dot ${cc}"></span><b>${esc(b.title)}</b></span>
-        <span class="chip ${b.status === "approved" ? "chip--approved" : "chip--draft"}">${esc(b.status)}</span></summary>
-      <div class="body">
-        <div class="conf-${cc}" style="padding:10px;border-radius:8px;margin-bottom:10px">
-          <div class="lbl" style="color:var(--ansr-gray);margin-bottom:4px">AI · conf ${(b.confidence * 100).toFixed(0)}% · <em>${esc(b.clause_ref)}</em></div>
-          ${esc(b.ai_explain)}
-        </div>
-        ${renderContent(b.content)}
-        <div class="ai-box">
-          <div class="ai-head"><span class="tw">✨</span> Ask this box</div>
-          <div class="ai-chips">${chips}</div>
-          <div class="ai-log" id="log-${b.id}"></div>
-          <div class="ai-row"><input id="ask-${b.id}" placeholder="ask or instruct…" onkeydown="if(event.key==='Enter')askBox('${b.id}', this.value)"><button class="btn-ai" onclick="askBox('${b.id}', document.getElementById('ask-${b.id}').value)">Send</button></div>
-        </div>
+    <div class="bc-head"><span><span class="conf-dot ${cc}"></span><b>${esc(b.title)}</b></span>
+      <span class="chip ${b.status === "approved" ? "chip--approved" : "chip--draft"}">${esc(b.status)}</span></div>
+    <div class="bc-data">
+      <div class="conf-${cc}" style="padding:10px;border-radius:8px;margin-bottom:10px">
+        <div class="lbl" style="color:var(--ansr-gray);margin-bottom:4px">AI · conf ${(b.confidence * 100).toFixed(0)}% · <em>${esc(b.clause_ref)}</em></div>
+        ${esc(b.ai_explain)}
       </div>
-    </details>
+      ${renderContent(b.content)}
+    </div>
+    <div class="ai-box">
+      <div class="ai-head"><span class="tw">✨</span> Ask this box</div>
+      <div class="ai-chips">${chips}</div>
+      <div class="ai-log" id="log-${b.id}"></div>
+      <div class="ai-row"><input id="ask-${b.id}" placeholder="ask or instruct…" onkeydown="if(event.key==='Enter')askBox('${b.id}', this.value)"><button class="btn-ai" onclick="askBox('${b.id}', document.getElementById('ask-${b.id}').value)">Send</button></div>
+    </div>
   </div>`;
 }
 
 const INSTRUCTION = /^(set|change|add|remove|use|map|exclude|include|rename|update|make|apply|override)\b/i;
+
+const PENDING = {};
+const BOX_CLAUSE = { company: "§1", legal: "§5", payment_terms: "§5", commercial_terms: "§3.1", billing_rules: "§3.1", caveats: "§3.1", flags: "§3.1" };
 
 window.askBox = async (boxId, text) => {
   text = (text || "").trim(); if (!text) return;
@@ -245,34 +250,60 @@ window.askBox = async (boxId, text) => {
   const inp = document.getElementById(`ask-${boxId}`); if (inp) inp.value = "";
   log.insertAdjacentHTML("beforeend", `<div class="ai-msg"><span class="who">You:</span> ${esc(text)}</div>`);
   const isInstr = INSTRUCTION.test(text);
-  const r = await (await fetch(`/api/box/${boxId}/chat`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: text }) })).json();
+  const r = await (await fetch(`/api/box/${boxId}/chat`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: text, client: $("#client").value }) })).json();
   if (isInstr) {
-    log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">✨ AI:</span> Got it — apply this change to <b>${esc(boxId)}</b>? <div style="margin-top:6px"><button class="btn" style="padding:5px 12px;min-height:32px" onclick="acceptInstr('${boxId}',this)">Accept</button> <button class="btn btn--ghost" style="padding:5px 12px;min-height:32px" onclick="this.closest('.ai-msg').remove()">Discard</button></div></div>`);
+    PENDING[boxId] = text;
+    log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">✨ AI:</span> Got it — record this as the confirmed reading of <b>${BOX_CLAUSE[boxId] || boxId}</b>? It will ground every future answer. <div style="margin-top:6px"><button class="btn-ai" style="padding:5px 12px;min-height:32px" onclick="acceptInstr('${boxId}',this)">Accept</button> <button class="btn btn--ghost" style="padding:5px 12px;min-height:32px" onclick="this.closest('.ai-msg').remove()">Discard</button></div></div>`);
   } else {
-    log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">✨ AI:</span> ${esc(r.reply)}</div>`);
+    const cite = r.cited?.length ? ` <span class="lbl">[${r.cited.join(", ")}]</span>` : "";
+    log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">✨ AI:</span> ${esc(r.reply)}${cite}</div>`);
   }
   log.scrollTop = log.scrollHeight;
 };
 window.acceptInstr = async (boxId, btn) => {
-  await fetch(`/api/box/${boxId}/amend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ after: "chat instruction" }) });
-  btn.closest(".ai-msg").innerHTML = `<span class="who">✨ AI:</span> <span style="color:var(--ansr-teal)">✓ Applied — box re-version queued (recompiles on the real engine).</span>`;
+  const r = await (await fetch(`/api/mint/interpret`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ client: $("#client").value, clause_ref: BOX_CLAUSE[boxId] || boxId, reading: PENDING[boxId] || "user correction" }) })).json();
+  btn.closest(".ai-msg").innerHTML = `<span class="who">✨ AI:</span> <span style="color:var(--ansr-teal)">✓ Learned — ${esc(BOX_CLAUSE[boxId] || boxId)} reading saved; it now grounds every future answer.</span>`;
 };
 
 window.scrollRail = (dir) => { const r = $("#boxrail"); r.scrollBy({ left: dir * (r.clientWidth * 0.8), behavior: "smooth" }); };
 
-// readiness checklist — "do we have everything about the contract to analyse?"
+// fold/unfold a single step (its number title toggles its content)
+window.toggleStep = (btn) => btn.closest(".flowstep")?.classList.toggle("folded");
+// fold (or unfold) all 4 steps at once — used when analysis kicks off
+function foldFlow(on) {
+  document.querySelectorAll("#flow .flowstep").forEach((s) => { s.classList.toggle("folded", !!on); if (on) s.classList.add("done"); });
+}
+// empty steps 2 & 3 (step 1 gets a guidance note from the caller)
+function clearSteps() {
+  const b = document.getElementById("boxes"); if (b) b.innerHTML = "";
+  const r = document.getElementById("ready"); if (r) r.innerHTML = "";
+  document.querySelectorAll("#flow .flowstep").forEach((s) => s.classList.remove("done", "folded"));
+}
+
+// Readiness — DERIVED from this contract's rule book, not a fixed list. Each
+// field the billing_rules box actually produced becomes a checklist item, so a
+// contract with a "payment_structure" clause shows that, not Kenvue's TA/OSS.
+const READY_LABEL = {
+  ctc_definition: "CTC definition",
+  ta_rate_table: "TA rate table (band × level × referral)",
+  milestones: "Milestone split (sourcing / acceptance / balance)",
+  oss_slabs: "OSS slabs",
+  currency: "Currency / FX basis",
+  payment_structure: "Payment structure",
+  payment_terms: "Payment terms",
+};
+const humanize = (k) => READY_LABEL[k] || k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+
 function readiness() {
   const rb = DATA.boxes.find((b) => b.box_type_code === "billing_rules")?.content || {};
-  const has = (k) => { const v = rb[k]; return Array.isArray(v) ? v.length > 0 : !!v; };
-  const levelMapped = Array.isArray(rb.ta_rate_table) && rb.ta_rate_table.some((r) => r.level);
-  return [
-    { k: "CTC definition", ok: has("ctc_definition") },
-    { k: "TA rate table (band × level × referral)", ok: has("ta_rate_table") },
-    { k: "Milestone split (sourcing / acceptance / balance)", ok: has("milestones") },
-    { k: "OSS slabs", ok: has("oss_slabs") },
-    { k: "Currency / FX basis", ok: has("currency") },
-    { k: "Role → level map", ok: levelMapped },
-  ];
+  const ok = (v) => (Array.isArray(v) ? v.length > 0 : v != null && v !== "");
+  // one item per rule-book field the contract analysis emitted
+  const items = Object.keys(rb).map((k) => ({ k: humanize(k), ok: ok(rb[k]) }));
+  // derived dependency: a rate table is only usable if rows carry a level
+  const rt = rb.ta_rate_table;
+  if (Array.isArray(rt)) items.push({ k: "Role → level map", ok: rt.some((r) => r.level) });
+  return items.length ? items : [{ k: "Contract rule book", ok: false }];
 }
 
 const SECDESC = {
@@ -283,28 +314,34 @@ const SECDESC = {
 
 function render() {
   if (!DATA) return;
+  foldFlow(false); // fresh render → all steps open
   const chk = readiness();
   const allOk = chk.every((c) => c.ok);
   window.READY = allOk;
   const chkHtml = chk.map((c) => `<div class="chk ${c.ok ? "ok" : "miss"}"><span class="ic">${c.ok ? "✓" : "✕"}</span><span>${esc(c.k)}</span>${c.ok ? "" : `<button class="chip ask" onclick="askMissing('${esc(c.k)}')">Ask me</button>`}</div>`).join("");
+
+  // step 1 — Contract summary
   $("#result").innerHTML = `
-    <div class="sectionhead teal"><div><div class="st">Contract summary</div><div class="sd">${SECDESC.summary}</div></div><span class="chip">Run ${DATA.run_no}</span></div>
-    <details class="section" open style="margin:0">
-      <summary><b>Summary &amp; key findings</b></summary>
-      <div class="body">
-        <p class="sum-text" style="margin:0 0 10px">${esc(DATA.summary.text)}</p>
-        <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:2px">Key findings</div>
-        <ul class="findings sm">${DATA.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
-      </div>
-    </details>
+    <div class="sd lbl" style="margin-bottom:8px">${SECDESC.summary} <span class="chip" style="margin-left:6px">Run ${DATA.run_no}</span></div>
+    <p class="sum-text" style="margin:0 0 10px">${esc(DATA.summary.text)}</p>
+    <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:2px">Key findings</div>
+    <ul class="findings sm">${DATA.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>`;
 
-    <div class="sectionhead"><div><div class="st">Analysis boxes</div><div class="sd">${SECDESC.boxes}</div></div>
-      <div class="railnav"><button class="railbtn" onclick="scrollRail(-1)">‹</button><button class="railbtn" onclick="scrollRail(1)">›</button></div></div>
-    <div class="boxrail" id="boxrail">${DATA.boxes.map(boxCard).join("")}</div>
+  // step 2 — Analysis boxes (carousel)
+  const boxesEl = document.getElementById("boxes");
+  if (boxesEl) boxesEl.innerHTML = `
+    <div class="sd lbl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <span>${SECDESC.boxes}</span>
+      <span class="railnav"><button class="railbtn" onclick="scrollRail(-1)">‹</button><button class="railbtn" onclick="scrollRail(1)">›</button></span></div>
+    <div class="boxrail" id="boxrail">${DATA.boxes.map(boxCard).join("")}</div>`;
 
-    <div class="sectionhead ${allOk ? "teal" : ""}"><div><div class="st">Contract readiness</div><div class="sd">${SECDESC.ready}</div></div>
+  // step 3 — Contract readiness
+  const readyEl = document.getElementById("ready");
+  if (readyEl) readyEl.innerHTML = `
+    <div class="sd lbl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <span>${SECDESC.ready}</span>
       <span class="chip ${allOk ? "chip--approved" : "chip--flag"}">${allOk ? "ready to analyse" : chk.filter((c) => !c.ok).length + " missing"}</span></div>
-    <div class="band" style="margin-top:0">${chkHtml}</div>`;
+    ${chkHtml}`;
 }
 
 window.askMissing = (item) => {

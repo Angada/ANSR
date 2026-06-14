@@ -227,14 +227,44 @@ input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padd
 .chk.ok .ic { color: var(--ansr-teal); } .chk.miss .ic { color: var(--ansr-orange-deep); }
 .chk .ask { margin-left: auto; }
 
-/* compact type inside analysis boxes */
-.boxcard { font-size: 13px; line-height: 1.45; }
-.boxcard summary b { font-size: 14px; }
-.boxcard .body { padding: 12px; }
-.boxcard .body > div, .boxcard .body p { font-size: 13px; }
+/* analysis boxes — equal height, scrollable data, pinned AI footer */
+.boxcard { display: flex; flex-direction: column; height: 460px; overflow: hidden;
+  border: 1px solid var(--ansr-border); border-radius: 10px; background: var(--ansr-white);
+  font-size: 13px; line-height: 1.45; }
+.boxcard .bc-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--ansr-border); }
+.boxcard .bc-head b { font-size: 14px; color: var(--ansr-navy); }
+.boxcard .bc-data { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain; padding: 12px; }
+.boxcard .bc-data > div, .boxcard .bc-data p { font-size: 13px; }
 .boxcard .lbl { font-size: 11px; }
 .boxcard table { font-size: 12px; }
 .boxcard th, .boxcard td { padding: 5px 8px; }
+/* the AI section is fixed at the foot of each box — chat + results stay put */
+.boxcard .ai-box { flex: 0 0 auto; margin: 0; border-radius: 0; border-width: 1px 0 0 0; }
+.boxcard .ai-box .ai-log { max-height: 110px; }
+@media (max-width: 680px) { .boxcard { height: 430px; } }
+
+/* numbered 4-step flow with right-angled left connectors */
+.flow { margin: 14px 0; }
+.flowstep { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; }
+.flowstep + .flowstep { margin-top: 12px; }
+.flow-rail { position: relative; display: flex; justify-content: center; align-self: stretch; }
+.flow-num { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: #fff; border: 2px solid var(--ansr-orange); color: var(--ansr-orange); font-weight: 600; font-size: 14px; z-index: 2; flex: 0 0 auto; }
+/* vertical segment down to the next step's number */
+.flowstep:not(:last-child) .flow-rail::before { content: ""; position: absolute; top: 30px; bottom: -42px; left: 50%;
+  width: 2px; transform: translateX(-50%); background: var(--ansr-border); z-index: 1; }
+/* right-angled tick from the line into the step body */
+.flow-rail::after { content: ""; position: absolute; top: 14px; left: 50%; width: 18px; height: 2px; background: var(--ansr-border); z-index: 1; }
+.flow-body { min-width: 0; } /* let inner tables/rail scroll horizontally */
+.flow-title { display: block; width: 100%; text-align: left; background: none; border: 0; cursor: pointer;
+  color: var(--ansr-navy); font-weight: 500; font-size: 15px; padding: 4px 0 8px; }
+.flow-title::after { content: "⌄"; float: right; transition: transform .2s linear; color: var(--ansr-gray); }
+.flow-content { overflow: hidden; transition: max-height .25s ease, opacity .2s ease; }
+.flowstep.folded .flow-content { max-height: 0; opacity: 0; }
+.flowstep.folded .flow-title::after { transform: rotate(-90deg); }
+.flowstep.done .flow-num { background: #e3f0f1; border-color: var(--ansr-teal); color: var(--ansr-teal); }
 .boxcard .conf-hi, .boxcard .conf-mid, .boxcard .conf-lo { font-size: 12.5px; }
 .boxcard .ai-box { font-size: 12.5px; }
 .boxcard .ai-box .ai-head { font-size: 13px; }
