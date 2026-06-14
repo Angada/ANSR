@@ -9,7 +9,7 @@
 export function stubOps() {
   const A = (name, role, blurb, href, status) => ({ name, role, blurb, href: href || "", status });
   return [
-    A("Mint", "AR Reconciler", "Reads your contracts + employee list, rebuilds every invoice (TA + OSS) from the contract's own rules, and explains each number with a clause-backed, replayable trail.", "/contracts.html", "live"),
+    A("Mint", "AR Reconciler", "Reads your contracts + employee list, rebuilds every invoice (TA + OSS) from the contract's own rules, and explains each number with a clause-backed, replayable trail.", "/mint.html", "live"),
     A("Atlas", "Contract Aggregator", "Portfolio view across all contracts — complete billing to-date plus a forecast, with the reason behind every projected number.", "", "coming"),
     A("Sift", "Roster Normalizer", "Cleans messy employee data — sources, roles, statuses, dates, CTC, currency — and learns your labels so next month is zero-touch.", "", "coming"),
     A("Tally", "Reconciliation", "Scores deviations and drills to the line + clause behind any mismatch.", "", "coming"),
@@ -88,6 +88,35 @@ export function stubContract(id = "ANSR-KENVUE") {
           { id: "s2", kind: "ai_suggestion", proposed_by: "ai", summary: "Add VP/site-leader TA% — not in extracted table", rationale: "Commercial terms mention VP/site leader level but no rate row was found.", clause_ref: "SOW §3", confidence: 0.6, status: "open" },
         ] }),
     ],
+  };
+}
+
+// ---- Mint contract-analysis run (steps + summary + findings + boxes) -------
+export function stubAnalysis(client = "ANSR-KENVUE", runNo = 3) {
+  const c = stubContract(client);
+  const extra = [
+    { id: "caveats", box_type_code: "caveats", title: "Caveats", status: "draft", confidence: 0.82,
+      clause_ref: "SOW §3.1 · §6", ai_explain: "Watch-outs that change billing if mis-handled.",
+      content: { source_labels: "GDC vs Employee/Business Referral must be mapped before TA% applies", no_pro_rata: "OSS is full-month even for mid-month joiners/exits", fx: "CTC in INR converts at RBI rate on invoice date" }, chat: [], suggestions: [] },
+    { id: "flags", box_type_code: "flags", title: "Flags", status: "draft", confidence: 0.7,
+      clause_ref: "SOW §3", ai_explain: "Gaps found during analysis that need a human decision.",
+      content: { missing_rate: "No VP/site-leader TA% row found in the rate table", ambiguous: "Some offer dates are dd/mm vs mm/dd ambiguous" }, chat: [], suggestions: [] },
+  ];
+  return {
+    client, run_no: runNo, generated_at: null, stub: true,
+    steps: ["Studying contract terms", "Reading the document", "Extracting clauses", "Creating billing rules", "Building analysis boxes", "Summarising findings"],
+    summary: {
+      title: "Contract summary",
+      text: "ANSR–Kenvue GCC build-and-operate SOW. Two revenue lines: a one-time TA recruitment fee (split into sourcing, acceptance and balance milestones) and a recurring monthly OSS fee by active GCC headcount. Billed monthly in USD, net-30.",
+    },
+    findings: [
+      "TA % varies by GCC headcount band × candidate level × referral status — referral lowers the rate.",
+      "OSS is measured at month-end with no pro-rata, using join and exit dates.",
+      "Total CTC = fixed + target variable; excludes LTI, stock, joining and retention bonuses.",
+      "TA fee is billed in three milestones mapped to Col C (sourcing), D (acceptance), E (balance).",
+      "INR salaries convert to USD at the RBI rate on the invoice date before applying TA %.",
+    ],
+    boxes: [...c.boxes, ...extra],
   };
 }
 

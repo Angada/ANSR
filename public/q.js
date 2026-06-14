@@ -20,7 +20,7 @@ window.qHeader = async (activeTab = "home") => {
     <a href="/" class="logo" title="Home"><img src="/brand/assets/logos/QAnsr-logo.png" alt="Q&ANSR"></a>
     <nav style="margin-left:auto">
       <a href="/" class="navtab ${activeTab === "home" ? "active" : ""}">Q&amp;</a>
-      <a href="/contracts.html" class="navtab ${activeTab === "mint" ? "active" : ""}">Mint</a>
+      <a href="/mint.html" class="navtab ${activeTab === "mint" ? "active" : ""}">Mint</a>
       <a href="/admin.html" class="navtab ${activeTab === "admin" ? "active" : ""}">Admin</a>
     </nav>
     <div class="user">

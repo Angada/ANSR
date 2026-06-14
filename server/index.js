@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { extractFile, toMarkdown } from "./extract.js";
 import { q } from "./db/client.js";
 import { loadConfig, saveConfig, publicConfig, encryptKey, getApiKey } from "./store.js";
-import { stubRun, stubOps, stubContracts, stubContract, stubRuns } from "./stub.js";
+import { stubRun, stubOps, stubContracts, stubContract, stubRuns, stubAnalysis } from "./stub.js";
 import Anthropic from "@anthropic-ai/sdk";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -113,6 +113,17 @@ app.get("/api/runs/:customer", (req, res) => res.json({ runs: stubRuns(slug(req.
 app.get("/api/run/:customer/:runNo", (req, res) => {
   res.json(stubRun(slug(req.params.customer), Number(req.params.runNo) || 1));
 });
+
+// ---- Mint contract analysis (run system: recall / new / purge) -------------
+app.get("/api/clients", (_req, res) => res.json({ clients: stubContracts() }));
+app.get("/api/mint/runs/:client", (req, res) => res.json({ runs: stubRuns(slug(req.params.client)) }));
+app.get("/api/mint/run/:client/:no", (req, res) => res.json(stubAnalysis(slug(req.params.client), Number(req.params.no) || 3)));
+app.post("/api/mint/run", (req, res) => {
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  const runs = stubRuns(client);
+  res.json(stubAnalysis(client, (runs[runs.length - 1]?.run_no || 0) + 1));
+});
+app.post("/api/mint/purge", (_req, res) => res.json({ ok: true, purged: true }));
 
 // box interactions (stub AI until pipelines wired)
 app.post("/api/box/:id/chat", (req, res) => {
