@@ -7,9 +7,13 @@ let DATA = null;
 
 async function init() {
   const { clients } = await (await fetch("/api/clients")).json();
-  $("#client").innerHTML = clients.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
+  $("#client").innerHTML = clients.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")
+    + `<option value="__new__">+ Create new client…</option>`;
   await loadRuns();
-  $("#client").addEventListener("change", loadRuns);
+  $("#client").addEventListener("change", () => {
+    if ($("#client").value === "__new__") return createClient();
+    loadRuns();
+  });
   $("#run").addEventListener("change", () => openRun($("#run").value));
   $("#gen").addEventListener("click", generate);
   $("#purge").addEventListener("click", purge);
@@ -107,7 +111,25 @@ async function acceptFile() {
     </div>`;
 }
 
+let _lastClient = null;
+function createClient() {
+  const name = prompt("New client — company name:");
+  const sel = $("#client");
+  if (!name) { sel.value = _lastClient || sel.options[0].value; return; }
+  const id = name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
+  sel.insertAdjacentHTML("afterbegin", `<option value="${id}">${name}</option>`);
+  sel.value = id; _lastClient = id;
+  // fresh client — no runs yet; prompt the contract-first journey
+  DATA = null; $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
+  $("#run").innerHTML = `<option value="">— no runs yet —</option>`;
+  $("#result").innerHTML = `<div class="band grad-accent" style="margin-top:14px">
+    <b style="color:var(--ansr-navy)">${name} created.</b>
+    <p class="lbl" style="margin:6px 0 0">Add the SOW (contract), then press <span style="color:#7b2dc4">✨ Generate Contract Analysis</span> — Mint derives the rule book, you review the boxes + readiness, then upload the working sheet to bill.</p></div>`;
+}
+
 async function loadRuns(selectLast) {
+  if ($("#client").value === "__new__") return;
+  _lastClient = $("#client").value;
   const { runs } = await (await fetch(`/api/mint/runs/${$("#client").value}`)).json();
   $("#run").innerHTML = runs.length
     ? runs.map((r) => `<option value="${r.run_no}">Run ${r.run_no} · ${r.month} · ${r.status}</option>`).join("")
