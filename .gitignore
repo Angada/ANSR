@@ -2,4 +2,7 @@
 .env
 node_modules/
 *.log
+data/
+uploads/
+docstore/
 db/backups/

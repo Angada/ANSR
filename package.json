@@ -1,0 +1,23 @@
+{
+  "name": "qansr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Q&ANSR — contract-aware finance/AR calculation assistant. Reads SOW + employee Excel, normalizes, reproduces invoicing logic (TA/OSS), generates the Statement of Invoicing, answers with clause + calc audit trail.",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "db:up": "docker compose up -d db",
+    "db:schema": "psql \"$DATABASE_URL\" -f db/init/001_qansr_core.sql"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "multer": "^2.0.1",
+    "officeparser": "^5.2.0",
+    "pg": "^8.21.0",
+    "xlsx": "^0.18.5"
+  }
+}
