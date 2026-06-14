@@ -85,6 +85,14 @@ for M (amendment = new version). Handles mid-contract rate changes.
 **Clawback / credit notes (`credit_note`):** exit-within-X / correction / retro-rate / replacement →
 clawback or credit; SOA nets these.
 
+## UI standard (qansr-ui skill + public/app.css)
+**100% mobile responsive, non-negotiable** for every screen (ops hub, contract boxes, roster,
+SOA result sheet, admin). Mobile-first; easy momentum scroll; **scrollable tabs** (swipe, no wrap);
+**collapsible/expandible sections** (native `<details class="section">`); **horizontal-scroll tables**
+for the SOA sheet (sticky header + frozen first col via `.pin`); touch targets ≥44px; inputs ≥16px
+(no iOS zoom); safe-area insets. All colors/fonts via brand tokens (`var(--ansr-*)`), never hardcoded.
+Server serves `/app.css` + `/brand/tokens.css`.
+
 ## Backlog — power-ups ("what more crazy")
 1. Clause→rule compiler w/ effective dates ✅ schema (`rule_version`)
 2. Clawback / replacement ✅ schema (`credit_note`)

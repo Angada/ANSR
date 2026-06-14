@@ -1,0 +1,85 @@
+/* Q&ANSR base UI — mobile-first, 100% responsive. Uses ANSR brand tokens.
+   Every screen (ops hub, contract boxes, roster, SOA result sheet, admin) builds
+   on these primitives: fluid layout, scrollable tabs, collapsible sections,
+   horizontal-scroll tables. Touch targets ≥ 44px. */
+@import url("/brand/tokens.css");
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; color: var(--ansr-text); background: var(--ansr-bg);
+  font-family: var(--ansr-font); font-size: var(--ansr-fs-base); line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+img, svg, table { max-width: 100%; }
+
+/* ---- fluid container ---- */
+.wrap { width: 100%; max-width: var(--ansr-container); margin: 0 auto; padding: 0 16px; }
+
+/* ---- sticky top bar ---- */
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  background: var(--ansr-white); border-bottom: 1px solid var(--ansr-border);
+  display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+}
+
+/* ---- scrollable tab strip (never wraps; swipe on mobile) ---- */
+.tabs {
+  display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity; scrollbar-width: none;
+  border-bottom: 1px solid var(--ansr-border); padding-bottom: 0;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  flex: 0 0 auto; scroll-snap-align: start;
+  min-height: 44px; padding: 10px 16px; border: 0; background: none;
+  color: var(--ansr-gray); font: inherit; font-size: 16px; cursor: pointer;
+  border-bottom: 2px solid transparent; white-space: nowrap; transition: var(--ansr-transition);
+}
+.tab[aria-selected="true"], .tab.active { color: var(--ansr-navy); border-bottom-color: var(--ansr-orange); }
+
+/* ---- collapsible / expandible section (native <details>) ---- */
+.section { border: 1px solid var(--ansr-border); border-radius: 10px; margin: 12px 0; background: var(--ansr-white); overflow: hidden; }
+.section > summary {
+  list-style: none; cursor: pointer; min-height: 48px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 12px 16px; font-weight: 500; color: var(--ansr-navy); background: var(--ansr-surface);
+}
+.section > summary::-webkit-details-marker { display: none; }
+.section > summary::after { content: "⌄"; font-size: 18px; transition: transform .2s linear; }
+.section[open] > summary::after { transform: rotate(180deg); }
+.section > .body { padding: 14px 16px; }
+
+/* ---- vertical scroll area (long lists, chat) ---- */
+.scroll-y { max-height: 60vh; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+
+/* ---- horizontal-scroll table (the SOA result sheet on mobile) ---- */
+.scroll-x { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.scroll-x table { border-collapse: collapse; min-width: max-content; }
+.scroll-x th, .scroll-x td { padding: 8px 12px; border-bottom: 1px solid var(--ansr-border); white-space: nowrap; text-align: left; }
+.scroll-x thead th { position: sticky; top: 0; background: var(--ansr-surface); z-index: 1; }
+.scroll-x .pin { position: sticky; left: 0; background: var(--ansr-white); z-index: 2; } /* freeze first col */
+
+/* ---- cards grid (ops hub, boxes) — auto-fit, 1-col on mobile ---- */
+.grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@media (min-width: 600px) { .grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); } }
+
+/* ---- buttons (brand) ---- */
+.btn { min-height: 44px; padding: 12px 24px; border: 0; border-radius: var(--ansr-radius-pill);
+  background: var(--ansr-orange); color: var(--ansr-white); font: inherit; font-weight: 500; cursor: pointer; transition: var(--ansr-transition); }
+.btn:hover { border: 1px solid var(--ansr-orange); }
+.btn--ghost { background: transparent; color: var(--ansr-text); border: 1px solid var(--ansr-text); border-radius: var(--ansr-radius-input); }
+.btn--ghost:hover { background: var(--ansr-navy); color: var(--ansr-white); border-color: var(--ansr-navy); }
+
+/* ---- form fields (≥16px font to stop iOS zoom-on-focus) ---- */
+input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padding: 10px 12px;
+  border: 1px solid var(--ansr-border); border-radius: var(--ansr-radius-input); width: 100%; background: var(--ansr-white); color: var(--ansr-text); }
+
+/* ---- status chips ---- */
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 100px; font-size: 13px; }
+.chip--draft { background: var(--ansr-fill); color: var(--ansr-gray); }
+.chip--approved { background: #e3f0f1; color: var(--ansr-teal); }
+.chip--flag { background: var(--ansr-orange-tint); color: var(--ansr-orange-deep); }
+
+/* safe-area for notched phones */
+@supports (padding: max(0px)) { .wrap, .topbar { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); } }

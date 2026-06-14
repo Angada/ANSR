@@ -19,6 +19,7 @@ for (const d of [docstore, uploads]) if (!existsSync(d)) mkdirSync(d, { recursiv
 const app = express();
 app.use(express.json({ limit: "4mb" }));
 app.use(express.static(join(root, "public")));
+app.use("/brand", express.static(join(root, "brand"))); // tokens.css + logo for the UI
 const upload = multer({ dest: uploads });
 
 const slug = (s) => String(s || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
