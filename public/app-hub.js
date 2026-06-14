@@ -1,17 +1,17 @@
-// Ops hub — the 20-card landing.
+// Agent launcher.
 fetch("/api/ops").then((r) => r.json()).then(({ ops }) => {
-  document.querySelector("#ops").innerHTML = ops.map((o) => {
-    const live = o.status === "live";
-    const card = `
-      <div class="section" style="margin:0">
-        <div class="body">
-          <div style="display:flex;justify-content:space-between;align-items:start;gap:8px">
-            <strong style="color:var(--ansr-navy)">${o.title}</strong>
-            <span class="chip ${live ? "chip--approved" : "chip--draft"}">${live ? "live" : "soon"}</span>
-          </div>
-          <div class="lbl" style="color:var(--ansr-gray);margin-top:6px">${o.sub}</div>
-        </div>
-      </div>`;
-    return live ? `<a href="${o.href}" style="text-decoration:none">${card}</a>` : `<div style="opacity:.6">${card}</div>`;
+  document.querySelector("#agents").innerHTML = ops.map((a) => {
+    const live = a.status === "live";
+    const inner = `
+      <div class="badge">${a.name[0]}</div>
+      <div style="flex:1">
+        <div class="nm"><b>${a.name}</b><span class="role">${a.role}</span>
+          <span class="chip ${live ? "chip--approved" : "chip--draft"}" style="margin-left:auto">${live ? "live" : "soon"}</span></div>
+        <p class="blurb">${a.blurb}</p>
+      </div>
+      ${live ? `<span class="go">→</span>` : ""}`;
+    return live
+      ? `<a class="agent" href="${a.href}">${inner}</a>`
+      : `<div class="agent coming">${inner}</div>`;
   }).join("");
 });

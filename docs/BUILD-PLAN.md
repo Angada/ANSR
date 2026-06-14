@@ -55,7 +55,7 @@ the engine must reproduce · confidence heatmap + human approval.
 10. ⬜ Deploy (local docker now; staging qansr.thekettleblack.in later).
 
 ## Framework layer (002_qansr_framework.sql) — reusable across all ~20 ops
-Page = **Operations hub**; op #1 = **Invoice Studio** (run-based). Each run is saved + explainable.
+Page = **Operations hub**; op #1 = **Mint · AR Reconciler** (run-based). Each run is saved + explainable.
 
 **Doc-intelligence spine (reusable for every op):** any doc → AI emits **dynamic typed boxes**
 (`box_type`: company / legal / payment_terms / commercial_terms / caveats / flags / AI-proposed) →

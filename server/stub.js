@@ -5,31 +5,20 @@
 //   audit pack     → every line carries value + why + clause_ref + calc_steps + source_ref.
 // Replace with real data from ta_calc/oss_calc/trace; keep the shape identical.
 
-// ---- ops hub cards ---------------------------------------------------------
+// ---- agents menu (the launcher) --------------------------------------------
 export function stubOps() {
-  const live = (title, sub, href) => ({ title, sub, href, status: "live" });
-  const soon = (title, sub) => ({ title, sub, href: "", status: "coming" });
+  const A = (name, role, blurb, href, status) => ({ name, role, blurb, href: href || "", status });
   return [
-    live("Invoice Studio", "contract → monthly bill", "/contracts.html"),
-    live("Admin · AI Pipelines", "models, switching, keys", "/admin.html"),
-    soon("Contract Aggregator", "portfolio billing + forecast"),
-    soon("Roster Normalizer", "clean messy emp data"),
-    soon("Reconciliation", "deviation scorecard"),
-    soon("Exceptions Desk", "un-billable rows"),
-    soon("What-if Simulator", "HC / rate impact"),
-    soon("Leakage Detector", "unbilled recoverable"),
-    soon("FX Exposure", "INR↔USD sensitivity"),
-    soon("Forecast", "pipeline → projection"),
-    soon("Credit Notes", "clawback / corrections"),
-    soon("Tax Engine", "GST / VAT / WHT"),
-    soon("Audit Vault", "documents + provenance"),
-    soon("Approvals", "maker–checker"),
-    soon("Anomaly Sentinel", "outliers + dupes"),
-    soon("Dispute Studio", "client pushback replies"),
-    soon("Statements", "released invoice packs"),
-    soon("Rate Master", "versioned terms"),
-    soon("Notifications", "run-ready alerts"),
-    soon("Reports", "MIS + exports"),
+    A("Mint", "AR Reconciler", "Reads your contracts + employee list, rebuilds every invoice (TA + OSS) from the contract's own rules, and explains each number with a clause-backed, replayable trail.", "/contracts.html", "live"),
+    A("Atlas", "Contract Aggregator", "Portfolio view across all contracts — complete billing to-date plus a forecast, with the reason behind every projected number.", "", "coming"),
+    A("Sift", "Roster Normalizer", "Cleans messy employee data — sources, roles, statuses, dates, CTC, currency — and learns your labels so next month is zero-touch.", "", "coming"),
+    A("Tally", "Reconciliation", "Scores deviations and drills to the line + clause behind any mismatch.", "", "coming"),
+    A("Flag", "Exceptions Desk", "Surfaces rows that can't be safely billed — missing dates, CTC, duplicates — fixable in plain language.", "", "coming"),
+    A("Forge", "What-if Simulator", "Move headcount or rates and see the bill + margin impact before you commit.", "", "coming"),
+    A("Ember", "Forecast", "Projects future billing from the hiring pipeline, with explainable drivers.", "", "coming"),
+    A("Sentinel", "Anomaly Watch", "Spots outlier CTC, headcount jumps, and duplicate placements before approval.", "", "coming"),
+    A("Trace", "Audit Vault", "Every document, extract, and number — provenance back to the original.", "", "coming"),
+    A("Admin", "AI & Pipelines", "Switch models, manage AI pipelines and provider keys.", "/admin.html", "live"),
   ];
 }
 

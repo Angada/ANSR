@@ -81,6 +81,26 @@ input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padd
 .chip--approved { background: #e3f0f1; color: var(--ansr-teal); }
 .chip--flag { background: var(--ansr-orange-tint); color: var(--ansr-orange-deep); }
 
+/* ---- landing hero ---- */
+.hero { padding: 28px 0 8px; }
+.hero .eyebrow { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--ansr-orange); font-weight: 500; }
+.hero h1 { font-size: 30px; font-weight: 500; color: var(--ansr-navy); margin: 8px 0 6px; line-height: 1.2; }
+.hero p { color: var(--ansr-gray); margin: 0; font-size: 16px; }
+
+/* ---- agent launcher cards (compact, flat, accent on hover) ---- */
+.agents { display: grid; gap: 12px; grid-template-columns: 1fr; margin: 18px 0 32px; }
+@media (min-width: 680px) { .agents { grid-template-columns: 1fr 1fr; } }
+.agent { display: flex; gap: 12px; padding: 14px; border: 1px solid var(--ansr-border); border-radius: 12px; background: var(--ansr-white); transition: var(--ansr-transition); text-decoration: none; }
+a.agent:hover { border-color: var(--ansr-orange); transform: translateY(-1px); }
+.agent .badge { flex: 0 0 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; font-weight: 500; font-size: 17px; background: var(--ansr-orange-tint); color: var(--ansr-orange-deep); }
+.agent.coming .badge { background: var(--ansr-fill); color: var(--ansr-gray); }
+.agent .nm { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.agent .nm b { color: var(--ansr-navy); font-weight: 500; font-size: 16px; }
+.agent .role { font-size: 12px; color: var(--ansr-gray); }
+.agent .blurb { color: var(--ansr-text); font-size: 13.5px; line-height: 1.45; margin: 5px 0 0; opacity: .85; }
+.agent .go { margin-left: auto; align-self: center; color: var(--ansr-orange); font-size: 18px; }
+.agent.coming { opacity: .72; }
+
 /* ---- confidence heatmap (cells/rows colored by trust) ---- */
 .conf-hi  { background: #e6f4ea; }            /* ≥ .85  green  */
 .conf-mid { background: var(--ansr-orange-tint); } /* .60–.85 amber */
