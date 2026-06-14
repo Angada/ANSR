@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Admin — Q&ANSR</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="topbar">
+    <img src="/brand/assets/logos/QAnsr-logo.png" alt="ANSR" style="height:26px">
+    <strong style="color:var(--ansr-navy)">Admin</strong>
+  </div>
+
+  <div class="wrap">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="ai" role="tab" aria-selected="true">AI Skills &amp; Pipelines</button>
+      <button class="tab" data-tab="users" role="tab" aria-selected="false">Users &amp; Roles</button>
+      <button class="tab" data-tab="integrations" role="tab" aria-selected="false">Integrations</button>
+    </div>
+
+    <div id="pane-ai" class="pane">
+      <h3 style="color:var(--ansr-navy);font-weight:500">Providers</h3>
+      <div id="providers"></div>
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin-top:18px">Pipelines</h3>
+      <p class="lbl" style="color:var(--ansr-gray);font-size:13px">Switch provider/model or enable per AI step. Raw user text never goes to a model outside an enabled llm/hybrid pipeline.</p>
+      <div id="pipelines"></div>
+    </div>
+    <div id="pane-users" class="pane" hidden><p class="lbl">Users &amp; roles — coming.</p></div>
+    <div id="pane-integrations" class="pane" hidden><p class="lbl">Integrations — coming.</p></div>
+  </div>
+
+  <script src="/admin.js"></script>
+</body>
+</html>

@@ -37,7 +37,7 @@ the engine must reproduce · confidence heatmap + human approval.
 | qansr-statement-generator | **new** (Statement of Invoicing xlsx) | ⬜ |
 | qansr-exceptions | **new** (un-invoiceable rows) | ⬜ |
 | qansr-ai-clarify | ESPL solve.js | ⬜ |
-| qansr-ai-pipelines | Leela ai-avenues + 008 + chatbot-gating | ⬜ (registry scaffolded in store.js) |
+| qansr-ai-pipelines | Leela ai-avenues + 008 + chatbot-gating | ✅ registry + Admin AI Skills & Pipelines page (switch provider/model/enable, encrypted keys) |
 | qansr-admin | Leela admin-users + tabAdmin | ⬜ |
 | qansr-tasks | Leela taskmanager | ⬜ |
 | qansr-deploy / qansr-dbwiki / qansr-api-shield | Leela | ⬜ |
