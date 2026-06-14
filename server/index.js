@@ -4,20 +4,21 @@
 import express from "express";
 import multer from "multer";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractFile, toMarkdown } from "./extract.js";
 import { q } from "./db/client.js";
-import { loadConfig, saveConfig, publicConfig, encryptKey, getApiKey } from "./store.js";
+import { loadConfig, saveConfig, publicConfig, encryptKey, getApiKey, initConfig } from "./store.js";
+import { putOriginal, putExtract, getExtract, listExtracts, usingBucket } from "./storage.js";
 import { stubRun, stubOps, stubContracts, stubContract, stubRuns, stubAnalysis } from "./stub.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { inferMapping, detectIssues, summarizeIssues, CANONICAL } from "./roster.js";
+import { runPipeline, aiMap } from "./ai.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const docstore = join(root, "docstore");
-const uploads = join(root, "uploads");
-for (const d of [docstore, uploads]) if (!existsSync(d)) mkdirSync(d, { recursive: true });
+const uploads = join(root, "uploads"); // multer temp only — persistent artifacts go to storage.js
+if (!existsSync(uploads)) mkdirSync(uploads, { recursive: true });
 
 const app = express();
 app.use(express.json({ limit: "4mb" }));
@@ -73,18 +74,17 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
     const sha256 = createHash("sha256").update(buf).digest("hex");
     const extract = await extractFile(f.path, f.originalname);
 
-    const dir = join(docstore, customer);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const docId = `${docType}-${sha256.slice(0, 8)}`;
-    const mdPath = join(dir, `${docId}.md`);
-    writeFileSync(mdPath, toMarkdown({ docType, originalName: f.originalname, sha256, extract }));
+    // T1 original + T2 md → persistent store (Supabase bucket in prod, disk in dev).
+    const storagePath = await putOriginal(customer, sha256, extname(f.originalname), buf);
+    const mdPath = await putExtract(customer, docId, toMarkdown({ docType, originalName: f.originalname, sha256, extract }));
 
-    // T3 fact row (best-effort; JSON docstore is the durable path locally).
+    // T3 fact row (best-effort; the bucket/docstore is the durable artifact path).
     await q(
       `insert into document(customer_id, doc_type, filename, sha256, storage_path, md_path, meta)
        values((select id from customer where code=$1), $2, $3, $4, $5, $6, $7)
        on conflict do nothing`,
-      [customer, docType, f.originalname, sha256, f.path, mdPath, JSON.stringify({ kind: extract.kind, sheets: extract.sheets?.map((s) => s.name) })]
+      [customer, docType, f.originalname, sha256, storagePath, mdPath, JSON.stringify({ kind: extract.kind, sheets: extract.sheets?.map((s) => s.name) })]
     ).catch(() => {});
 
     res.json({ ok: true, customer, docId, docType, kind: extract.kind, sheets: extract.sheets?.map((s) => s.name) || [], mdPath: `/api/doc/${customer}/${docId}` });
@@ -94,17 +94,15 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
 });
 
 // ---- the "doc x api switch": serve the MD extract, never the original --------
-app.get("/api/doc/:customer/:docId", (req, res) => {
-  const p = join(docstore, slug(req.params.customer), `${req.params.docId}.md`);
-  if (!existsSync(p)) return res.status(404).send("Document extract not found.");
+app.get("/api/doc/:customer/:docId", async (req, res) => {
+  const md = await getExtract(slug(req.params.customer), req.params.docId);
+  if (md == null) return res.status(404).send("Document extract not found.");
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.send(readFileSync(p, "utf8"));
+  res.send(md);
 });
 
-app.get("/api/docs/:customer", (req, res) => {
-  const dir = join(docstore, slug(req.params.customer));
-  if (!existsSync(dir)) return res.json({ docs: [] });
-  res.json({ docs: readdirSync(dir).filter((f) => extname(f) === ".md").map((f) => f.replace(/\.md$/, "")) });
+app.get("/api/docs/:customer", async (req, res) => {
+  res.json({ docs: await listExtracts(slug(req.params.customer)) });
 });
 
 // ---- shell data (stub until Phase A + calc engine land) --------------------
@@ -142,13 +140,12 @@ app.post("/api/mint/roster/map", upload.single("file"), async (req, res) => {
     const mapping = inferMapping(headers);
     const issues = detectIssues(rows, mapping);
     // store the original's md extract — the doc×api switch (filename → API)
-    const dir = join(docstore, client);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     const docId = `roster-${sha256.slice(0, 8)}`;
-    writeFileSync(join(dir, `${docId}.md`), toMarkdown({ docType: "roster", originalName: f.originalname, sha256, extract }));
+    const storagePath = await putOriginal(client, sha256, extname(f.originalname), buf);
+    const mdPath = await putExtract(client, docId, toMarkdown({ docType: "roster", originalName: f.originalname, sha256, extract }));
     await q(`insert into document(customer_id,doc_type,filename,sha256,storage_path,md_path,meta)
              values((select id from customer where code=$1),'roster',$2,$3,$4,$5,$6) on conflict do nothing`,
-      [client, f.originalname, sha256, f.path, join(dir, `${docId}.md`), JSON.stringify({ sheet: sheet?.name, rows: rows.length })]).catch(() => {});
+      [client, f.originalname, sha256, storagePath, mdPath, JSON.stringify({ sheet: sheet?.name, rows: rows.length })]).catch(() => {});
     res.json({ filename: f.originalname, docId, apiUrl: `/api/doc/${client}/${docId}`,
       sheet: sheet?.name, headers, canonical: CANONICAL, mapping, rowCount: rows.length,
       rows: rows.slice(0, 25), issues, summary: summarizeIssues(issues) });
@@ -175,10 +172,14 @@ app.get("/api/mint/validate/:client", (req, res) => {
 });
 
 // box interactions (stub AI until pipelines wired)
-app.post("/api/box/:id/chat", (req, res) => {
+app.post("/api/box/:id/chat", async (req, res) => {
   const msg = (req.body?.message || "").slice(0, 500);
-  res.json({ reply: `(stub AI) On "${req.params.id}": ${msg ? `re "${msg}" — ` : ""}I'd cite the relevant SOW clause + show the calc. Wire the contract-intake pipeline + upload the SOW for real answers.` });
+  const out = await runPipeline("qa", { system: `You are answering about the contract analysis box "${req.params.id}". Be concise; cite the clause; show the calc trail when relevant.`, user: msg });
+  res.json({ reply: out.text || out.fallback || "…", mode: out.mode, model: out.model || null });
 });
+
+// the AI write-up / mapping for the Admin tab
+app.get("/api/ai/map", (_req, res) => res.json({ pipelines: aiMap() }));
 app.post("/api/box/:id/amend", (req, res) => {
   res.json({ ok: true, box_id: req.params.id, version: 2, note: "stub — amendment recorded; recompiles rule on real engine" });
 });
@@ -245,4 +246,8 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 4100;
-app.listen(PORT, () => console.log(`Q&ANSR on http://localhost:${PORT}`));
+// Bind the config backend (Postgres in prod, local file in dev) before serving.
+initConfig()
+  .then((backend) => console.log(`Q&ANSR config backend: ${backend} · storage: ${usingBucket() ? "supabase-bucket" : "local-disk"}`))
+  .catch(() => {})
+  .finally(() => app.listen(PORT, () => console.log(`Q&ANSR on http://localhost:${PORT}`)));

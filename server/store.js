@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
+import { q, getPool } from "./db/client.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dataDir = join(root, "data");
@@ -86,9 +87,9 @@ function ensure() {
   if (!existsSync(configPath)) writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2));
 }
 
-export function loadConfig() {
-  ensure();
-  const cfg = JSON.parse(readFileSync(configPath, "utf8"));
+// Merge a stored config over defaults (so new default providers/pipelines appear
+// even on configs saved before they existed).
+function mergeDefaults(cfg) {
   const providers = { ...DEFAULT_CONFIG.providers };
   for (const [id, p] of Object.entries(cfg.providers || {})) providers[id] = { ...DEFAULT_CONFIG.providers[id], ...p };
   const pipelines = { ...DEFAULT_CONFIG.pipelines };
@@ -96,7 +97,55 @@ export function loadConfig() {
   return { ...DEFAULT_CONFIG, ...cfg, providers, pipelines };
 }
 
-export function saveConfig(next) { ensure(); writeFileSync(configPath, JSON.stringify(next, null, 2)); return next; }
+function readFile() {
+  ensure();
+  return JSON.parse(readFileSync(configPath, "utf8"));
+}
+
+// Persistence: in-memory cache + a backend. Cloud Run disk is ephemeral, so in
+// prod the config (incl. encrypted keys) lives in Postgres (app_config single
+// row). Dev with no DB uses the local data/config.json exactly as before.
+// Accessors stay SYNC (callers unchanged); writes persist best-effort.
+let _cfg = null;
+let _backend = "file"; // "file" | "db"
+
+async function persistDb(cfg) {
+  await q(
+    `insert into app_config(id, data) values(1, $1::jsonb)
+     on conflict (id) do update set data = $1::jsonb, updated_at = now()`,
+    [JSON.stringify(cfg)]
+  );
+}
+
+// Call once at boot (awaited) to bind the backend + warm the cache.
+export async function initConfig() {
+  if (getPool()) {
+    try {
+      const r = await q("select data from app_config where id = 1");
+      if (r.rows?.[0]?.data) { _cfg = mergeDefaults(r.rows[0].data); _backend = "db"; return _backend; }
+      // No row yet — seed from local file-or-default, then own the DB row.
+      _cfg = mergeDefaults(readFile());
+      _backend = "db";
+      await persistDb(_cfg).catch(() => {});
+      return _backend;
+    } catch { /* table missing / DB down → fall through to file */ }
+  }
+  _cfg = mergeDefaults(readFile());
+  _backend = "file";
+  return _backend;
+}
+
+export function loadConfig() {
+  if (!_cfg) _cfg = mergeDefaults(readFile()); // lazy dev fallback if initConfig wasn't called
+  return _cfg;
+}
+
+export function saveConfig(next) {
+  _cfg = mergeDefaults(next);
+  if (_backend === "db") persistDb(_cfg).catch(() => {});
+  else { ensure(); writeFileSync(configPath, JSON.stringify(_cfg, null, 2)); }
+  return _cfg;
+}
 
 // Redacted view for the browser — never ship raw/encrypted keys to the client.
 export function publicConfig() {

@@ -168,6 +168,13 @@ input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padd
 .sum-text { font-size: 14px; line-height: 1.55; color: var(--ansr-text); }
 .findings.sm li { font-size: 14px; }
 
+/* purple AI CTA — for any AI process/action */
+.btn-ai { min-height: 44px; padding: 12px 22px; border: 0; border-radius: var(--ansr-radius-pill);
+  background: linear-gradient(120deg, #7b2dc4, #9b51e0); color: #fff; font: inherit; font-weight: 500; cursor: pointer; transition: var(--ansr-transition); }
+.btn-ai:hover { filter: brightness(1.06); }
+.btn-ai .tw { margin-right: 6px; }
+.btn-ai:disabled { opacity: .6; cursor: default; }
+
 /* ---- purple AI box (for any AI process — twinkle ✨) ---- */
 .ai-box { border: 1px solid #b98be6; background: linear-gradient(180deg, #faf5fd, #fff); border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
 .ai-box .ai-head { display: flex; align-items: center; gap: 8px; color: #6b2db0; font-weight: 500; margin-bottom: 8px; font-size: 14px; }

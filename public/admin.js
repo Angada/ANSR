@@ -6,7 +6,26 @@ let CFG = null;
 
 async function load() {
   CFG = await (await fetch("/api/config")).json();
-  renderConnectors(); renderProducts(); wireTabs();
+  renderAiWriteup(); renderConnectors(); renderProducts(); wireTabs();
+}
+
+// "write up all the AI" — overview + full pipeline→model→skills mapping
+async function renderAiWriteup() {
+  const { pipelines } = await (await fetch("/api/ai/map")).json();
+  const rows = pipelines.map((p) => `<tr>
+    <td><b>${p.name}</b></td><td><span class="chip chip--role">${p.product}</span></td>
+    <td><span class="chip ${p.kind === "deterministic" ? "chip--draft" : "chip--approved"}">${p.kind}</span></td>
+    <td>${p.kind === "deterministic" ? "—" : (CFG.providers[p.provider]?.label || p.provider) + " · " + p.model}</td>
+    <td>${(p.skills || []).map((s) => `<span class="chip" style="font-size:11px">${s}</span>`).join(" ")}</td>
+    <td><span class="chip ${p.enabled ? "chip--approved" : "chip--draft"}">${p.enabled ? "on" : "off"}</span></td></tr>`).join("");
+  $("#aiwrite").innerHTML = `
+    <div class="band grad-accent">
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 4px">✨ All the AI in Q&amp;ANSR</h3>
+      <p class="lbl" style="color:var(--ansr-gray);font-size:13px;margin:0 0 8px">Every model call runs through a registered, gated pipeline. Deterministic steps never call a model. Raw user text never reaches a provider outside an enabled <code>llm/hybrid</code> pipeline. Provider, model and prompt are switchable per pipeline below.</p>
+      <div class="scroll-x"><table>
+        <thead><tr><th>Pipeline</th><th>Product</th><th>Kind</th><th>Provider · model</th><th>Skills</th><th>Gate</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+    </div>`;
 }
 
 // ---- AI connectors (scrollable chips row) ----

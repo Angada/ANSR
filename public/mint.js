@@ -208,7 +208,7 @@ function boxCard(b) {
           <div class="ai-head"><span class="tw">✨</span> Ask this box</div>
           <div class="ai-chips">${chips}</div>
           <div class="ai-log" id="log-${b.id}"></div>
-          <div class="ai-row"><input id="ask-${b.id}" placeholder="ask or instruct…" onkeydown="if(event.key==='Enter')askBox('${b.id}', this.value)"><button class="btn" onclick="askBox('${b.id}', document.getElementById('ask-${b.id}').value)">Send</button></div>
+          <div class="ai-row"><input id="ask-${b.id}" placeholder="ask or instruct…" onkeydown="if(event.key==='Enter')askBox('${b.id}', this.value)"><button class="btn-ai" onclick="askBox('${b.id}', document.getElementById('ask-${b.id}').value)">Send</button></div>
         </div>
       </div>
     </details>
