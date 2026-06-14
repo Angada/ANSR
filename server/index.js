@@ -14,7 +14,8 @@ import { putOriginal, putExtract, getExtract, listExtracts, usingBucket } from "
 import { stubRun, stubOps, stubContracts, stubContract, stubRuns, stubAnalysis } from "./stub.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { inferMapping, detectIssues, summarizeIssues, CANONICAL } from "./roster.js";
-import { runPipeline, aiMap } from "./ai.js";
+import { runPipeline, aiMap, buildContext } from "./ai.js";
+import { stubClauses, upsertInterpretation, getInterpretations } from "./clauses.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const uploads = join(root, "uploads"); // multer temp only — persistent artifacts go to storage.js
@@ -174,8 +175,27 @@ app.get("/api/mint/validate/:client", (req, res) => {
 // box interactions (stub AI until pipelines wired)
 app.post("/api/box/:id/chat", async (req, res) => {
   const msg = (req.body?.message || "").slice(0, 500);
-  const out = await runPipeline("qa", { system: `You are answering about the contract analysis box "${req.params.id}". Be concise; cite the clause; show the calc trail when relevant.`, user: msg });
-  res.json({ reply: out.text || out.fallback || "…", mode: out.mode, model: out.model || null });
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  const ctx = await buildContext(client, { boxId: req.params.id });
+  const out = await runPipeline("qa", {
+    system: `You are answering about the contract analysis box "${req.params.id}". Answer ONLY from the context below; cite the clause § and show the calc trail when relevant.\n\n${ctx.text}`,
+    user: msg,
+  });
+  res.json({ reply: out.text || out.fallback || "…", mode: out.mode, model: out.model || null, cited: ctx.cited });
+});
+
+// clause store (source of truth, chunked) + interpretation memory (learning)
+app.get("/api/mint/clauses/:client", async (req, res) => {
+  const client = slug(req.params.client);
+  res.json({ clauses: stubClauses(client), interpretations: await getInterpretations(client) });
+});
+// correction write-back — a confirmed reading that grounds every future query
+app.post("/api/mint/interpret", async (req, res) => {
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  const { clause_ref, reading, compiles_to } = req.body || {};
+  if (!clause_ref || !reading) return res.status(400).json({ error: "clause_ref + reading required" });
+  const ok = await upsertInterpretation(client, { clause_ref, reading, compiles_to });
+  res.json({ ok, clause_ref, learned: ok });
 });
 
 // the AI write-up / mapping for the Admin tab
