@@ -42,33 +42,42 @@ export function decryptKey(stored) {
 
 const DEFAULT_CONFIG = {
   providers: {
-    anthropic: { label: "Anthropic (Claude)", apiKey: "", models: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"] },
-    openai:    { label: "OpenAI", apiKey: "", models: ["gpt-5.1", "gpt-5.1-mini"] },
+    anthropic: { label: "Claude", apiKey: "", models: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"] },
+    openai:    { label: "OpenAI", apiKey: "", models: ["gpt-5.1", "gpt-5.1-mini", "gpt-4.1"] },
+    google:    { label: "Gemini", apiKey: "", models: ["gemini-2.5-pro", "gemini-2.5-flash"] },
+    zai:       { label: "Z.AI", apiKey: "", models: ["glm-4.6", "glm-4.5", "glm-4.5-air"], baseURL: "https://api.z.ai/api/anthropic" },
+    xai:       { label: "x.AI", apiKey: "", models: ["grok-4", "grok-3", "grok-3-mini"] },
+    deepseek:  { label: "DeepSeek", apiKey: "", models: ["deepseek-chat", "deepseek-reasoner"] },
   },
-  // Q&ANSR AI-pipeline registry. kind: deterministic | llm | hybrid.
-  // Only enabled llm/hybrid pipelines may call a provider.
+  // Q&ANSR AI-pipeline registry, grouped by product. kind: deterministic | llm | hybrid.
+  // Only enabled llm/hybrid pipelines may call a provider. Each carries an editable prompt.
   pipelines: {
-    "contract-intake": { id: "contract-intake", name: "Contract Intake", kind: "hybrid",
+    "contract-intake": { id: "contract-intake", product: "Mint", name: "Contract Intake", kind: "hybrid",
       description: "Read the SOW → structured rule tables (TA bands, milestone split, OSS slabs) with clause refs.",
-      provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-contract-intake", "qansr-knowledge-store"], enabled: true },
-    "normalize": { id: "normalize", name: "Normalizer", kind: "hybrid",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-contract-intake", "qansr-knowledge-store"], enabled: true,
+      prompt: "You are an AR contract analyst. Read the SOW extract and emit typed boxes (company, legal, payment_terms, commercial_terms, billing_rules, caveats, flags). For billing_rules derive executable TA/OSS/milestone logic with clause refs. Cite the clause for every claim." },
+    "normalize": { id: "normalize", product: "Mint", name: "Normalizer", kind: "hybrid",
       description: "Map messy source/role/status/level/date/CTC to canonical values. AI suggests → human confirms → learns.",
-      provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-normalizer"], enabled: true },
-    "calc": { id: "calc", name: "Calc Engine", kind: "deterministic",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-normalizer"], enabled: true,
+      prompt: "Normalize the employee roster. Map each raw source/role/status/date/CTC to its canonical value. For anything ambiguous propose the top option with confidence + reasoning. Never silently bucket unknowns — flag them." },
+    "calc": { id: "calc", product: "Mint", name: "Calc Engine", kind: "deterministic",
       description: "Deterministic TA + OSS + milestone-split computation from the lifecycle ledger. No model call.",
-      provider: "", model: "", skills: ["qansr-calc-engine", "qansr-lifecycle-ledger"], enabled: true },
-    "assure": { id: "assure", name: "Invoice Assurance", kind: "hybrid",
-      description: "Reproduce the Excel workbook, detect variance vs contract calc, flag exceptions.",
-      provider: "anthropic", model: "claude-sonnet-4-6", skills: ["qansr-variance", "qansr-invoice-assurance", "qansr-exceptions"], enabled: true },
-    "statement": { id: "statement", name: "Statement Generator", kind: "deterministic",
+      provider: "", model: "", skills: ["qansr-calc-engine", "qansr-lifecycle-ledger"], enabled: true, prompt: "" },
+    "assure": { id: "assure", product: "Mint", name: "Invoice Assurance", kind: "hybrid",
+      description: "Reproduce the calc, detect variance vs contract, flag exceptions.",
+      provider: "anthropic", model: "claude-sonnet-4-6", skills: ["qansr-variance", "qansr-invoice-assurance", "qansr-exceptions"], enabled: true,
+      prompt: "Assure the computed invoice. Check each line against the rule book + clause. Flag deviations, missing data, and exceptions with a one-line reason each." },
+    "statement": { id: "statement", product: "Mint", name: "Statement Generator", kind: "deterministic",
       description: "Generate the monthly Statement of Invoicing (cover / OSS / TA / evidence / exceptions) → xlsx.",
-      provider: "", model: "", skills: ["qansr-statement-generator"], enabled: true },
-    "clarify": { id: "clarify", name: "AI Clarify", kind: "llm",
+      provider: "", model: "", skills: ["qansr-statement-generator"], enabled: true, prompt: "" },
+    "clarify": { id: "clarify", product: "Mint", name: "AI Clarify", kind: "llm",
       description: "When data is ambiguous, ask a clause/evidence-backed question + recommend an option; persist the decision.",
-      provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-ai-clarify"], enabled: true },
-    "qa": { id: "qa", name: "AR Analyst Q&A", kind: "hybrid",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-ai-clarify"], enabled: true,
+      prompt: "Given an ambiguity, trace the evidence across documents, recommend one option with confidence and risk-if-wrong, and cite the clause. Keep it to a single clear question." },
+    "qa": { id: "qa", product: "Mint", name: "AR Analyst Q&A", kind: "hybrid",
       description: "Answer 'why is this invoice line X' with evidence + calc trail + clause reference. Deterministic md/db + AI-read.",
-      provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-knowledge-store"], enabled: true },
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-knowledge-store"], enabled: true,
+      prompt: "Answer as an AR analyst. Every answer must show evidence + the calc trail + the clause reference. Never invent numbers — read them from the DB/markdown." },
   },
 };
 
@@ -82,7 +91,9 @@ export function loadConfig() {
   const cfg = JSON.parse(readFileSync(configPath, "utf8"));
   const providers = { ...DEFAULT_CONFIG.providers };
   for (const [id, p] of Object.entries(cfg.providers || {})) providers[id] = { ...DEFAULT_CONFIG.providers[id], ...p };
-  return { ...DEFAULT_CONFIG, ...cfg, providers, pipelines: { ...DEFAULT_CONFIG.pipelines, ...cfg.pipelines } };
+  const pipelines = { ...DEFAULT_CONFIG.pipelines };
+  for (const [id, p] of Object.entries(cfg.pipelines || {})) pipelines[id] = { ...DEFAULT_CONFIG.pipelines[id], ...p };
+  return { ...DEFAULT_CONFIG, ...cfg, providers, pipelines };
 }
 
 export function saveConfig(next) { ensure(); writeFileSync(configPath, JSON.stringify(next, null, 2)); return next; }

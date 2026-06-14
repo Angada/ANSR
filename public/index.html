@@ -9,19 +9,16 @@
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <div class="topbar">
-    <span class="lbl" style="color:var(--ansr-gray)">The Q&amp; Universe</span>
-    <a href="#" class="lbl no-print" style="margin-left:auto;color:var(--ansr-orange);font-size:14px" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login.html');return false">Sign out</a>
-  </div>
+  <div id="appbar"></div>
   <div class="wrap">
-    <div class="hero" style="text-align:center">
-      <img src="/brand/assets/logos/QAnsr-logo.png" alt="Q&ANSR" style="height:84px;margin-bottom:10px">
+    <div class="hero">
       <div class="eyebrow">The Q&amp; Universe</div>
       <h1>Your armoury of super agents</h1>
-      <p>Your finance &amp; AR agents. Pick one to begin.</p>
     </div>
     <div id="agents" class="agents"></div>
   </div>
+  <script src="/q.js"></script>
+  <script>qHeader("home");</script>
   <script src="/app-hub.js"></script>
 </body>
 </html>

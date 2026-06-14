@@ -35,6 +35,10 @@ app.post("/api/login", (req, res) => {
   }
   res.status(401).json({ error: "wrong login or password" });
 });
+app.get("/api/me", (req, res) => {
+  if (cookieToken(req) !== AUTH_TOKEN) return res.status(401).json({ error: "auth required" });
+  res.json({ user: AUTH_USER, role: "Admin" });
+});
 app.post("/api/logout", (_req, res) => {
   res.setHeader("Set-Cookie", "qansr_auth=; HttpOnly; Path=/; Max-Age=0");
   res.json({ ok: true });
@@ -125,8 +129,8 @@ app.post("/api/pipelines/:id", (req, res) => {
   const cfg = loadConfig();
   const p = cfg.pipelines[req.params.id];
   if (!p) return res.status(404).json({ error: "unknown pipeline" });
-  const { provider, model, enabled } = req.body || {};
-  cfg.pipelines[req.params.id] = { ...p, ...(provider !== undefined && { provider }), ...(model !== undefined && { model }), ...(enabled !== undefined && { enabled: !!enabled }) };
+  const { provider, model, enabled, prompt } = req.body || {};
+  cfg.pipelines[req.params.id] = { ...p, ...(provider !== undefined && { provider }), ...(model !== undefined && { model }), ...(enabled !== undefined && { enabled: !!enabled }), ...(prompt !== undefined && { prompt }) };
   saveConfig(cfg);
   res.json({ ok: true, pipeline: cfg.pipelines[req.params.id] });
 });

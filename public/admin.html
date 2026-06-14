@@ -8,11 +8,7 @@
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-  <div class="topbar">
-    <img src="/brand/assets/logos/QAnsr-logo.png" alt="ANSR" style="height:26px">
-    <strong style="color:var(--ansr-navy)">Admin</strong>
-  </div>
-
+  <div id="appbar"></div>
   <div class="wrap">
     <div class="tabs" role="tablist">
       <button class="tab active" data-tab="ai" role="tab" aria-selected="true">AI Skills &amp; Pipelines</button>
@@ -21,16 +17,22 @@
     </div>
 
     <div id="pane-ai" class="pane">
-      <h3 style="color:var(--ansr-navy);font-weight:500">Providers</h3>
-      <div id="providers"></div>
-      <h3 style="color:var(--ansr-navy);font-weight:500;margin-top:18px">Pipelines</h3>
-      <p class="lbl" style="color:var(--ansr-gray);font-size:13px">Switch provider/model or enable per AI step. Raw user text never goes to a model outside an enabled llm/hybrid pipeline.</p>
-      <div id="pipelines"></div>
+      <div class="band grad-teal">
+        <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 4px">AI connectors</h3>
+        <p class="lbl" style="color:var(--ansr-gray);font-size:13px;margin:0 0 10px">All providers. Tap one to add its key.</p>
+        <div id="connectors" class="connrow"></div>
+        <div id="keyedit"></div>
+      </div>
+
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin:18px 0 2px">Pipelines by product</h3>
+      <p class="lbl" style="color:var(--ansr-gray);font-size:13px;margin:0 0 6px">Each AI gate: provider + model + enable + editable prompt. Raw user text never reaches a model outside an enabled llm/hybrid pipeline.</p>
+      <div id="products"></div>
     </div>
     <div id="pane-users" class="pane" hidden><p class="lbl">Users &amp; roles — coming.</p></div>
     <div id="pane-integrations" class="pane" hidden><p class="lbl">Integrations — coming.</p></div>
   </div>
-
+  <script src="/q.js"></script>
+  <script>qHeader("admin");</script>
   <script src="/admin.js"></script>
 </body>
 </html>

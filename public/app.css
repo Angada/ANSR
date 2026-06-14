@@ -81,6 +81,48 @@ input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padd
 .chip--approved { background: #e3f0f1; color: var(--ansr-teal); }
 .chip--flag { background: var(--ansr-orange-tint); color: var(--ansr-orange-deep); }
 
+/* ============ app header (logo home · Admin tab · user/role) ============ */
+.appbar { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 16px;
+  padding: 10px 16px; background: var(--ansr-white); border-bottom: 1px solid var(--ansr-border); }
+.appbar .logo img { height: 40px; display: block; }
+.appbar nav { display: flex; gap: 4px; }
+.appbar .navtab { text-decoration: none; color: var(--ansr-gray); font-weight: 500; font-size: 15px;
+  padding: 8px 12px; border-radius: 8px; transition: var(--ansr-transition); }
+.appbar .navtab:hover { background: var(--ansr-surface); color: var(--ansr-navy); }
+.appbar .navtab.active { color: var(--ansr-navy); background: var(--ansr-orange-tint); }
+.appbar .user { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.appbar .user .nm { color: var(--ansr-navy); font-weight: 500; font-size: 14px; }
+
+/* ============ Leela-style chips (recoloured to ANSR) ============ */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 5px; background: var(--ansr-orange-tint); color: var(--ansr-orange-deep);
+  border: 0; border-radius: 20px; padding: 5px 12px; font-size: 12.5px; font-weight: 500; cursor: default; line-height: 1.3; }
+.chip--draft { background: var(--ansr-fill); color: var(--ansr-gray); }
+.chip--approved { background: #e3f0f1; color: var(--ansr-teal); }
+.chip--flag { background: var(--ansr-orange-tint); color: var(--ansr-orange-deep); }
+.chip--role { background: var(--ansr-navy); color: #fff; font-weight: 500; }
+/* filter/toggle chip (Leela .chipf) */
+.chipf { border: 1px solid var(--ansr-line); background: var(--ansr-white); color: var(--ansr-navy);
+  border-radius: 20px; padding: 5px 13px; font-size: 12.5px; font-weight: 500; cursor: pointer; transition: var(--ansr-transition); }
+.chipf:hover { border-color: var(--ansr-orange); }
+.chipf.on { background: var(--ansr-orange); color: #fff; border-color: var(--ansr-orange); }
+/* connector chip (provider) — used in the scrollable AI connectors row */
+.connrow { display: flex; gap: 10px; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding: 4px 0 8px; }
+.connrow::-webkit-scrollbar { display: none; }
+.conn { flex: 0 0 auto; scroll-snap-align: start; min-width: 132px; border: 1px solid var(--ansr-border); border-radius: 12px;
+  padding: 12px; background: var(--ansr-white); cursor: pointer; transition: var(--ansr-transition); }
+.conn:hover { border-color: var(--ansr-orange); }
+.conn .cname { font-weight: 500; color: var(--ansr-navy); }
+.conn .cstat { font-size: 12px; margin-top: 4px; }
+.conn .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+.dot.ok { background: var(--ansr-teal); } .dot.no { background: var(--ansr-gray-mid); }
+
+/* ============ ANSR gradient section backgrounds ============ */
+.grad-accent { background: linear-gradient(135deg, var(--ansr-orange-tint), var(--ansr-white)); }
+.grad-teal   { background: linear-gradient(135deg, #e3f0f1, var(--ansr-white)); }
+.grad-soft   { background: linear-gradient(180deg, var(--ansr-surface), var(--ansr-white)); }
+.band { border: 1px solid var(--ansr-border); border-radius: 14px; padding: 16px; margin: 14px 0; }
+
 /* ---- landing hero ---- */
 .hero { padding: 28px 0 8px; }
 .hero .eyebrow { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--ansr-orange); font-weight: 500; }
