@@ -5,6 +5,24 @@
 // never reaches a model except through here.
 import Anthropic from "@anthropic-ai/sdk";
 import { loadConfig, getApiKey } from "./store.js";
+import { stubClauses, CLAUSE_FOR_BOX, getInterpretations } from "./clauses.js";
+
+// Assemble grounding for a query: the cited clauses (source of truth) + any
+// confirmed interpretations (the learning memory). The model answers FROM this.
+export async function buildContext(client, { boxId, clauseRefs } = {}) {
+  const refs = clauseRefs || CLAUSE_FOR_BOX[boxId] || [];
+  const clauses = stubClauses(client).filter((c) => !refs.length || refs.includes(c.ref));
+  const interps = await getInterpretations(client);
+  const interpByRef = Object.fromEntries(interps.map((i) => [i.clause_ref, i]));
+  const lines = ["CONTRACT CLAUSES (source of truth — cite these):"];
+  for (const c of clauses) {
+    lines.push(`${c.ref} ${c.title}: ${c.body}`);
+    if (interpByRef[c.ref]) lines.push(`  → confirmed reading: ${interpByRef[c.ref].reading}`);
+  }
+  // any contract-wide interpretations not tied to a shown clause
+  for (const i of interps) if (!clauses.find((c) => c.ref === i.clause_ref)) lines.push(`${i.clause_ref} confirmed reading: ${i.reading}`);
+  return { text: lines.join("\n"), cited: clauses.map((c) => c.ref) };
+}
 
 function stubReply(id, user) {
   return `(${id} · no key) ${user ? `Re "${user.slice(0, 80)}": ` : ""}I'd answer with evidence + the calc trail + a clause reference. Add a provider key in Admin → AI Skills & Pipelines to switch on live answers.`;
