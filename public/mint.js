@@ -135,6 +135,7 @@ function createClient() {
     const id = name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
     sel.insertAdjacentHTML("afterbegin", `<option value="${id}">${name}</option>`);
     sel.value = id; _lastClient = id;
+    $("#sowRow").style.display = "flex"; $("#sowMsg").textContent = ""; $("#sowFile").value = "";
     DATA = null; $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
     if (typeof clearSteps === "function") clearSteps();
     $("#run").innerHTML = `<option value="">— no runs yet —</option>`;
@@ -147,6 +148,7 @@ function createClient() {
 async function loadRuns(selectLast) {
   if ($("#client").value === "__new__") return;
   _lastClient = $("#client").value;
+  $("#sowRow").style.display = "none"; // existing client → just recall/run; SOW row only on +new
   const { runs } = await (await fetch(`/api/mint/runs/${$("#client").value}`)).json();
   $("#run").innerHTML = runs.length
     ? runs.map((r) => `<option value="${r.run_no}">Run ${r.run_no} · ${r.month} · ${r.status}</option>`).join("")
