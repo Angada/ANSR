@@ -9,22 +9,14 @@ async function load() {
   renderAiWriteup(); renderConnectors(); renderProducts(); wireTabs();
 }
 
-// "write up all the AI" — overview + full pipeline→model→skills mapping
+// short AI write-up (the full mapping lives in Pipelines by product below)
 async function renderAiWriteup() {
   const { pipelines } = await (await fetch("/api/ai/map")).json();
-  const rows = pipelines.map((p) => `<tr>
-    <td><b>${p.name}</b></td><td><span class="chip chip--role">${p.product}</span></td>
-    <td><span class="chip ${p.kind === "deterministic" ? "chip--draft" : "chip--approved"}">${p.kind}</span></td>
-    <td>${p.kind === "deterministic" ? "—" : (CFG.providers[p.provider]?.label || p.provider) + " · " + p.model}</td>
-    <td>${(p.skills || []).map((s) => `<span class="chip" style="font-size:11px">${s}</span>`).join(" ")}</td>
-    <td><span class="chip ${p.enabled ? "chip--approved" : "chip--draft"}">${p.enabled ? "on" : "off"}</span></td></tr>`).join("");
+  const n = pipelines.length, llm = pipelines.filter((p) => p.kind !== "deterministic").length;
   $("#aiwrite").innerHTML = `
     <div class="band grad-accent">
       <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 4px">✨ All the AI in Q&amp;ANSR</h3>
-      <p class="lbl" style="color:var(--ansr-gray);font-size:13px;margin:0 0 8px">Every model call runs through a registered, gated pipeline. Deterministic steps never call a model. Raw user text never reaches a provider outside an enabled <code>llm/hybrid</code> pipeline. Provider, model and prompt are switchable per pipeline below.</p>
-      <div class="scroll-x"><table>
-        <thead><tr><th>Pipeline</th><th>Product</th><th>Kind</th><th>Provider · model</th><th>Skills</th><th>Gate</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>
+      <p class="lbl" style="color:var(--ansr-gray);font-size:13px;margin:0">${n} pipelines (${llm} model-backed, ${n - llm} deterministic). Every model call runs through a registered, gated pipeline — deterministic steps never call a model, and raw user text never reaches a provider outside an enabled <code>llm/hybrid</code> pipeline. Switch provider, model, prompt and skills per pipeline below.</p>
     </div>`;
 }
 
@@ -87,13 +79,14 @@ function renderProducts() {
   const groups = {};
   for (const p of Object.values(CFG.pipelines)) (groups[p.product || "Other"] ||= []).push(p);
   $("#products").innerHTML = Object.entries(groups).map(([prod, pipes]) => `
-    <div class="band grad-soft">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+    <details class="band grad-soft" open style="padding:0">
+      <summary style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:14px 16px;min-height:44px">
         <span class="chip chip--role">${prod}</span>
         <span class="lbl" style="color:var(--ansr-gray)">${pipes.length} pipelines</span>
-      </div>
-      ${pipes.map(pipeHtml).join("")}
-    </div>`).join("");
+        <span class="caret" style="margin-left:auto;color:var(--ansr-gray-mid)">⌄</span>
+      </summary>
+      <div style="padding:0 16px 14px">${pipes.map(pipeHtml).join("")}</div>
+    </details>`).join("");
 }
 
 function pipeHtml(p) {

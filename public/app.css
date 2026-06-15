@@ -87,6 +87,11 @@ input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padd
 .appbar .logo img { height: 80px; display: block; }
 @media (max-width: 480px) { .appbar .logo img { height: 60px; } }
 
+/* collapsible product group (Pipelines by product) */
+details.band > summary::-webkit-details-marker { display: none; }
+details.band > summary .caret { transition: transform .2s linear; }
+details.band[open] > summary .caret { transform: rotate(180deg); }
+
 /* compact pipeline rows (Leela-dense) */
 .pipe { border: 1px solid var(--ansr-border); border-radius: 10px; margin: 8px 0; background: var(--ansr-white); overflow: hidden; }
 .pipe-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 9px 12px; cursor: pointer; min-height: 44px; }
