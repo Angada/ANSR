@@ -225,6 +225,10 @@ details.band[open] > summary .caret { transform: rotate(180deg); }
 .mint h3 { font-size: 15px; }
 .mint label.lbl, .mint .bar label { font-size: 12px; }
 
+/* focused flow step (after recalibration → Excel ingestion) */
+.flowstep.focus-step .flow-title { color: var(--ansr-orange); }
+.flowstep.focus-step { animation: qfade .6s ease-out both; }
+
 /* recalibrate CTA — grey until changes pending, then purple, centred */
 .recal-wrap { display: flex; justify-content: center; margin: 16px 0 4px; }
 .btn-recal { min-height: 44px; padding: 11px 26px; border: 0; border-radius: var(--ansr-radius-pill);

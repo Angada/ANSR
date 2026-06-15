@@ -364,9 +364,11 @@ window.recalibrate = async () => {
   setDirty(false); window.RECALIBRATED = true;
   const chip = document.getElementById("readyChip"); if (chip) { chip.textContent = "recalibrated ✓"; chip.className = "chip chip--approved"; }
   if (btn) { btn.disabled = false; btn.textContent = "↻ Recalibrate"; btn.classList.remove("dirty"); }
-  // unlock step 4 — working sheet
+  // collapse the contract steps (1–3) — focus shifts to the big next step
+  [1, 2, 3].forEach((n) => document.querySelector(`.flowstep[data-n="${n}"]`)?.classList.add("folded"));
+  // unlock + open step 4 — working sheet (Excel ingestion)
   const ws = document.querySelector('.flowstep[data-n="4"]');
-  if (ws) { ws.classList.remove("folded"); ws.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  if (ws) { ws.classList.remove("folded"); ws.classList.add("focus-step"); setTimeout(() => ws.scrollIntoView({ behavior: "smooth", block: "start" }), 200); }
 };
 
 window.askMissing = (item) => {
