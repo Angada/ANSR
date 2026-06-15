@@ -10,7 +10,7 @@
     "db:up": "docker compose up -d db",
     "db:schema": "psql \"$DATABASE_URL\" -f db/init/001_qansr_core.sql"
   },
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=22" },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.70.0",
     "@supabase/supabase-js": "^2.45.0",

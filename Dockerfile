@@ -1,5 +1,7 @@
-# Q&ANSR app — Node/Express container
-FROM node:20-slim
+# Q&ANSR app — Node/Express container.
+# Node 22+ required: @supabase/supabase-js needs a native global WebSocket
+# (Node 20 throws "without native WebSocket support" on client init).
+FROM node:22-slim
 WORKDIR /srv
 
 COPY package.json package-lock.json* ./
