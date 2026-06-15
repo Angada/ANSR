@@ -62,15 +62,18 @@ window.qHeader = async (activeTab = "home") => {
   el.outerHTML = `
   <header class="appbar">
     <a href="/" class="logo" title="Home"><img class="full" src="/brand/assets/logos/QAnsr-logo.png" alt="Q&ANSR"><img class="emblem" src="/favicon.png" alt="Q&ANSR"></a>
-    <nav style="margin-left:auto">
-      <a href="/" class="navtab ${activeTab === "home" ? "active" : ""}">Q&amp;</a>
-      <a href="/mint.html" class="navtab ${activeTab === "mint" ? "active" : ""}">Mint</a>
-      <a href="/admin.html" class="navtab ${activeTab === "admin" ? "active" : ""}">Admin</a>
-    </nav>
-    <div class="user">
-      <span class="nm">${me.user || ""}</span>
-      ${me.role ? `<span class="chip chip--role">${me.role}</span>` : ""}
-      <a href="#" class="navtab" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login.html');return false">Sign out</a>
+    <button class="hamb" aria-label="Menu" onclick="document.getElementById('qmenu').classList.toggle('open')">☰</button>
+    <div class="menu" id="qmenu">
+      <nav>
+        <a href="/" class="navtab ${activeTab === "home" ? "active" : ""}">Q&amp;</a>
+        <a href="/mint.html" class="navtab ${activeTab === "mint" ? "active" : ""}">Mint</a>
+        <a href="/admin.html" class="navtab ${activeTab === "admin" ? "active" : ""}">Admin</a>
+      </nav>
+      <div class="user">
+        <span class="nm">${me.user || ""}</span>
+        ${me.role ? `<span class="chip chip--role">${me.role}</span>` : ""}
+        <a href="#" class="navtab" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login.html');return false">Sign out</a>
+      </div>
     </div>
   </header>`;
 };

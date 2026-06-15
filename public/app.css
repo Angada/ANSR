@@ -101,13 +101,29 @@ details.band[open] > summary .caret { transform: rotate(180deg); }
 .pipe.open .caret { transform: rotate(180deg); }
 .pipe-body { display: none; padding: 0 12px 12px; }
 .pipe.open .pipe-body { display: block; }
+.appbar .menu { margin-left: auto; display: flex; align-items: center; gap: 16px; }
 .appbar nav { display: flex; gap: 4px; }
 .appbar .navtab { text-decoration: none; color: var(--ansr-gray); font-weight: 500; font-size: 15px;
   padding: 8px 12px; border-radius: 8px; transition: var(--ansr-transition); }
 .appbar .navtab:hover { background: var(--ansr-surface); color: var(--ansr-navy); }
 .appbar .navtab.active { color: var(--ansr-navy); background: var(--ansr-orange-tint); }
-.appbar .user { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.appbar .user { display: flex; align-items: center; gap: 8px; }
 .appbar .user .nm { color: var(--ansr-navy); font-weight: 500; font-size: 14px; }
+.appbar .hamb { display: none; margin-left: auto; background: none; border: 0; font-size: 24px; color: var(--ansr-navy); cursor: pointer; padding: 4px 8px; }
+
+/* mobile: collapse nav + user into a hamburger dropdown */
+@media (max-width: 560px) {
+  .appbar { position: relative; flex-wrap: wrap; }
+  .appbar .hamb { display: block; }
+  .appbar .menu { display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+    flex-direction: column; align-items: stretch; gap: 4px; margin: 0;
+    background: var(--ansr-white); border-bottom: 1px solid var(--ansr-border); box-shadow: 0 8px 18px rgba(0,36,46,.12); padding: 8px 12px; }
+  .appbar .menu.open { display: flex; }
+  .appbar nav { flex-direction: column; gap: 2px; }
+  .appbar .navtab { padding: 11px 10px; font-size: 16px; }
+  .appbar .user { padding: 8px 10px; border-top: 1px solid var(--ansr-border); margin-top: 4px; }
+  .appbar .user .nm { display: inline; }
+}
 
 /* ============ Leela-style chips (recoloured to ANSR) ============ */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -309,14 +325,7 @@ details.band[open] > summary .caret { transform: rotate(180deg); }
 .modal p { color: var(--ansr-gray); font-size: 14px; margin: 0 0 14px; }
 .modal .row { display: flex; gap: 8px; justify-content: flex-end; }
 
-/* ---- appbar responsive (scrollable nav, no awkward wrap) ---- */
-@media (max-width: 560px) {
-  .appbar { gap: 8px; padding: 8px 12px; }
-  .appbar nav { overflow-x: auto; scrollbar-width: none; }
-  .appbar nav::-webkit-scrollbar { display: none; }
-  .appbar .navtab { padding: 8px 9px; font-size: 14px; white-space: nowrap; }
-  .appbar .user .nm { display: none; }
-}
+/* (mobile appbar now handled by the hamburger dropdown above) */
 
 /* ---- agent launcher cards (compact, flat, accent on hover) ---- */
 .agents { display: grid; gap: 12px; grid-template-columns: 1fr; margin: 18px 0 32px; }
