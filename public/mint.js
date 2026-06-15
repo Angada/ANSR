@@ -254,7 +254,8 @@ window.askBox = async (boxId, text) => {
 window.acceptInstr = async (boxId, btn) => {
   const r = await (await fetch(`/api/mint/interpret`, { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ client: $("#client").value, clause_ref: BOX_CLAUSE[boxId] || boxId, reading: PENDING[boxId] || "user correction" }) })).json();
-  btn.closest(".ai-msg").innerHTML = `<span class="who">✨ AI:</span> <span style="color:var(--ansr-teal)">✓ Learned — ${esc(BOX_CLAUSE[boxId] || boxId)} reading saved; it now grounds every future answer.</span>`;
+  btn.closest(".ai-msg").innerHTML = `<span class="who">✨ AI:</span> <span style="color:var(--ansr-teal)">✓ Learned — ${esc(BOX_CLAUSE[boxId] || boxId)} reading saved. Recalibrate to cement it into the rules.</span>`;
+  setDirty(true);
 };
 
 window.scrollRail = (dir) => { const r = $("#boxrail"); r.scrollBy({ left: dir * (r.clientWidth * 0.8), behavior: "smooth" }); };
@@ -326,17 +327,54 @@ function render() {
       <span class="railnav"><button class="railbtn" onclick="scrollRail(-1)">‹</button><button class="railbtn" onclick="scrollRail(1)">›</button></span></div>
     <div class="boxrail" id="boxrail">${DATA.boxes.map(boxCard).join("")}</div>`;
 
-  // step 3 — Contract readiness
+  // step 3 — Contract readiness (+ recalibrate box + meter)
   const readyEl = document.getElementById("ready");
   if (readyEl) readyEl.innerHTML = `
     <div class="sd lbl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <span>${SECDESC.ready}</span>
-      <span class="chip ${allOk ? "chip--approved" : "chip--flag"}">${allOk ? "ready to analyse" : chk.filter((c) => !c.ok).length + " missing"}</span></div>
-    ${chkHtml}`;
+      <span class="chip ${allOk ? "chip--approved" : "chip--flag"}" id="readyChip">${allOk ? "ready to analyse" : chk.filter((c) => !c.ok).length + " missing"}</span></div>
+    ${chkHtml}
+    <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalBtn" onclick="recalibrate()">↻ Recalibrate${DIRTY ? " — changes pending" : ""}</button></div>
+    <div id="recal"></div>`;
 }
 
+let DIRTY = false;
+function setDirty(v) {
+  DIRTY = v;
+  const b = document.getElementById("recalBtn");
+  if (b) { b.classList.toggle("dirty", v); b.textContent = v ? "↻ Recalibrate — changes pending" : "↻ Recalibrate"; }
+}
+
+// real-time recalibration after corrections — cements rules, then unlocks step 4
+const RECAL_STEPS = ["Re-reading contract clauses", "Applying confirmed interpretations", "Recompiling rate + slab tables", "Cementing financial rules", "Recalibration complete"];
+window.recalibrate = async () => {
+  const host = document.getElementById("recal"); if (!host) return;
+  const btn = document.getElementById("recalBtn"); if (btn) btn.disabled = true;
+  host.innerHTML = `<div class="meter"><div class="meter-bar"><div class="meter-fill" id="mfill"></div></div>
+    <div class="meter-now" id="mnow"></div><div class="meter-list" id="mlist"></div></div>`;
+  const fill = document.getElementById("mfill"), now = document.getElementById("mnow"), list = document.getElementById("mlist");
+  for (let i = 0; i < RECAL_STEPS.length; i++) {
+    now.textContent = RECAL_STEPS[i];
+    fill.style.width = Math.round(((i + 1) / RECAL_STEPS.length) * 100) + "%";
+    list.insertAdjacentHTML("beforeend", `<div class="ms" id="ms-${i}">${esc(RECAL_STEPS[i])}…</div>`);
+    await new Promise((r) => setTimeout(r, 620));
+    const el = document.getElementById(`ms-${i}`); el.className = "ms done"; el.textContent = "✓ " + RECAL_STEPS[i];
+  }
+  now.innerHTML = `<span style="color:var(--ansr-teal)">✓ Financial rules cemented · contract recalibrated</span>`;
+  setDirty(false); window.RECALIBRATED = true;
+  const chip = document.getElementById("readyChip"); if (chip) { chip.textContent = "recalibrated ✓"; chip.className = "chip chip--approved"; }
+  if (btn) { btn.disabled = false; btn.textContent = "↻ Recalibrate"; btn.classList.remove("dirty"); }
+  // unlock step 4 — working sheet
+  const ws = document.querySelector('.flowstep[data-n="4"]');
+  if (ws) { ws.classList.remove("folded"); ws.scrollIntoView({ behavior: "smooth", block: "start" }); }
+};
+
 window.askMissing = (item) => {
-  appPrompt(`Add ${item}`, `Tell me the ${item} for this contract and I'll add it to the rule book before analysis.`, (v) => { if (v) appAlert("Recorded", `“${item}” noted — it'll ground the analysis. (write-back wiring next)`); });
+  appPrompt(`Add ${item}`, `Tell me the ${item} for this contract and I'll add it to the rule book before analysis.`, (v) => {
+    if (!v) return;
+    appAlert("Recorded", `“${item}” noted — it'll ground the analysis.`);
+    setDirty(true);
+  });
 };
 
 init();

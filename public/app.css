@@ -225,6 +225,23 @@ details.band[open] > summary .caret { transform: rotate(180deg); }
 .mint h3 { font-size: 15px; }
 .mint label.lbl, .mint .bar label { font-size: 12px; }
 
+/* recalibrate CTA — grey until changes pending, then purple, centred */
+.recal-wrap { display: flex; justify-content: center; margin: 16px 0 4px; }
+.btn-recal { min-height: 44px; padding: 11px 26px; border: 0; border-radius: var(--ansr-radius-pill);
+  background: var(--ansr-fill); color: var(--ansr-gray); font: inherit; font-weight: 500; cursor: pointer; transition: var(--ansr-transition); }
+.btn-recal:hover { filter: brightness(.97); }
+.btn-recal.dirty { background: linear-gradient(120deg, #7b2dc4, #9b51e0); color: #fff; box-shadow: 0 6px 18px rgba(123,45,196,.25); }
+.btn-recal:disabled { opacity: .7; cursor: default; }
+
+/* real-time recalibration meter */
+.meter { margin-top: 14px; }
+.meter-bar { height: 8px; border-radius: 6px; background: var(--ansr-border); overflow: hidden; }
+.meter-fill { height: 100%; width: 0; border-radius: 6px; background: linear-gradient(90deg, #7b2dc4, #9b51e0); transition: width .45s ease; }
+.meter-now { font-size: 13px; color: var(--ansr-navy); margin-top: 8px; font-weight: 500; }
+.meter-list { margin-top: 6px; }
+.meter-list .ms { font-size: 12.5px; color: var(--ansr-gray-mid); padding: 3px 0; }
+.meter-list .ms.done { color: var(--ansr-teal); }
+
 /* readiness checklist */
 .chk { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--ansr-border); font-size: 13px; }
 .chk:last-child { border-bottom: 0; }
