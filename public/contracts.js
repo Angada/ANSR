@@ -17,7 +17,8 @@ fetch("/api/contracts").then((r) => r.json()).then(({ contracts }) => {
 });
 
 window.newContract = () => {
-  const name = prompt("New contract — customer name (e.g. Kenvue):");
-  if (!name) return;
-  alert(`(stub) Created '${name}'. Next: upload the SOW to run Phase A and derive the rule book.`);
+  appPrompt("New contract", "Customer name", (name) => {
+    if (!name) return;
+    appAlert(`${name} created`, "Next: upload the SOW to run Phase A and derive the rule book.");
+  }, { placeholder: "e.g. Kenvue", okLabel: "Create" });
 };

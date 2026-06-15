@@ -79,14 +79,16 @@ window.ask = async (boxId) => {
   box.innerHTML += `<div style="margin:4px 0;color:var(--ansr-navy)"><strong>AI:</strong> ${esc(r.reply)}</div>`;
   box.scrollTop = box.scrollHeight;
 };
-window.amend = async (boxId) => {
-  const t = prompt("Amend this box — describe the change:"); if (!t) return;
-  await fetch(`/api/box/${boxId}/amend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ after: t }) });
-  alert("(stub) Amendment recorded → recompiles the rule on the real engine.");
+window.amend = (boxId) => {
+  appPrompt("Amend box", "Describe the change", async (t) => {
+    if (!t) return;
+    await fetch(`/api/box/${boxId}/amend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ after: t }) });
+    appAlert("Amendment recorded", "Recompiles the rule on the real engine.");
+  }, { okLabel: "Apply" });
 };
 window.approve = (boxId) => {
   const s = document.querySelector(`[data-box="${boxId}"] .chip`); s.textContent = "approved"; s.className = "chip chip--approved";
 };
-window.decide = (boxId, sid, d) => alert(`(stub) ${d === "accept" ? "Accepted" : "Rejected"} suggestion ${sid} on ${boxId}.`);
+window.decide = (boxId, sid, d) => appAlert(d === "accept" ? "Accepted" : "Rejected", `Suggestion ${sid} on ${boxId}.`);
 
 load();

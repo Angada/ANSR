@@ -25,8 +25,8 @@ const FIELD_LABEL = { ext_id: "Employee ID", name: "Name", role: "Role / level",
 
 async function mapRoster() {
   const f = $("#rfile").files[0];
-  if (!f) { alert("Choose a working sheet first."); return; }
-  if (f.size > 25 * 1024 * 1024) { alert("File too large — max 25 MB."); return; }
+  if (!f) { appAlert("No file", "Choose a working sheet first."); return; }
+  if (f.size > 25 * 1024 * 1024) { appAlert("File too large", "Max 25 MB."); return; }
   $("#rmap").disabled = true; $("#rout").innerHTML = `<p class="lbl" style="margin-top:10px">Reading + mapping…</p>`;
   const fd = new FormData(); fd.append("file", f); fd.append("client", $("#client").value);
   ROSTER = await (await fetch("/api/mint/roster/map", { method: "POST", body: fd })).json();
@@ -107,27 +107,28 @@ async function acceptFile() {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="chip chip--approved">Calculation complete</span><span class="lbl">outcome generated</span></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <a class="btn" href="/invoice.html?customer=${$("#client").value}&run=${ROSTER?.run_no || 3}">Invoicing summary</a>
-        <button class="btn btn--ghost" onclick="alert('Invoice PDF — next stage')">Generate invoice</button>
-        <button class="btn btn--ghost" onclick="alert('Detailed calculations — next stage')">Detailed calculations</button>
+        <button class="btn btn--ghost" onclick="appAlert('Generate invoice','A4 PDF invoice — next stage.')">Generate invoice</button>
+        <button class="btn btn--ghost" onclick="appAlert('Detailed calculations','Per-amount calc tables + ask chips — next stage.')">Detailed calculations</button>
       </div>
     </div>`;
 }
 
 let _lastClient = null;
 function createClient() {
-  const name = prompt("New client — company name:");
   const sel = $("#client");
-  if (!name) { sel.value = _lastClient || sel.options[0].value; return; }
-  const id = name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
-  sel.insertAdjacentHTML("afterbegin", `<option value="${id}">${name}</option>`);
-  sel.value = id; _lastClient = id;
-  // fresh client — no runs yet; prompt the contract-first journey
-  DATA = null; $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
-  clearSteps();
-  $("#run").innerHTML = `<option value="">— no runs yet —</option>`;
-  $("#result").innerHTML = `<div class="band grad-accent" style="margin-top:14px">
-    <b style="color:var(--ansr-navy)">${name} created.</b>
-    <p class="lbl" style="margin:6px 0 0">Add the SOW (contract), then press <span style="color:#7b2dc4">✨ Generate Contract Analysis</span> — Mint derives the rule book, you review the boxes + readiness, then upload the working sheet to bill.</p></div>`;
+  sel.value = _lastClient || sel.options[0].value; // reset off __new__ immediately
+  appPrompt("New client", "Company name", (name) => {
+    if (!name) return;
+    const id = name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
+    sel.insertAdjacentHTML("afterbegin", `<option value="${id}">${name}</option>`);
+    sel.value = id; _lastClient = id;
+    DATA = null; $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
+    if (typeof clearSteps === "function") clearSteps();
+    $("#run").innerHTML = `<option value="">— no runs yet —</option>`;
+    $("#result").innerHTML = `<div class="band grad-accent" style="margin-top:14px">
+      <b style="color:var(--ansr-navy)">${esc(name)} created.</b>
+      <p class="lbl" style="margin:6px 0 0">Add the SOW (contract), then press <span style="color:#7b2dc4">✨ Generate Contract Analysis</span> — Mint derives the rule book, you review the boxes + readiness, then upload the working sheet to bill.</p></div>`;
+  }, { placeholder: "e.g. Kenvue", okLabel: "Create" });
 }
 
 async function loadRuns(selectLast) {
@@ -172,23 +173,13 @@ async function generate() {
   $("#gen").disabled = false;
 }
 
-function appModal(title, msg, onConfirm, confirmLabel = "Delete all") {
-  const bg = document.createElement("div"); bg.className = "modal-bg";
-  bg.innerHTML = `<div class="modal"><h3>${esc(title)}</h3><p>${esc(msg)}</p>
-    <div class="row"><button class="btn btn--ghost" data-x>Cancel</button><button class="btn" data-ok style="background:#b3261e">${esc(confirmLabel)}</button></div></div>`;
-  document.body.appendChild(bg);
-  const close = () => bg.remove();
-  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
-  bg.querySelector("[data-x]").onclick = close;
-  bg.querySelector("[data-ok]").onclick = () => { close(); onConfirm(); };
-}
-
 function purge() {
-  appModal("Purge all runs", `Hard-delete every run for ${$("#client").value}? This removes all runs, ledger rows and archives permanently and cannot be undone.`, async () => {
+  appConfirm("Purge all runs", `Hard-delete every run for ${$("#client").value}? This removes all runs, ledger rows and archives permanently and cannot be undone.`, async () => {
     await fetch("/api/mint/purge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value }) });
-    DATA = null; clearSteps(); $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">All runs purged. Press Generate to start fresh.</p>`;
+    DATA = null; if (typeof clearSteps === "function") clearSteps();
+    $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">All runs purged. Press Generate to start fresh.</p>`;
     $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
-  });
+  }, "Delete all", true);
 }
 
 // ---- render summary + findings + boxes ----
@@ -345,7 +336,7 @@ function render() {
 }
 
 window.askMissing = (item) => {
-  alert(`Tell me the “${item}” for this contract and I'll add it to the rule book before analysis. (chat wiring next)`);
+  appPrompt(`Add ${item}`, `Tell me the ${item} for this contract and I'll add it to the rule book before analysis.`, (v) => { if (v) appAlert("Recorded", `“${item}” noted — it'll ground the analysis. (write-back wiring next)`); });
 };
 
 init();

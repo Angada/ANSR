@@ -9,6 +9,34 @@ window.fmtDubai = (ts) => {
   return `${p.day}-${MON[+p.month - 1]}-${p.year}`;
 };
 
+// ---- app modals (replace browser alert/confirm/prompt everywhere) ----------
+const _esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+function _modal(inner) {
+  const bg = document.createElement("div"); bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal">${inner}</div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.addEventListener("click", (e) => { if (e.target === bg) close(); });
+  return { bg, close };
+}
+window.appAlert = (title, msg = "") => {
+  const { bg, close } = _modal(`<h3>${_esc(title)}</h3>${msg ? `<p>${_esc(msg)}</p>` : ""}<div class="row"><button class="btn" data-ok>OK</button></div>`);
+  bg.querySelector("[data-ok]").onclick = close;
+};
+window.appConfirm = (title, msg, onOk, okLabel = "Confirm", danger = false) => {
+  const { bg, close } = _modal(`<h3>${_esc(title)}</h3><p>${_esc(msg)}</p><div class="row"><button class="btn btn--ghost" data-x>Cancel</button><button class="btn" data-ok ${danger ? 'style="background:#b3261e"' : ""}>${_esc(okLabel)}</button></div>`);
+  bg.querySelector("[data-x]").onclick = close;
+  bg.querySelector("[data-ok]").onclick = () => { close(); onOk && onOk(); };
+};
+window.appPrompt = (title, label, onSubmit, opts = {}) => {
+  const { bg, close } = _modal(`<h3>${_esc(title)}</h3>${label ? `<label class="lbl">${_esc(label)}</label>` : ""}<input id="_pin" placeholder="${_esc(opts.placeholder || "")}" value="${_esc(opts.value || "")}" style="margin:6px 0 14px"><div class="row"><button class="btn btn--ghost" data-x>Cancel</button><button class="btn" data-ok>${_esc(opts.okLabel || "OK")}</button></div>`);
+  const inp = bg.querySelector("#_pin"); inp.focus();
+  const submit = () => { const v = inp.value.trim(); close(); onSubmit && onSubmit(v); };
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
+  bg.querySelector("[data-x]").onclick = close;
+  bg.querySelector("[data-ok]").onclick = submit;
+};
+
 // Inject the app header into #appbar. activeTab: 'home' | 'admin'.
 window.qHeader = async (activeTab = "home") => {
   let me = { user: "—", role: "" };
