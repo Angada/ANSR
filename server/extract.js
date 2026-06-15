@@ -7,6 +7,7 @@ import { parseOfficeAsync } from "officeparser";
 import * as XLSX from "xlsx";
 
 const SHEET_EXT = new Set([".xlsx", ".xls", ".xlsm", ".csv", ".ods"]);
+const TEXT_EXT = new Set([".txt", ".md", ".markdown", ".json", ".text"]);
 
 // Returns { kind, text, sheets? } describing the file's content.
 export async function extractFile(path, originalName) {
@@ -22,6 +23,10 @@ export async function extractFile(path, originalName) {
     }));
     const text = sheets.map((s) => `# Sheet: ${s.name}\n${s.csv}`).join("\n\n");
     return { kind: "spreadsheet", text, sheets };
+  }
+
+  if (TEXT_EXT.has(ext)) {
+    return { kind: "document", text: readFileSync(path, "utf8") };
   }
 
   // .pdf .docx .pptx .odt etc.

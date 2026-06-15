@@ -119,10 +119,38 @@ app.get("/api/run/:customer/:runNo", (req, res) => {
 app.get("/api/clients", (_req, res) => res.json({ clients: stubContracts() }));
 app.get("/api/mint/runs/:client", (req, res) => res.json({ runs: stubRuns(slug(req.params.client)) }));
 app.get("/api/mint/run/:client/:no", (req, res) => res.json(stubAnalysis(slug(req.params.client), Number(req.params.no) || 3)));
-app.post("/api/mint/run", (req, res) => {
+const BOX_PROMPT = `From the contract below, output STRICT JSON only — no prose, no code fences:
+{"summary":{"title":"Contract summary","text":"<2-4 sentences>"},
+ "findings":["<key billing fact>", ...],
+ "boxes":[{"box_type_code":"company|legal|payment_terms|commercial_terms|billing_rules|caveats|flags",
+   "title":"<short>","ai_explain":"<1-2 sentences>","content":{<key:value facts; arrays of objects for tables>},
+   "confidence":0.0-1.0,"clause_ref":"§<n>"}]}
+Always include a "billing_rules" box with the executable TA/OSS/milestone logic (ctc_definition, ta_rate_table, milestones, oss_slabs, currency). Cite the clause for every box.`;
+
+app.post("/api/mint/run", async (req, res) => {
   const client = slug(req.body?.client || "ANSR-KENVUE");
   const runs = stubRuns(client);
-  res.json(stubAnalysis(client, (runs[runs.length - 1]?.run_no || 0) + 1));
+  const runNo = (runs[runs.length - 1]?.run_no || 0) + 1;
+  const sowDocId = req.body?.sowDocId;
+  if (sowDocId) {
+    try {
+      const md = await getExtract(client, sowDocId);
+      if (md) {
+        const out = await runPipeline("contract-intake", { system: BOX_PROMPT, user: md.slice(0, 60000), maxTokens: 4000 });
+        if (out.mode === "ai" && out.text) {
+          const m = out.text.match(/\{[\s\S]*\}/);
+          if (m) {
+            const j = JSON.parse(m[0]);
+            const boxes = (j.boxes || []).map((b) => ({ id: b.box_type_code, box_type_code: b.box_type_code, title: b.title, ai_explain: b.ai_explain, content: b.content || {}, confidence: b.confidence ?? 0.8, clause_ref: b.clause_ref || "", status: "draft", chat: [], suggestions: [] }));
+            if (boxes.length) return res.json({ client, run_no: runNo, source: `ai:${out.model}`, steps: stubAnalysis(client).steps, summary: j.summary || { title: "Contract summary", text: "" }, findings: j.findings || [], boxes });
+          }
+        }
+        // SOW present but AI unavailable/failed — tell the UI so it doesn't look "real"
+        return res.json({ ...stubAnalysis(client, runNo), source: out.mode === "ai" ? "ai-parse-failed" : `no-ai (${out.mode})`, sow: true });
+      }
+    } catch (e) { /* fall through to stub */ }
+  }
+  res.json(stubAnalysis(client, runNo));
 });
 app.post("/api/mint/purge", (_req, res) => res.json({ ok: true, purged: true }));
 

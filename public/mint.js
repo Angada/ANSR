@@ -18,6 +18,19 @@ async function init() {
   $("#gen").addEventListener("click", generate);
   $("#purge").addEventListener("click", purge);
   $("#rmap").addEventListener("click", mapRoster);
+  $("#sowBtn").addEventListener("click", uploadSow);
+}
+
+const SOW = {}; // client → docId
+async function uploadSow() {
+  const f = $("#sowFile").files[0];
+  if (!f) { appAlert("No file", "Choose the SOW (contract) file first."); return; }
+  if (f.size > 25 * 1024 * 1024) { appAlert("File too large", "Max 25 MB."); return; }
+  $("#sowMsg").textContent = "uploading…";
+  const fd = new FormData(); fd.append("file", f); fd.append("customer", $("#client").value); fd.append("docType", "sow");
+  const r = await (await fetch("/api/upload", { method: "POST", body: fd })).json();
+  if (r.docId) { SOW[$("#client").value] = r.docId; $("#sowMsg").innerHTML = `<span style="color:var(--ansr-teal)">✓ ${esc(f.name)} added — now Generate</span>`; }
+  else $("#sowMsg").textContent = r.error || "upload failed";
 }
 
 let ROSTER = null;
@@ -160,7 +173,7 @@ function renderStepper(doneUpTo, active = -1) {
 async function generate() {
   $("#gen").disabled = true; $("#result").innerHTML = "";
   // kick off the run (returns instantly on stub); animate steps over it
-  const runP = fetch("/api/mint/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value }) }).then((r) => r.json());
+  const runP = fetch("/api/mint/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, sowDocId: SOW[$("#client").value] }) }).then((r) => r.json());
   DATA = await runP; // need steps list to render
   $("#stepwrap").style.display = "block";
   for (let i = 0; i < DATA.steps.length; i++) {
@@ -313,8 +326,12 @@ function render() {
   const chkHtml = chk.map((c) => `<div class="chk ${c.ok ? "ok" : "miss"}"><span class="ic">${c.ok ? "✓" : "✕"}</span><span>${esc(c.k)}</span>${c.ok ? "" : `<button class="chip ask" onclick="askMissing('${esc(c.k)}')">Ask me</button>`}</div>`).join("");
 
   // step 1 — Contract summary
+  const srcChip = DATA.source && DATA.source.startsWith("ai:")
+    ? `<span class="chip chip--approved" style="margin-left:6px">live · ${esc(DATA.source.slice(3))}</span>`
+    : `<span class="chip chip--draft" style="margin-left:6px">${DATA.sow ? "SOW added · set a model key for live boxes" : "sample data"}</span>`;
   $("#result").innerHTML = `
-    <div class="sd lbl" style="margin-bottom:8px">${SECDESC.summary} <span class="chip" style="margin-left:6px">Run ${DATA.run_no}</span></div>
+    <div class="sd lbl" style="margin-bottom:8px">${SECDESC.summary} <span class="chip" style="margin-left:6px">Run ${DATA.run_no}</span>${srcChip}</div>`;
+
     <p class="sum-text" style="margin:0 0 10px">${esc(DATA.summary.text)}</p>
     <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:2px">Key findings</div>
     <ul class="findings sm">${DATA.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>`;

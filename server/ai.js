@@ -28,7 +28,7 @@ function stubReply(id, user) {
   return `(${id} · no key) ${user ? `Re "${user.slice(0, 80)}": ` : ""}I'd answer with evidence + the calc trail + a clause reference. Add a provider key in Admin → AI Skills & Pipelines to switch on live answers.`;
 }
 
-export async function runPipeline(pipelineId, { system = "", user = "" } = {}) {
+export async function runPipeline(pipelineId, { system = "", user = "", maxTokens = 800 } = {}) {
   const cfg = loadConfig();
   const p = cfg.pipelines[pipelineId];
   if (!p) return { mode: "error", text: `unknown pipeline: ${pipelineId}` };
@@ -44,7 +44,7 @@ export async function runPipeline(pipelineId, { system = "", user = "" } = {}) {
   try {
     const client = new Anthropic({ apiKey: key, baseURL: prov.baseURL || undefined });
     const r = await client.messages.create({
-      model: p.model, max_tokens: 800,
+      model: p.model, max_tokens: maxTokens,
       system: [p.prompt || "", system].filter(Boolean).join("\n\n"),
       messages: [{ role: "user", content: user || "" }],
     });
