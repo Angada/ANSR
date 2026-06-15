@@ -130,19 +130,24 @@ let _lastClient = null;
 function createClient() {
   const sel = $("#client");
   sel.value = _lastClient || sel.options[0].value; // reset off __new__ immediately
-  appPrompt("New client", "Company name", (name) => {
-    if (!name) return;
-    const id = name.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
-    sel.insertAdjacentHTML("afterbegin", `<option value="${id}">${name}</option>`);
+  appForm("New client", [
+    { key: "name", label: "Client / company name", placeholder: "e.g. Kenvue" },
+    { key: "currency", label: "Billing currency", type: "select", options: ["USD", "INR", "EUR", "GBP", "AED"], value: "USD" },
+    { key: "notes", label: "Notes (optional)", type: "textarea", placeholder: "engagement, contact, anything useful" },
+  ], async (v) => {
+    if (!v.name) return;
+    const r = await (await fetch("/api/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(v) })).json();
+    const id = r.id;
+    if (![...sel.options].some((o) => o.value === id)) sel.insertAdjacentHTML("afterbegin", `<option value="${id}">${esc(v.name)}</option>`);
     sel.value = id; _lastClient = id;
     $("#sowRow").style.display = "flex"; $("#sowMsg").textContent = ""; $("#sowFile").value = "";
     DATA = null; $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
     if (typeof clearSteps === "function") clearSteps();
     $("#run").innerHTML = `<option value="">— no runs yet —</option>`;
     $("#result").innerHTML = `<div class="band grad-accent" style="margin-top:14px">
-      <b style="color:var(--ansr-navy)">${esc(name)} created.</b>
-      <p class="lbl" style="margin:6px 0 0">Add the SOW (contract), then press <span style="color:#7b2dc4">✨ Generate Contract Analysis</span> — Mint derives the rule book, you review the boxes + readiness, then upload the working sheet to bill.</p></div>`;
-  }, { placeholder: "e.g. Kenvue", okLabel: "Create" });
+      <b style="color:var(--ansr-navy)">${esc(v.name)} created</b> <span class="chip">${esc(v.currency || "USD")}</span>
+      <p class="lbl" style="margin:6px 0 0">Step 1 — upload the SOW / Contract above, then press <span style="color:#7b2dc4">✨ Generate Contract Analysis</span>. Every step is AI-driven: Mint reads the contract, derives the rule book, you review + recalibrate, then the working sheet bills.</p></div>`;
+  }, "Create client");
 }
 
 async function loadRuns(selectLast) {
@@ -332,8 +337,7 @@ function render() {
     ? `<span class="chip chip--approved" style="margin-left:6px">live · ${esc(DATA.source.slice(3))}</span>`
     : `<span class="chip chip--draft" style="margin-left:6px">${DATA.sow ? "SOW added · set a model key for live boxes" : "sample data"}</span>`;
   $("#result").innerHTML = `
-    <div class="sd lbl" style="margin-bottom:8px">${SECDESC.summary} <span class="chip" style="margin-left:6px">Run ${DATA.run_no}</span>${srcChip}</div>`;
-
+    <div class="sd lbl" style="margin-bottom:8px">${SECDESC.summary} <span class="chip" style="margin-left:6px">Run ${DATA.run_no}</span>${srcChip}</div>
     <p class="sum-text" style="margin:0 0 10px">${esc(DATA.summary.text)}</p>
     <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:2px">Key findings</div>
     <ul class="findings sm">${DATA.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>`;

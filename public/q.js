@@ -37,6 +37,22 @@ window.appPrompt = (title, label, onSubmit, opts = {}) => {
   bg.querySelector("[data-ok]").onclick = submit;
 };
 
+// multi-field form modal. fields: [{key,label,type:text|select|textarea,placeholder,options,value}]
+window.appForm = (title, fields, onSubmit, okLabel = "Create") => {
+  const body = fields.map((f) => {
+    if (f.type === "select") return `<label class="lbl">${_esc(f.label)}</label><select data-k="${f.key}" style="margin:4px 0 10px">${(f.options || []).map((o) => `<option value="${_esc(o)}" ${o === f.value ? "selected" : ""}>${_esc(o)}</option>`).join("")}</select>`;
+    if (f.type === "textarea") return `<label class="lbl">${_esc(f.label)}</label><textarea data-k="${f.key}" rows="2" placeholder="${_esc(f.placeholder || "")}" style="margin:4px 0 10px">${_esc(f.value || "")}</textarea>`;
+    return `<label class="lbl">${_esc(f.label)}</label><input data-k="${f.key}" placeholder="${_esc(f.placeholder || "")}" value="${_esc(f.value || "")}" style="margin:4px 0 10px">`;
+  }).join("");
+  const { bg, close } = _modal(`<h3>${_esc(title)}</h3>${body}<div class="row"><button class="btn btn--ghost" data-x>Cancel</button><button class="btn" data-ok>${_esc(okLabel)}</button></div>`);
+  bg.querySelector("input,select,textarea")?.focus();
+  bg.querySelector("[data-x]").onclick = close;
+  bg.querySelector("[data-ok]").onclick = () => {
+    const out = {}; bg.querySelectorAll("[data-k]").forEach((el) => (out[el.dataset.k] = el.value.trim()));
+    close(); onSubmit && onSubmit(out);
+  };
+};
+
 // Inject the app header into #appbar. activeTab: 'home' | 'admin'.
 window.qHeader = async (activeTab = "home") => {
   let me = { user: "—", role: "" };

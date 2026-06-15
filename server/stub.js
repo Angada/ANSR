@@ -30,6 +30,7 @@ export function stubContracts() {
 }
 
 export function stubRuns(customer = "ANSR-KENVUE") {
+  if (customer !== "ANSR-KENVUE") return []; // new clients start with no runs
   return [
     { run_no: 1, month: "2025-01", status: "complete", grand: 81200 },
     { run_no: 2, month: "2025-02", status: "complete", grand: 84940 },

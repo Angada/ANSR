@@ -116,7 +116,27 @@ app.get("/api/run/:customer/:runNo", (req, res) => {
 });
 
 // ---- Mint contract analysis (run system: recall / new / purge) -------------
-app.get("/api/clients", (_req, res) => res.json({ clients: stubContracts() }));
+app.get("/api/clients", async (_req, res) => {
+  try {
+    const r = await q(`select code as id, name, coalesce(billing_ccy, currency, 'USD') as currency from customer order by name`);
+    if (r.rows?.length) return res.json({ clients: r.rows });
+  } catch { /* fall back */ }
+  res.json({ clients: stubContracts() });
+});
+app.post("/api/clients", async (req, res) => {
+  const name = (req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ error: "name required" });
+  const code = slug(name), currency = (req.body?.currency || "USD").trim() || "USD";
+  try {
+    await q(`insert into customer(code,name,currency,billing_ccy,contract_ccy)
+             values($1,$2,$3,$3,$3) on conflict(code) do update set name=excluded.name`, [code, name, currency]);
+    q(`insert into audit_log(actor,action,object_type,object_id,detail) values('vik','client.create','customer',$1,$2::jsonb)`,
+      [code, JSON.stringify({ name, currency, notes: req.body?.notes || "" })]).catch(() => {});
+    return res.json({ ok: true, id: code, name, currency, persisted: true });
+  } catch (e) {
+    return res.json({ ok: true, id: code, name, currency, persisted: false });
+  }
+});
 app.get("/api/mint/runs/:client", (req, res) => res.json({ runs: stubRuns(slug(req.params.client)) }));
 app.get("/api/mint/run/:client/:no", (req, res) => res.json(stubAnalysis(slug(req.params.client), Number(req.params.no) || 3)));
 const BOX_PROMPT = `From the contract below, output STRICT JSON only — no prose, no code fences:
