@@ -85,7 +85,8 @@ input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padd
 .appbar { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 16px;
   padding: 10px 16px; background: var(--ansr-white); border-bottom: 1px solid var(--ansr-border); }
 .appbar .logo img { height: 80px; display: block; }
-@media (max-width: 480px) { .appbar .logo img { height: 60px; } }
+.appbar .logo .emblem { display: none; }
+@media (max-width: 560px) { .appbar .logo .full { display: none; } .appbar .logo .emblem { display: block; height: 44px; } }
 
 /* collapsible product group (Pipelines by product) */
 details.band > summary::-webkit-details-marker { display: none; }

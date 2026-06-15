@@ -22,6 +22,14 @@
         <button class="btn-ai" id="gen"><span class="tw">✨</span>Generate Contract Analysis</button>
         <button class="btn btn--ghost" id="purge" style="border-color:#b3261e;color:#b3261e">Purge runs</button>
       </div>
+      <div id="newRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid var(--ansr-border);padding-top:10px">
+        <label class="lbl" style="margin:0;color:var(--ansr-navy);font-weight:500">New client:</label>
+        <input id="ncName" placeholder="client / company name" style="flex:1;min-width:150px">
+        <input id="ncNotes" placeholder="notes (optional)" style="flex:1;min-width:130px">
+        <button class="btn" id="ncCreate">Create</button>
+        <button class="btn btn--ghost" id="ncCancel">Cancel</button>
+        <span id="ncMsg" class="lbl"></span>
+      </div>
       <div id="sowRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid var(--ansr-border);padding-top:10px">
         <label class="lbl" style="margin:0;color:var(--ansr-navy);font-weight:500">Upload SOW / Contract:</label>
         <input type="file" id="sowFile" accept=".pdf,.docx,.doc,.txt,.md" style="flex:1;min-width:160px">

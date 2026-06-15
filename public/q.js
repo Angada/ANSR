@@ -61,7 +61,7 @@ window.qHeader = async (activeTab = "home") => {
   if (!el) return;
   el.outerHTML = `
   <header class="appbar">
-    <a href="/" class="logo" title="Home"><img src="/brand/assets/logos/QAnsr-logo.png" alt="Q&ANSR"></a>
+    <a href="/" class="logo" title="Home"><img class="full" src="/brand/assets/logos/QAnsr-logo.png" alt="Q&ANSR"><img class="emblem" src="/favicon.png" alt="Q&ANSR"></a>
     <nav style="margin-left:auto">
       <a href="/" class="navtab ${activeTab === "home" ? "active" : ""}">Q&amp;</a>
       <a href="/mint.html" class="navtab ${activeTab === "mint" ? "active" : ""}">Mint</a>

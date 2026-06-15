@@ -137,8 +137,23 @@ app.post("/api/clients", async (req, res) => {
     return res.json({ ok: true, id: code, name, currency, persisted: false });
   }
 });
-app.get("/api/mint/runs/:client", (req, res) => res.json({ runs: stubRuns(slug(req.params.client)) }));
-app.get("/api/mint/run/:client/:no", (req, res) => res.json(stubAnalysis(slug(req.params.client), Number(req.params.no) || 3)));
+app.get("/api/mint/runs/:client", async (req, res) => {
+  const client = slug(req.params.client);
+  try {
+    const r = await q(`select run_no, label, status, to_char(finished_at,'YYYY-MM-DD') as month from run
+                       where customer_id=(select id from customer where code=$1) order by run_no`, [client]);
+    if (r.rows?.length) return res.json({ runs: r.rows.map((x) => ({ run_no: x.run_no, month: x.month, status: x.status, label: x.label })) });
+  } catch { /* fall back */ }
+  res.json({ runs: stubRuns(client) });
+});
+app.get("/api/mint/run/:client/:no", async (req, res) => {
+  const client = slug(req.params.client), no = Number(req.params.no) || 1;
+  try {
+    const r = await q(`select manifest from run where customer_id=(select id from customer where code=$1) and run_no=$2`, [client, no]);
+    if (r.rows?.[0]?.manifest) return res.json(r.rows[0].manifest);
+  } catch { /* fall back */ }
+  res.json(stubAnalysis(client, no));
+});
 const BOX_PROMPT = `From the contract below, output STRICT JSON only — no prose, no code fences:
 {"summary":{"title":"Contract summary","text":"<2-4 sentences>"},
  "findings":["<key billing fact>", ...],
@@ -147,11 +162,19 @@ const BOX_PROMPT = `From the contract below, output STRICT JSON only — no pros
    "confidence":0.0-1.0,"clause_ref":"§<n>"}]}
 Always include a "billing_rules" box with the executable TA/OSS/milestone logic (ctc_definition, ta_rate_table, milestones, oss_slabs, currency). Cite the clause for every box.`;
 
+async function nextRunNo(client) {
+  try {
+    const r = await q(`select coalesce(max(run_no),0)+1 as n from run where customer_id=(select id from customer where code=$1)`, [client]);
+    if (r.rows?.[0]) return r.rows[0].n;
+  } catch { /* ignore */ }
+  return (stubRuns(client).at(-1)?.run_no || 0) + 1;
+}
+
 app.post("/api/mint/run", async (req, res) => {
   const client = slug(req.body?.client || "ANSR-KENVUE");
-  const runs = stubRuns(client);
-  const runNo = (runs[runs.length - 1]?.run_no || 0) + 1;
+  const runNo = await nextRunNo(client);
   const sowDocId = req.body?.sowDocId;
+  let payload = null;
   if (sowDocId) {
     try {
       const md = await getExtract(client, sowDocId);
@@ -162,17 +185,41 @@ app.post("/api/mint/run", async (req, res) => {
           if (m) {
             const j = JSON.parse(m[0]);
             const boxes = (j.boxes || []).map((b) => ({ id: b.box_type_code, box_type_code: b.box_type_code, title: b.title, ai_explain: b.ai_explain, content: b.content || {}, confidence: b.confidence ?? 0.8, clause_ref: b.clause_ref || "", status: "draft", chat: [], suggestions: [] }));
-            if (boxes.length) return res.json({ client, run_no: runNo, source: `ai:${out.model}`, steps: stubAnalysis(client).steps, summary: j.summary || { title: "Contract summary", text: "" }, findings: j.findings || [], boxes });
+            if (boxes.length) payload = { client, run_no: runNo, source: `ai:${out.model}`, steps: stubAnalysis(client).steps, summary: j.summary || { title: "Contract summary", text: "" }, findings: j.findings || [], boxes };
           }
         }
-        // SOW present but AI unavailable/failed — tell the UI so it doesn't look "real"
-        return res.json({ ...stubAnalysis(client, runNo), source: out.mode === "ai" ? "ai-parse-failed" : `no-ai (${out.mode})`, sow: true });
+        if (!payload) payload = { ...stubAnalysis(client, runNo), source: out.mode === "ai" ? "ai-parse-failed" : `no-ai (${out.mode})`, sow: true };
       }
-    } catch (e) { /* fall through to stub */ }
+    } catch (e) { /* fall through */ }
   }
-  res.json(stubAnalysis(client, runNo));
+  if (!payload) payload = stubAnalysis(client, runNo);
+
+  // persist the run (history / audit) — best-effort
+  try {
+    await q(`insert into run(customer_id, run_no, label, status, manifest, started_at, finished_at)
+             values((select id from customer where code=$1), $2, $3, 'complete', $4::jsonb, now(), now())
+             on conflict(customer_id, run_no) do update set manifest=excluded.manifest, finished_at=now()`,
+      [client, runNo, payload.source || "run", JSON.stringify(payload)]);
+    for (const b of payload.boxes || []) {
+      await q(`insert into box(customer_id, box_type_code, title, content, ai_explain, confidence, clause_ref, status)
+               values((select id from customer where code=$1), $2, $3, $4::jsonb, $5, $6, $7, 'draft')`,
+        [client, b.box_type_code, b.title, JSON.stringify(b.content || {}), b.ai_explain || "", b.confidence ?? null, b.clause_ref || ""]).catch(() => {});
+    }
+    q(`insert into audit_log(actor,action,object_type,object_id,detail) values('vik','run.create','run',$1,$2::jsonb)`,
+      [`${client}#${runNo}`, JSON.stringify({ source: payload.source, boxes: (payload.boxes || []).length })]).catch(() => {});
+  } catch { /* json-only fallback */ }
+
+  res.json(payload);
 });
-app.post("/api/mint/purge", (_req, res) => res.json({ ok: true, purged: true }));
+
+app.post("/api/mint/purge", async (req, res) => {
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  try {
+    await q(`delete from run where customer_id=(select id from customer where code=$1)`, [client]);
+    q(`insert into audit_log(actor,action,object_type,object_id,detail) values('vik','run.purge','customer',$1,'{}'::jsonb)`, [client]).catch(() => {});
+  } catch { /* ignore */ }
+  res.json({ ok: true, purged: true });
+});
 
 // ---- working-sheet (roster) ingestion: upload → map → issues → confirm ------
 app.post("/api/mint/roster/map", upload.single("file"), async (req, res) => {

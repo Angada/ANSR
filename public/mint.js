@@ -19,6 +19,9 @@ async function init() {
   $("#purge").addEventListener("click", purge);
   $("#rmap").addEventListener("click", mapRoster);
   $("#sowBtn").addEventListener("click", uploadSow);
+  $("#ncCreate").addEventListener("click", submitNewClient);
+  $("#ncCancel").addEventListener("click", cancelNewClient);
+  $("#ncName").addEventListener("keydown", (e) => { if (e.key === "Enter") submitNewClient(); });
 }
 
 const SOW = {}; // client → docId
@@ -127,28 +130,32 @@ async function acceptFile() {
 }
 
 let _lastClient = null;
+// inline new-client line entry (no popup, no currency — FX normalises per doc)
 function createClient() {
   const sel = $("#client");
-  sel.value = _lastClient || sel.options[0].value; // reset off __new__ immediately
-  appForm("New client", [
-    { key: "name", label: "Client / company name", placeholder: "e.g. Kenvue" },
-    { key: "currency", label: "Billing currency", type: "select", options: ["USD", "INR", "EUR", "GBP", "AED"], value: "USD" },
-    { key: "notes", label: "Notes (optional)", type: "textarea", placeholder: "engagement, contact, anything useful" },
-  ], async (v) => {
-    if (!v.name) return;
-    const r = await (await fetch("/api/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(v) })).json();
-    const id = r.id;
-    if (![...sel.options].some((o) => o.value === id)) sel.insertAdjacentHTML("afterbegin", `<option value="${id}">${esc(v.name)}</option>`);
-    sel.value = id; _lastClient = id;
-    $("#sowRow").style.display = "flex"; $("#sowMsg").textContent = ""; $("#sowFile").value = "";
-    DATA = null; $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
-    if (typeof clearSteps === "function") clearSteps();
-    $("#run").innerHTML = `<option value="">— no runs yet —</option>`;
-    $("#result").innerHTML = `<div class="band grad-accent" style="margin-top:14px">
-      <b style="color:var(--ansr-navy)">${esc(v.name)} created</b> <span class="chip">${esc(v.currency || "USD")}</span>
-      <p class="lbl" style="margin:6px 0 0">Step 1 — upload the SOW / Contract above, then press <span style="color:#7b2dc4">✨ Generate Contract Analysis</span>. Every step is AI-driven: Mint reads the contract, derives the rule book, you review + recalibrate, then the working sheet bills.</p></div>`;
-  }, "Create client");
+  sel.value = _lastClient || sel.options[0].value; // reset off __new__
+  $("#newRow").style.display = "flex";
+  $("#ncName").value = ""; $("#ncNotes").value = ""; $("#ncMsg").textContent = "";
+  $("#ncName").focus();
 }
+async function submitNewClient() {
+  const name = $("#ncName").value.trim();
+  if (!name) { $("#ncName").focus(); return; }
+  const notes = $("#ncNotes").value.trim();
+  const r = await (await fetch("/api/clients", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, notes }) })).json();
+  const id = r.id, sel = $("#client");
+  if (![...sel.options].some((o) => o.value === id)) sel.insertAdjacentHTML("afterbegin", `<option value="${id}">${esc(name)}</option>`);
+  sel.value = id; _lastClient = id;
+  $("#newRow").style.display = "none";
+  $("#sowRow").style.display = "flex"; $("#sowMsg").textContent = ""; $("#sowFile").value = "";
+  DATA = null; $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
+  if (typeof clearSteps === "function") clearSteps();
+  $("#run").innerHTML = `<option value="">— no runs yet —</option>`;
+  $("#result").innerHTML = `<div class="band grad-accent" style="margin-top:14px">
+    <b style="color:var(--ansr-navy)">${esc(name)} created</b>
+    <p class="lbl" style="margin:6px 0 0">Step 1 — upload the SOW / Contract above, then press <span style="color:#7b2dc4">✨ Generate Contract Analysis</span>. Every step is AI-driven; document currencies are normalised via FX (today's or historical rates).</p></div>`;
+}
+function cancelNewClient() { $("#newRow").style.display = "none"; $("#client").value = _lastClient || $("#client").options[0].value; }
 
 async function loadRuns(selectLast) {
   if ($("#client").value === "__new__") return;
