@@ -46,7 +46,7 @@ const DEFAULT_CONFIG = {
     anthropic: { label: "Claude", apiKey: "", models: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"] },
     openai:    { label: "OpenAI", apiKey: "", models: ["gpt-5.1", "gpt-5.1-mini", "gpt-4.1"] },
     google:    { label: "Gemini", apiKey: "", models: ["gemini-2.5-pro", "gemini-2.5-flash"] },
-    zai:       { label: "Z.AI", apiKey: "", models: ["glm-4.6", "glm-4.6-air", "glm-4.5", "glm-4.5-x", "glm-4.5-air", "glm-4.5-airx", "glm-4.5-flash", "glm-z1-air", "glm-z1-flash", "glm-z1-rumination", "glm-4-plus", "glm-4-long"], baseURL: "https://api.z.ai/api/anthropic" },
+    zai:       { label: "Z.AI", apiKey: "", models: ["glm-5.1", "glm-5", "glm-4.6", "glm-4.6-air", "glm-4.5", "glm-4.5-x", "glm-4.5-air", "glm-4.5-airx", "glm-4.5-flash", "glm-z1-air", "glm-z1-flash", "glm-z1-rumination", "glm-4-plus", "glm-4-long"], baseURL: "https://api.z.ai/api/anthropic" },
     xai:       { label: "x.AI", apiKey: "", models: ["grok-4", "grok-3", "grok-3-mini"] },
     deepseek:  { label: "DeepSeek", apiKey: "", models: ["deepseek-chat", "deepseek-reasoner"] },
   },
