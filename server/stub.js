@@ -121,6 +121,30 @@ export function stubAnalysis(client = "ANSR-KENVUE", runNo = 3) {
   };
 }
 
+// Structured invoice (ANSR-branded) built from a run's calc. Stub numbers until
+// the calc engine lands; shape is final so the PDF/breakdown just render it.
+export function stubInvoice(client = "ANSR-KENVUE", runNo = 3) {
+  const r = stubRun(client, runNo);
+  const sum = (k) => r.ta.reduce((s, t) => s + (t[k] || 0), 0);
+  const lines = [
+    { head: "OSS", desc: `Operations Support Fee · ${r.oss.invoice_month} · ${r.oss.closing_active_hc} active HC`, hsn: "998511", amount: r.oss.amount },
+    { head: "TA — Sourcing", desc: "Sourcing commencement advances", hsn: "998511", amount: sum("sourcing_billed") },
+    { head: "TA — Acceptance", desc: "Offer acceptance advances", hsn: "998511", amount: sum("acceptance_billed") },
+    { head: "TA — Balance", desc: "Balance TA fees (one month post-onboarding)", hsn: "998511", amount: sum("balance_billed") },
+  ].filter((l) => l.amount > 0);
+  const subtotal = lines.reduce((s, l) => s + l.amount, 0);
+  const tax = { label: "Tax", rate: 0, amount: 0, note: "place-of-supply / GST as applicable" };
+  const nameOf = { "ANSR-KENVUE": "Kenvue Inc." };
+  return {
+    stub: true, client, run_no: runNo, invoice_month: r.invoice_month, currency: r.currency,
+    invoice_no: `ANSR/${client.replace(/[^A-Z0-9]/g, "").slice(0, 4)}/${r.invoice_month.replace("-", "")}/${String(runNo).padStart(2, "0")}`,
+    from: { name: "ANSR Global Services Pvt. Ltd.", addr: "<ANSR registered address>", gstin: "<ANSR GSTIN>", email: "billing@ansr.com" },
+    to: { name: nameOf[client] || client, addr: "<client billing address>", attn: "<accounts payable contact>", gstin: "<client GSTIN>" },
+    lines, subtotal, tax, total: subtotal + tax.amount,
+    notes: "Computed by Q&ANSR · Mint (AR Reconciler) from the SOW + employee worksheet. Every line is clause- and calc-traceable.",
+  };
+}
+
 export function stubRun(customer = "ANSR-KENVUE", runNo = 1) {
   let seq = 0;
   const S = (label, detail, value) => ({ seq: ++seq, label, detail, value });

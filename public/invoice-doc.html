@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Invoice — Q&ANSR</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div id="appbar" class="no-print"></div>
+  <div class="wrap">
+    <div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0 4px">
+      <a href="/mint.html" class="navtab" style="color:var(--ansr-gray)">← Mint</a>
+      <span id="ohead" class="lbl" style="font-weight:500;color:var(--ansr-navy)"></span>
+      <span style="margin-left:auto"></span>
+      <button class="btn-ai" id="print">⬇ Download / Print invoice</button>
+    </div>
+
+    <div class="tabs no-print" role="tablist">
+      <button class="tab active" data-tab="invoice">Invoice</button>
+      <button class="tab" data-tab="months">Month-by-month</button>
+      <button class="tab" data-tab="calc">Detailed calculations</button>
+    </div>
+
+    <div id="pane-invoice" class="pane"><div id="invoice"></div></div>
+    <div id="pane-months" class="pane" hidden><div id="months"></div></div>
+    <div id="pane-calc" class="pane" hidden><div id="calc"></div></div>
+  </div>
+  <script src="/q.js"></script>
+  <script>qHeader("mint");</script>
+  <script src="/invoice-doc.js"></script>
+</body>
+</html>

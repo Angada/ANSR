@@ -122,9 +122,10 @@ async function acceptFile() {
     <div class="band" style="margin-top:16px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="chip chip--approved">Calculation complete</span><span class="lbl">outcome generated</span></div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <a class="btn" href="/invoice.html?customer=${$("#client").value}&run=${ROSTER?.run_no || 3}">Invoicing summary</a>
-        <button class="btn btn--ghost" onclick="appAlert('Generate invoice','A4 PDF invoice — next stage.')">Generate invoice</button>
-        <button class="btn btn--ghost" onclick="appAlert('Detailed calculations','Per-amount calc tables + ask chips — next stage.')">Detailed calculations</button>
+        <a class="btn" href="/invoice-doc.html?customer=${$("#client").value}&run=${DATA?.run_no || 3}#months">Invoicing summary</a>
+        <a class="btn-ai" href="/invoice-doc.html?customer=${$("#client").value}&run=${DATA?.run_no || 3}#invoice"><span class="tw">✨</span>Generate invoice</a>
+        <a class="btn btn--ghost" href="/invoice-doc.html?customer=${$("#client").value}&run=${DATA?.run_no || 3}#calc">Detailed calculations</a>
+        <a class="btn btn--ghost" href="/invoice.html?customer=${$("#client").value}&run=${DATA?.run_no || 3}">Replay + heatmap</a>
       </div>
     </div>`;
 }
@@ -330,30 +331,36 @@ const READY_LABEL = {
 };
 const humanize = (k) => READY_LABEL[k] || k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 
-function readiness() {
+// What the monthly calc NEEDS from the worksheet — inferred from the rule book.
+// Not column mapping, not rule-presence: the input fields + why each is needed.
+function requiredInputs() {
   const rb = DATA.boxes.find((b) => b.box_type_code === "billing_rules")?.content || {};
-  const ok = (v) => (Array.isArray(v) ? v.length > 0 : v != null && v !== "");
-  // one item per rule-book field the contract analysis emitted
-  const items = Object.keys(rb).map((k) => ({ k: humanize(k), ok: ok(rb[k]) }));
-  // derived dependency: a rate table is only usable if rows carry a level
-  const rt = rb.ta_rate_table;
-  if (Array.isArray(rt)) items.push({ k: "Role → level map", ok: rt.some((r) => r.level) });
-  return items.length ? items : [{ k: "Contract rule book", ok: false }];
+  const req = []; const add = (field, why) => { if (!req.some((r) => r.field === field)) req.push({ field, why }); };
+  const rt = rb.ta_rate_table, ms = rb.milestones, oss = rb.oss_slabs;
+  const rtArr = Array.isArray(rt) ? rt : [];
+  add("Employee name / ID", "identify each placement");
+  if (rb.ctc_definition || rt) { add("Fixed CTC", "base of the TA fee"); add("Variable / target bonus", "completes total CTC"); }
+  if (rtArr.some((r) => "referral" in r)) add("Source / referral status", "sets the TA rate (referral vs non-referral)");
+  if (rtArr.some((r) => r.level)) add("Seniority / level / role", "maps to the TA rate band");
+  if (rtArr.some((r) => ("band" in r) || ("gcc_band_min" in r))) add("Active GCC headcount", "TA band + OSS slab (derived from join/exit dates)");
+  if (ms) { add("Sourcing date", "triggers the sourcing milestone"); add("Offer-accepted date", "triggers the acceptance milestone"); add("Joining date", "triggers the balance milestone"); }
+  if (oss) { add("Joining date", "counts into active headcount (OSS)"); add("Exit date", "removes from active headcount (OSS)"); }
+  if (rb.currency) add("Salary currency", "normalised to billing currency via FX (today's / historical rates)");
+  return req.length ? req : [{ field: "Employee lifecycle + CTC", why: "to compute the monthly bill" }];
 }
 
 const SECDESC = {
   summary: "Plain-English read of the SOW and the key billing facts.",
   boxes: "Each clause area as a box — open one to see detail and ask its AI.",
-  ready: "Everything Mint needs from the contract before it can calculate. Missing items must be resolved first.",
+  ready: "What the monthly calculation needs from your worksheet — discovered from this contract. When you upload the sheet, Mint validates it against these and raises any clarifications.",
 };
 
 function render() {
   if (!DATA) return;
   foldFlow(false); // fresh render → all steps open
-  const chk = readiness();
-  const allOk = chk.every((c) => c.ok);
-  window.READY = allOk;
-  const chkHtml = chk.map((c) => `<div class="chk ${c.ok ? "ok" : "miss"}"><span class="ic">${c.ok ? "✓" : "✕"}</span><span>${esc(c.k)}</span>${c.ok ? "" : `<button class="chip ask" onclick="askMissing('${esc(c.k)}')">Ask me</button>`}</div>`).join("");
+  const req = requiredInputs();
+  window.READY = req.length > 0;
+  const reqHtml = req.map((x) => `<div class="chk ok"><span class="ic">•</span><span><b>${esc(x.field)}</b> <span class="lbl">— ${esc(x.why)}</span></span></div>`).join("");
 
   // step 1 — Contract summary
   const srcChip = DATA.source && DATA.source.startsWith("ai:")
@@ -377,10 +384,11 @@ function render() {
   // step 3 — Contract readiness (+ recalibrate box + meter)
   const readyEl = document.getElementById("ready");
   if (readyEl) readyEl.innerHTML = `
-    <div class="sd lbl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+    <div class="sd lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
       <span>${SECDESC.ready}</span>
-      <span class="chip ${allOk ? "chip--approved" : "chip--flag"}" id="readyChip">${allOk ? "ready to analyse" : chk.filter((c) => !c.ok).length + " missing"}</span></div>
-    ${chkHtml}
+      <span class="chip" id="readyChip">${req.length} inputs needed</span></div>
+    ${reqHtml}
+    <p class="lbl" style="margin-top:10px;color:var(--ansr-gray)">On worksheet upload, Mint checks the sheet against these — anything missing or ambiguous comes up as a clarification before the calc runs.</p>
     <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalBtn" onclick="recalibrate()">↻ Recalibrate${DIRTY ? " — changes pending" : ""}</button></div>
     <div id="recal"></div>`;
 }

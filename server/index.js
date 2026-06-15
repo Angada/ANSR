@@ -11,7 +11,7 @@ import { extractFile, toMarkdown } from "./extract.js";
 import { q } from "./db/client.js";
 import { loadConfig, saveConfig, publicConfig, encryptKey, getApiKey, initConfig } from "./store.js";
 import { putOriginal, putExtract, getExtract, listExtracts, usingBucket } from "./storage.js";
-import { stubRun, stubOps, stubContracts, stubContract, stubRuns, stubAnalysis } from "./stub.js";
+import { stubRun, stubOps, stubContracts, stubContract, stubRuns, stubAnalysis, stubInvoice } from "./stub.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { inferMapping, detectIssues, summarizeIssues, CANONICAL } from "./roster.js";
 import { runPipeline, aiMap, buildContext } from "./ai.js";
@@ -211,6 +211,8 @@ app.post("/api/mint/run", async (req, res) => {
 
   res.json(payload);
 });
+
+app.get("/api/mint/invoice/:client/:no", (req, res) => res.json(stubInvoice(slug(req.params.client), Number(req.params.no) || 3)));
 
 app.post("/api/mint/purge", async (req, res) => {
   const client = slug(req.body?.client || "ANSR-KENVUE");
