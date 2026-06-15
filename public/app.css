@@ -241,7 +241,7 @@ details.band[open] > summary .caret { transform: rotate(180deg); }
 .railnav { display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin: 4px 0 8px; }
 .railbtn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--ansr-border); background: var(--ansr-white); color: var(--ansr-navy); font-size: 16px; cursor: pointer; transition: var(--ansr-transition); }
 .railbtn:hover { border-color: var(--ansr-orange); color: var(--ansr-orange); }
-.boxrail { display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 4px; scroll-padding-left: 2px; }
+.boxrail { display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: 4px; scroll-padding-left: 2px; }
 .boxrail::-webkit-scrollbar { display: none; }
 /* a touch narrower than half so the neighbouring boxes peek = visible scroll cue */
 .boxrail > .boxcard { flex: 0 0 calc(46% - 7px); scroll-snap-align: start; }

@@ -288,19 +288,23 @@ window.acceptInstr = async (boxId, btn) => {
 
 window.scrollRail = (dir) => { const r = $("#boxrail"); r.scrollBy({ left: dir * (r.clientWidth * 0.8), behavior: "smooth" }); };
 
-// mouse / trackpad swipe (drag to scroll) — ignores interactive controls
+// Touch = native swipe (scroll-snap flips one box). Mouse = click-drag to scroll
+// + flick to flip. Touch is left to the browser so swipe stays smooth.
 function dragScroll(el) {
   if (!el || el._drag) return; el._drag = true;
-  let down = false, sx = 0, sl = 0, moved = false;
+  let down = false, sx = 0, sl = 0;
   el.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "mouse") return; // let touch/pen swipe natively
     if (e.target.closest("input,button,select,textarea,a,.ai-chip,summary")) return;
-    down = true; moved = false; sx = e.clientX; sl = el.scrollLeft; el.style.cursor = "grabbing";
+    down = true; sx = e.clientX; sl = el.scrollLeft; el.style.cursor = "grabbing";
   });
-  el.addEventListener("pointermove", (e) => {
-    if (!down) return; const dx = e.clientX - sx; if (Math.abs(dx) > 3) moved = true; el.scrollLeft = sl - dx;
-  });
-  const up = () => { down = false; el.style.cursor = "grab"; };
-  el.addEventListener("pointerup", up); el.addEventListener("pointerleave", up); el.addEventListener("pointercancel", up);
+  el.addEventListener("pointermove", (e) => { if (down) el.scrollLeft = sl - (e.clientX - sx); });
+  const up = (e) => {
+    if (!down) return; down = false; el.style.cursor = "grab";
+    const dx = e.clientX - sx;
+    if (Math.abs(dx) > 40) scrollRail(dx < 0 ? 1 : -1); // flick → flip one box
+  };
+  el.addEventListener("pointerup", up); el.addEventListener("pointercancel", () => (down = false));
   el.style.cursor = "grab";
 }
 
@@ -389,6 +393,16 @@ function render() {
       <span class="chip" id="readyChip">${req.length} inputs needed</span></div>
     ${reqHtml}
     <p class="lbl" style="margin-top:10px;color:var(--ansr-gray)">On worksheet upload, Mint checks the sheet against these — anything missing or ambiguous comes up as a clarification before the calc runs.</p>
+    <div class="ai-box">
+      <div class="ai-head"><span class="tw">✨</span> Ask AI to clarify, or suggest inputs</div>
+      <div class="ai-chips">
+        <span class="ai-chip" onclick="askReady('What other inputs might this contract need that aren\\'t listed?')">Suggest missing inputs</span>
+        <span class="ai-chip" onclick="askReady('Clarify how referral status should be determined.')">Clarify referral</span>
+        <span class="ai-chip" onclick="askReady('What dates drive the billing and why?')">Which dates matter?</span>
+      </div>
+      <div class="ai-log" id="readylog"></div>
+      <div class="ai-row"><input id="readyask" placeholder="ask to clarify, or suggest an input…" onkeydown="if(event.key==='Enter')askReady(this.value)"><button class="btn-ai" onclick="askReady(document.getElementById('readyask').value)">Ask</button></div>
+    </div>
     <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalBtn" onclick="recalibrate()">↻ Recalibrate${DIRTY ? " — changes pending" : ""}</button></div>
     <div id="recal"></div>`;
 }
@@ -424,6 +438,17 @@ window.recalibrate = async () => {
   // unlock + open step 4 — working sheet (Excel ingestion)
   const ws = document.querySelector('.flowstep[data-n="4"]');
   if (ws) { ws.classList.remove("folded"); ws.classList.add("focus-step"); setTimeout(() => ws.scrollIntoView({ behavior: "smooth", block: "start" }), 200); }
+};
+
+window.askReady = async (q) => {
+  q = (q || "").trim(); if (!q) return;
+  const log = document.getElementById("readylog"); const inp = document.getElementById("readyask"); if (inp) inp.value = "";
+  log.insertAdjacentHTML("beforeend", `<div class="ai-msg"><span class="who">You:</span> ${esc(q)}</div>`);
+  const isSuggest = /^(add|include|use|suggest|need|also|require)\b/i.test(q);
+  const r = await (await fetch(`/api/box/billing_rules/chat`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: q, client: $("#client").value }) })).json();
+  log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">✨ AI:</span> ${esc(r.reply)}${r.cited?.length ? ` <span class="lbl">[${r.cited.join(", ")}]</span>` : ""}</div>`);
+  if (isSuggest) { setDirty(true); log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="lbl">Noted as a change — Recalibrate to apply it to the inputs.</span></div>`); }
+  log.scrollTop = log.scrollHeight;
 };
 
 window.askMissing = (item) => {
