@@ -2,7 +2,7 @@
 // Office docs + PDF go through officeparser; spreadsheets also get a structured
 // pass via SheetJS so tables (EMP LIST, Rules, calc sheets) survive intact.
 import { extname } from "node:path";
-import { readFileSync } from "node:fs";
+import { readFileSync, copyFileSync, rmSync } from "node:fs";
 import { parseOfficeAsync } from "officeparser";
 import * as XLSX from "xlsx";
 
@@ -29,9 +29,17 @@ export async function extractFile(path, originalName) {
     return { kind: "document", text: readFileSync(path, "utf8") };
   }
 
-  // .pdf .docx .pptx .odt etc.
-  const text = await parseOfficeAsync(path);
-  return { kind: "document", text: String(text || "") };
+  // .pdf .docx .pptx .odt etc. — officeparser detects type by file EXTENSION,
+  // but multer's temp file has none, so copy it to a path with the real ext.
+  const withExt = ext && !path.toLowerCase().endsWith(ext) ? path + ext : path;
+  let made = false;
+  if (withExt !== path) { copyFileSync(path, withExt); made = true; }
+  try {
+    const text = await parseOfficeAsync(withExt);
+    return { kind: "document", text: String(text || "") };
+  } finally {
+    if (made) { try { rmSync(withExt); } catch { /* ignore */ } }
+  }
 }
 
 // Render an extract as a markdown document for the T2 docstore (the readable

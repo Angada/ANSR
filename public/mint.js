@@ -287,6 +287,22 @@ window.acceptInstr = async (boxId, btn) => {
 
 window.scrollRail = (dir) => { const r = $("#boxrail"); r.scrollBy({ left: dir * (r.clientWidth * 0.8), behavior: "smooth" }); };
 
+// mouse / trackpad swipe (drag to scroll) — ignores interactive controls
+function dragScroll(el) {
+  if (!el || el._drag) return; el._drag = true;
+  let down = false, sx = 0, sl = 0, moved = false;
+  el.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("input,button,select,textarea,a,.ai-chip,summary")) return;
+    down = true; moved = false; sx = e.clientX; sl = el.scrollLeft; el.style.cursor = "grabbing";
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!down) return; const dx = e.clientX - sx; if (Math.abs(dx) > 3) moved = true; el.scrollLeft = sl - dx;
+  });
+  const up = () => { down = false; el.style.cursor = "grab"; };
+  el.addEventListener("pointerup", up); el.addEventListener("pointerleave", up); el.addEventListener("pointercancel", up);
+  el.style.cursor = "grab";
+}
+
 // fold/unfold a single step (its number title toggles its content)
 window.toggleStep = (btn) => btn.closest(".flowstep")?.classList.toggle("folded");
 // fold (or unfold) all 4 steps at once — used when analysis kicks off
@@ -356,6 +372,7 @@ function render() {
       <span>${SECDESC.boxes}</span>
       <span class="railnav"><button class="railbtn" onclick="scrollRail(-1)">‹</button><button class="railbtn" onclick="scrollRail(1)">›</button></span></div>
     <div class="boxrail" id="boxrail">${DATA.boxes.map(boxCard).join("")}</div>`;
+  dragScroll(document.getElementById("boxrail"));
 
   // step 3 — Contract readiness (+ recalibrate box + meter)
   const readyEl = document.getElementById("ready");
