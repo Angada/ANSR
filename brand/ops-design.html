@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Q&ANSR — Ops Design System</title>
+  <link rel="stylesheet" href="/brand/ops-design.css">
+  <style>
+    /* demo tenant theme — proves the --brand-* API (logo + colour flip) */
+    [data-brand="acme"] {
+      --brand-accent:#0a66c2; --brand-accent-hover:#084f99; --brand-accent-deep:#084a8c;
+      --brand-accent-tint:#eaf3fb; --brand-ink:#0b1f33; --brand-secondary:#1d7a5f;
+      --brand-secondary-tint:#e7f4ef;
+      --brand-logo:none;
+    }
+    [data-brand="acme"] .ops-appbar .logo { background:none; }
+    [data-brand="acme"] .ops-appbar .logo::after { content:"ACME"; font-weight:700; font-size:22px; color:var(--brand-accent); letter-spacing:.04em; display:flex; align-items:center; height:100%; }
+    .demo-toggle { display:flex; gap:8px; margin:14px 0; }
+    .demo-toggle button { min-height:36px; padding:8px 14px; border-radius:8px; border:1px solid var(--brand-line); background:#fff; cursor:pointer; font:inherit; font-size:13px; }
+    h2.sec { color:var(--brand-ink); font-size:13px; text-transform:uppercase; letter-spacing:.1em; margin:26px 0 8px; }
+  </style>
+</head>
+<body>
+  <div class="ops-appbar">
+    <a class="logo" href="#" aria-label="home"></a>
+    <nav><a class="navtab active">Mint</a><a class="navtab">Admin</a></nav>
+    <div class="user"><span class="chip chip--draft">vik · Admin</span></div>
+  </div>
+
+  <div class="ops-wrap">
+    <div class="demo-toggle">
+      <button onclick="document.body.dataset.brand=''">ANSR theme</button>
+      <button onclick="document.body.dataset.brand='acme'">Acme theme (logo+colour flip)</button>
+    </div>
+
+    <div class="ops-hero"><div class="eyebrow">MINT</div><h1>AR · Contract Reconciler</h1></div>
+
+    <h2 class="sec">The run (live progress)</h2>
+    <div class="ops-band grad-soft">
+      <div class="ops-run">
+        <div class="node done"><div class="dot">&#10003;</div><div class="lbl">Studying terms</div></div>
+        <div class="node done"><div class="dot">&#10003;</div><div class="lbl">Reading doc</div></div>
+        <div class="node active"><div class="dot">3</div><div class="lbl">Extracting clauses</div></div>
+        <div class="node"><div class="dot">4</div><div class="lbl">Building rules</div></div>
+        <div class="node"><div class="dot">5</div><div class="lbl">Summarising</div></div>
+      </div>
+    </div>
+
+    <h2 class="sec">The flow (numbered steps · right-angled connectors)</h2>
+    <div class="ops-flow">
+      <section class="ops-step done">
+        <div class="rail"><span class="num">1</span></div>
+        <div class="body">
+          <button class="title" type="button" onclick="this.closest('.ops-step').classList.toggle('folded')">Contract summary</button>
+          <div class="content">
+            <div class="ops-sechead teal"><div><div class="st">Summary &amp; key findings</div><div class="sd">Plain-English read of the SOW.</div></div><span class="chip chip--approved">Run 3</span></div>
+            <p style="margin:0 0 8px">Two revenue lines: one-time TA recruitment fee (3 milestones) + recurring monthly OSS by headcount. Billed monthly, USD, net-30.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="ops-step">
+        <div class="rail"><span class="num">2</span></div>
+        <div class="body">
+          <button class="title" type="button" onclick="this.closest('.ops-step').classList.toggle('folded')">Analysis boxes</button>
+          <div class="content">
+            <div class="ops-boxrail">
+              <div class="ops-box">
+                <div class="bc-head"><span><span class="conf-dot hi"></span><b>Billing rules</b></span><span class="chip chip--draft">draft</span></div>
+                <div class="bc-data">
+                  <div class="conf-hi" style="padding:10px;border-radius:8px;margin-bottom:10px"><div class="lbl" style="margin-bottom:4px">AI · conf 92% · <em>§3.1</em></div>TA% by band × level × referral.</div>
+                  <div class="ops-scroll-x"><table><thead><tr><th>Band</th><th>Level</th><th>Ref</th><th>%</th></tr></thead><tbody><tr><td>51–250</td><td>Manager</td><td>Y</td><td>6.5</td></tr><tr><td>51–250</td><td>Director</td><td>N</td><td>9.5</td></tr></tbody></table></div>
+                </div>
+                <div class="ops-ai">
+                  <div class="ai-head"><span class="tw">✨</span> Ask this box</div>
+                  <div class="ai-chips"><span class="ai-chip">Explain TA%</span><span class="ai-chip">Worked example</span></div>
+                  <div class="ai-log"><div class="ai-msg bot"><span class="who">✨ AI:</span> Referral lowers the rate by ~3pts.</div></div>
+                  <div class="ai-row"><input placeholder="ask or instruct…"><button class="btn-ai">Send</button></div>
+                </div>
+              </div>
+              <div class="ops-box">
+                <div class="bc-head"><span><span class="conf-dot mid"></span><b>Flags</b></span><span class="chip chip--flag">2 open</span></div>
+                <div class="bc-data"><div class="conf-mid" style="padding:10px;border-radius:8px"><div class="lbl">AI · conf 70% · <em>§3</em></div>No VP/site-leader TA% row found.</div></div>
+                <div class="ops-ai"><div class="ai-head"><span class="tw">✨</span> Ask this box</div><div class="ai-row"><input placeholder="ask…"><button class="btn-ai">Send</button></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ops-step">
+        <div class="rail"><span class="num">3</span></div>
+        <div class="body">
+          <button class="title" type="button" onclick="this.closest('.ops-step').classList.toggle('folded')">Contract readiness</button>
+          <div class="content">
+            <div class="ops-sechead"><div><div class="st">Readiness gate</div><div class="sd">Derived from this contract's rule book.</div></div><span class="chip chip--flag">1 missing</span></div>
+            <div class="ops-chk ok"><span class="ic">✓</span><span>CTC definition</span></div>
+            <div class="ops-chk ok"><span class="ic">✓</span><span>TA rate table</span></div>
+            <div class="ops-chk miss"><span class="ic">✕</span><span>OSS slabs</span><button class="chip ask">Ask me</button></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="ops-step">
+        <div class="rail"><span class="num">4</span></div>
+        <div class="body">
+          <button class="title" type="button" onclick="this.closest('.ops-step').classList.toggle('folded')">Working sheet</button>
+          <div class="content">
+            <p class="lbl" style="margin:0 0 8px">Upload the employee working sheet.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap"><input type="file" style="flex:1;min-width:160px"><button class="btn">Upload &amp; map</button></div>
+            <div class="ops-vstep on" style="margin-top:10px"><span class="conf-dot hi"></span>Match terms to roster columns <span style="color:var(--brand-secondary)">✓ pass</span></div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <h2 class="sec">Buttons · chips</h2>
+    <div class="ops-band" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button class="btn">Primary</button><button class="btn--ghost">Ghost</button><button class="btn-ai"><span class="tw">✨</span>AI action</button>
+      <span class="chip">accent</span><span class="chip chip--draft">draft</span><span class="chip chip--approved">approved</span><span class="chip chip--flag">flag</span>
+    </div>
+    <div style="height:30px"></div>
+  </div>
+</body>
+</html>
