@@ -283,14 +283,19 @@ details.band[open] > summary .caret { transform: rotate(180deg); }
   width: 2px; transform: translateX(-50%); background: var(--ansr-border); z-index: 1; }
 /* right-angled tick from the line into the step body */
 .flow-rail::after { content: ""; position: absolute; top: 14px; left: 50%; width: 18px; height: 2px; background: var(--ansr-border); z-index: 1; }
-.flow-body { min-width: 0; } /* let inner tables/rail scroll horizontally */
+/* each step body is a connected card */
+.flow-body { min-width: 0; border: 1px solid var(--ansr-border); border-radius: 12px; background: var(--ansr-white); padding: 10px 14px 12px; }
+.flowstep.focus-step .flow-body { border-color: var(--ansr-orange); box-shadow: 0 0 0 3px rgba(255,84,0,.12); }
 .flow-title { display: block; width: 100%; text-align: left; background: none; border: 0; cursor: pointer;
-  color: var(--ansr-navy); font-weight: 500; font-size: 15px; padding: 4px 0 8px; }
+  color: var(--ansr-navy); font-weight: 500; font-size: 15px; padding: 2px 0; }
 .flow-title::after { content: "⌄"; float: right; transition: transform .2s linear; color: var(--ansr-gray); }
-.flow-content { overflow: hidden; transition: max-height .25s ease, opacity .2s ease; }
-.flowstep.folded .flow-content { max-height: 0; opacity: 0; }
+.flow-content { overflow: hidden; transition: max-height .25s ease, opacity .2s ease; padding-top: 8px; }
+.flowstep.folded .flow-content { max-height: 0; opacity: 0; padding-top: 0; }
 .flowstep.folded .flow-title::after { transform: rotate(-90deg); }
 .flowstep.done .flow-num { background: #e3f0f1; border-color: var(--ansr-teal); color: var(--ansr-teal); }
+/* connector reaches the card edge */
+.flow-rail::after { top: 24px; }
+.flowstep:not(:last-child) .flow-rail::before { bottom: -14px; }
 .boxcard .conf-hi, .boxcard .conf-mid, .boxcard .conf-lo { font-size: 12.5px; }
 .boxcard .ai-box { font-size: 12.5px; }
 .boxcard .ai-box .ai-head { font-size: 13px; }
