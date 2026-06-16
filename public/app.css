@@ -275,8 +275,8 @@ details.band[open] > summary .caret { transform: rotate(180deg); }
 /* recalibrate CTA — grey until changes pending, then purple, centred */
 .recal-wrap { display: flex; justify-content: center; margin: 16px 0 4px; }
 .btn-recal { min-height: 44px; padding: 11px 26px; border: 0; border-radius: var(--ansr-radius-pill);
-  background: var(--ansr-fill); color: var(--ansr-gray); font: inherit; font-weight: 500; cursor: pointer; transition: var(--ansr-transition); }
-.btn-recal:hover { filter: brightness(.97); }
+  background: #efe6fb; color: #6b2db0; font: inherit; font-weight: 500; cursor: pointer; transition: var(--ansr-transition); }
+.btn-recal:hover { background: #e6d6f8; }
 .btn-recal.dirty { background: linear-gradient(120deg, #7b2dc4, #9b51e0); color: #fff; box-shadow: 0 6px 18px rgba(123,45,196,.25); }
 .btn-recal:disabled { opacity: .7; cursor: default; }
 

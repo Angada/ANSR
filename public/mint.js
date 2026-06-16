@@ -364,7 +364,6 @@ function render() {
   foldFlow(false); // fresh render → all steps open
   const req = requiredInputs();
   window.READY = req.length > 0;
-  const reqHtml = req.map((x) => `<div class="chk ok"><span class="ic">•</span><span><b>${esc(x.field)}</b> <span class="lbl">— ${esc(x.why)}</span></span></div>`).join("");
 
   // step 1 — Contract summary
   const srcChip = DATA.source && DATA.source.startsWith("ai:")
@@ -376,66 +375,108 @@ function render() {
     <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:2px">Key findings</div>
     <ul class="findings sm">${DATA.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>`;
 
-  // step 2 — Analysis boxes (carousel)
+  // step 2 — Analysis boxes (carousel) + recalibrate-from-analysis
   const boxesEl = document.getElementById("boxes");
   if (boxesEl) boxesEl.innerHTML = `
     <div class="sd lbl" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <span>${SECDESC.boxes}</span>
       <span class="railnav"><button class="railbtn" onclick="scrollRail(-1)">‹</button><button class="railbtn" onclick="scrollRail(1)">›</button></span></div>
-    <div class="boxrail" id="boxrail">${DATA.boxes.map(boxCard).join("")}</div>`;
+    <div class="boxrail" id="boxrail">${DATA.boxes.map(boxCard).join("")}</div>
+    <p class="lbl" style="margin:12px 0 0;color:var(--ansr-gray)">Reviewed the boxes? Recalibrate to turn this analysis into billing rules + worksheet requirements.</p>
+    <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalBuild" onclick="recalBuild()">↻ Recalibrate from analysis${DIRTY ? " — changes pending" : ""}</button></div>
+    <div id="buildmeter"></div>`;
   dragScroll(document.getElementById("boxrail"));
 
-  // step 3 — Contract readiness (+ recalibrate box + meter)
-  const readyEl = document.getElementById("ready");
-  if (readyEl) readyEl.innerHTML = `
-    <div class="sd lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-      <span>${SECDESC.ready}</span>
-      <span class="chip" id="readyChip">${req.length} inputs needed</span></div>
-    ${reqHtml}
-    <p class="lbl" style="margin-top:10px;color:var(--ansr-gray)">On worksheet upload, Mint checks the sheet against these — anything missing or ambiguous comes up as a clarification before the calc runs.</p>
+  // step 3 — understanding + worksheet needs + clarify + lock
+  renderReady();
+}
+
+// NL bullets — what we understand so far (rules / mappings / conversions / exceptions). Generic.
+function understandingBullets() {
+  const rb = DATA.boxes.find((b) => b.box_type_code === "billing_rules")?.content || {};
+  const rt = Array.isArray(rb.ta_rate_table) ? rb.ta_rate_table : [];
+  const out = [...(DATA.findings || [])];
+  if (rt.some((r) => "referral" in r)) out.push("Source / hiring-channel labels are mapped to the contract's categories (e.g. referral vs non-referral) before any rate is applied.");
+  if (rb.currency) out.push("Amounts in other currencies are converted to the billing currency via FX — today's rate, or the historical rate for the billed period.");
+  out.push("Dates are normalised (dd/mm vs mm/dd resolved per source) so billing months and triggers compute correctly.");
+  const mand = requiredInputs().slice(0, 4).map((r) => r.field.toLowerCase());
+  out.push(`Mandatory to bill a row: ${mand.join(", ")}. Rows missing these are held as exceptions and not billed until resolved.`);
+  return out;
+}
+const needBullets = () => requiredInputs().map((r) => `<b>${esc(r.field)}</b> — ${esc(r.why)}`);
+
+function renderReady() {
+  const readyEl = document.getElementById("ready"); if (!readyEl) return;
+  const u = understandingBullets(), n = needBullets();
+  readyEl.innerHTML = `
+    <div class="sd lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+      <span>${SECDESC.ready}</span><span class="chip" id="readyChip">${window.RECALIBRATED ? "rules locked ✓" : "review"}</span></div>
+    <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin:6px 0 2px">Our understanding so far</div>
+    <ul class="findings sm">${u.map((b) => `<li>${b}</li>`).join("")}</ul>
+    <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin:12px 0 2px">What we'll need from your worksheet</div>
+    <ul class="findings sm">${n.map((b) => `<li>${b}</li>`).join("")}</ul>
     <div class="ai-box">
-      <div class="ai-head"><span class="tw">✨</span> Ask AI to clarify, or suggest inputs</div>
+      <div class="ai-head"><span class="tw">✨</span> Clarify or suggest — chat about the rules &amp; inputs</div>
       <div class="ai-chips">
-        <span class="ai-chip" onclick="askReady('What other inputs might this contract need that aren\\'t listed?')">Suggest missing inputs</span>
-        <span class="ai-chip" onclick="askReady('Clarify how referral status should be determined.')">Clarify referral</span>
-        <span class="ai-chip" onclick="askReady('What dates drive the billing and why?')">Which dates matter?</span>
+        <span class="ai-chip" onclick="askReady('What inputs might this contract need that aren\\'t listed?')">Suggest missing inputs</span>
+        <span class="ai-chip" onclick="askReady('Explain the mandatory fields and exceptions.')">Mandatory &amp; exceptions</span>
+        <span class="ai-chip" onclick="askReady('How are currencies and dates normalised here?')">Conversions</span>
       </div>
       <div class="ai-log" id="readylog"></div>
       <div class="ai-row"><input id="readyask" placeholder="ask to clarify, or suggest an input…" onkeydown="if(event.key==='Enter')askReady(this.value)"><button class="btn-ai" onclick="askReady(document.getElementById('readyask').value)">Ask</button></div>
     </div>
-    <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalBtn" onclick="recalibrate()">↻ Recalibrate${DIRTY ? " — changes pending" : ""}</button></div>
+    <p class="lbl" style="margin:10px 0 0;color:var(--ansr-gray)">When you're happy, recalibrate to lock these rules + checks. The worksheet (step 4) is then validated against them.</p>
+    <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalCommit" onclick="recalCommit()">↻ Recalibrate &amp; lock rules${DIRTY ? " — changes pending" : ""}</button></div>
     <div id="recal"></div>`;
 }
 
 let DIRTY = false;
 function setDirty(v) {
   DIRTY = v;
-  const b = document.getElementById("recalBtn");
-  if (b) { b.classList.toggle("dirty", v); b.textContent = v ? "↻ Recalibrate — changes pending" : "↻ Recalibrate"; }
+  ["recalBuild", "recalCommit"].forEach((id) => {
+    const b = document.getElementById(id); if (!b) return;
+    b.classList.toggle("dirty", v);
+    b.textContent = (id === "recalBuild" ? "↻ Recalibrate from analysis" : "↻ Recalibrate & lock rules") + (v ? " — changes pending" : "");
+  });
 }
 
-// real-time recalibration after corrections — cements rules, then unlocks step 4
-const RECAL_STEPS = ["Re-reading contract clauses", "Applying confirmed interpretations", "Recompiling rate + slab tables", "Cementing financial rules", "Recalibration complete"];
-window.recalibrate = async () => {
-  const host = document.getElementById("recal"); if (!host) return;
-  const btn = document.getElementById("recalBtn"); if (btn) btn.disabled = true;
-  host.innerHTML = `<div class="meter"><div class="meter-bar"><div class="meter-fill" id="mfill"></div></div>
-    <div class="meter-now" id="mnow"></div><div class="meter-list" id="mlist"></div></div>`;
-  const fill = document.getElementById("mfill"), now = document.getElementById("mnow"), list = document.getElementById("mlist");
-  for (let i = 0; i < RECAL_STEPS.length; i++) {
-    now.textContent = RECAL_STEPS[i];
-    fill.style.width = Math.round(((i + 1) / RECAL_STEPS.length) * 100) + "%";
-    list.insertAdjacentHTML("beforeend", `<div class="ms" id="ms-${i}">${esc(RECAL_STEPS[i])}…</div>`);
-    await new Promise((r) => setTimeout(r, 620));
-    const el = document.getElementById(`ms-${i}`); el.className = "ms done"; el.textContent = "✓ " + RECAL_STEPS[i];
+// shared meter theatre
+async function runMeter(steps, hostId, doneMsg) {
+  const host = document.getElementById(hostId); if (!host) return;
+  host.innerHTML = `<div class="meter"><div class="meter-bar"><div class="meter-fill" id="mfill"></div></div><div class="meter-now" id="mnow"></div><div class="meter-list" id="mlist"></div></div>`;
+  const fill = host.querySelector("#mfill"), now = host.querySelector("#mnow"), list = host.querySelector("#mlist");
+  for (let i = 0; i < steps.length; i++) {
+    now.textContent = steps[i]; fill.style.width = Math.round(((i + 1) / steps.length) * 100) + "%";
+    list.insertAdjacentHTML("beforeend", `<div class="ms" id="ms-${i}">${esc(steps[i])}…</div>`);
+    await new Promise((r) => setTimeout(r, 560));
+    const el = list.querySelector(`#ms-${i}`); el.className = "ms done"; el.textContent = "✓ " + steps[i];
   }
-  now.innerHTML = `<span style="color:var(--ansr-teal)">✓ Financial rules cemented · contract recalibrated</span>`;
+  if (doneMsg) now.innerHTML = `<span style="color:var(--ansr-teal)">${doneMsg}</span>`;
+}
+
+// step 2 → step 3: derive rules + exceptions + worksheet requirements from the analysis
+window.recalBuild = async () => {
+  const btn = document.getElementById("recalBuild"); if (btn) btn.disabled = true;
+  await runMeter([
+    "Reading the approved analysis", "Deriving billing rules", "Mapping labels (source · role · status)",
+    "Setting conversion / FX basis", "Listing mandatory fields + exceptions", "Building worksheet requirements",
+  ], "buildmeter", "✓ Rules, exceptions + worksheet requirements derived");
+  setDirty(false);
+  renderReady();
+  const s3 = document.querySelector('.flowstep[data-n="3"]'); if (s3) { s3.classList.remove("folded"); s3.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  if (btn) { btn.disabled = false; }
+};
+
+// step 3 → step 4: lock the rules after clarifications, focus the worksheet
+window.recalCommit = async () => {
+  const btn = document.getElementById("recalCommit"); if (btn) btn.disabled = true;
+  await runMeter([
+    "Applying your clarifications", "Recompiling the rule book", "Locking financial rules", "Finalising worksheet checks",
+  ], "recal", "✓ Rules locked · ready for the worksheet");
   setDirty(false); window.RECALIBRATED = true;
-  const chip = document.getElementById("readyChip"); if (chip) { chip.textContent = "recalibrated ✓"; chip.className = "chip chip--approved"; }
-  if (btn) { btn.disabled = false; btn.textContent = "↻ Recalibrate"; btn.classList.remove("dirty"); }
-  // collapse the contract steps (1–3) — focus shifts to the big next step
+  const chip = document.getElementById("readyChip"); if (chip) { chip.textContent = "rules locked ✓"; chip.className = "chip chip--approved"; }
+  if (btn) btn.disabled = false;
   [1, 2, 3].forEach((n) => document.querySelector(`.flowstep[data-n="${n}"]`)?.classList.add("folded"));
-  // unlock + open step 4 — working sheet (Excel ingestion)
   const ws = document.querySelector('.flowstep[data-n="4"]');
   if (ws) { ws.classList.remove("folded"); ws.classList.add("focus-step"); setTimeout(() => ws.scrollIntoView({ behavior: "smooth", block: "start" }), 200); }
 };
