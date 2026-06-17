@@ -131,6 +131,9 @@ function renderRunResult(res, month) {
       </div>
       <div id="releaseMsg" class="lbl" style="margin-top:8px"></div>
     </div>`;
+  // generation motion on the computed outcome, then cascade the clarification chips
+  sequenceReveal($("#outcome"), ".band", 0, 40);
+  setTimeout(() => sequenceReveal($("#outcome"), ".ai-box, .chk", 90, 0), 380);
 }
 
 window.releaseRun = async (no) => {
@@ -224,6 +227,17 @@ function purge() {
     $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">All runs purged. Press Generate to start fresh.</p>`;
     $("#stepwrap").style.display = "none"; $("#validate").innerHTML = ""; $("#outcome").innerHTML = "";
   }, "Delete all", true);
+}
+
+// Staggered "generation" reveal: each element starts as a light-grey dashed
+// skeleton (.gen, shimmer) then settles to a solid dark outline (.gen--in) —
+// shows motion + output creation as each box/section appears.
+function sequenceReveal(root, sel, step = 200, startDelay = 100) {
+  const els = [...(root || document).querySelectorAll(sel)];
+  els.forEach((el) => el.classList.add("gen"));
+  els.forEach((el, i) => setTimeout(() => {
+    el.classList.remove("gen"); el.classList.add("gen--in");
+  }, startDelay + i * step));
 }
 
 // ---- render summary + findings + boxes ----
@@ -406,9 +420,12 @@ function render() {
       <span class="railnav"><button class="railbtn" onclick="scrollRail(-1)">‹</button><button class="railbtn" onclick="scrollRail(1)">›</button></span></div>
     <div class="boxrail" id="boxrail">${DATA.boxes.map(boxCard).join("")}</div>
     <p class="lbl" style="margin:12px 0 0;color:var(--ansr-gray)">Reviewed the boxes? Recalibrate to turn this analysis into billing rules + worksheet requirements.</p>
+    <!-- boxes reveal one-by-one below: see sequenceReveal() call -->
     <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalBuild" onclick="recalBuild()">↻ Recalibrate from analysis${DIRTY ? " — changes pending" : ""}</button></div>
     <div id="buildmeter"></div>`;
   dragScroll(document.getElementById("boxrail"));
+  // generation motion: reveal each analysis box light→dark, one after another
+  sequenceReveal(document.getElementById("boxrail"), ".boxcard", 220);
 
   // step 3 — understanding + worksheet needs + clarify + lock
   renderReady();

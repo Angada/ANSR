@@ -394,6 +394,47 @@ a.agent:hover { border-color: var(--ansr-orange); transform: translateY(-1px); }
 .step .v { float: right; font-weight: 500; color: var(--ansr-navy); }
 td.pending, .pending-val { color: var(--ansr-gray-mid); }
 
+/* ============================================================================
+   Generation markers + motion — every touch shows movement & creation.
+   A card/element being "generated" starts as a light-grey DASHED outline with a
+   shimmer sweep + dimmed content, then settles to a solid DARK outline as its
+   content reveals (gen → gen--in). Used across the flow: analysis boxes, findings,
+   summary, recal meter, outcome.
+   ============================================================================ */
+@keyframes gen-shimmer { 0% { background-position: -150% 0; } 100% { background-position: 250% 0; } }
+@keyframes gen-pop { 0% { opacity: 0; transform: translateY(10px) scale(.985); } 100% { opacity: 1; transform: none; } }
+@keyframes gen-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,84,0,.0); } 50% { box-shadow: 0 0 0 5px rgba(255,84,0,.14); } }
+@media (prefers-reduced-motion: reduce) { .gen, .gen::after, .gen--in { animation: none !important; } .gen > * { opacity: 1 !important; filter: none !important; } }
+
+/* the "being generated" skeleton state */
+.gen { position: relative; border: 1.5px dashed var(--ansr-line) !important; }
+.gen > * { opacity: .25; filter: blur(.5px); transition: opacity .4s ease, filter .4s ease; }
+.gen::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 3;
+  background: linear-gradient(100deg, transparent 30%, rgba(255,84,0,.10) 48%, rgba(123,45,196,.08) 56%, transparent 72%);
+  background-size: 220% 100%; animation: gen-shimmer 1.05s linear infinite; }
+/* the reveal — light → dark outline, content settles in */
+.gen--in { animation: gen-pop .42s cubic-bezier(.22,1,.36,1) both; }
+
+/* analysis boxes: outline travels light-grey → dark-grey on creation, lift on hover */
+.boxcard { transition: border-color .55s ease, box-shadow .25s ease, transform .18s ease; }
+.boxcard.gen { border-style: dashed; border-color: var(--ansr-line) !important; }
+.boxcard.gen--in { border-color: var(--ansr-gray); }
+.boxcard:hover { transform: translateY(-3px); border-color: var(--ansr-navy); box-shadow: 0 10px 28px rgba(0,40,53,.12); }
+.boxcard .bc-head b { transition: color .2s ease; }
+.boxcard:hover .bc-head b { color: var(--ansr-orange-deep, var(--ansr-orange)); }
+
+/* findings drop in one by one */
+.findings.sm li { animation: gen-pop .4s ease both; }
+
+/* every touch has motion: chips, buttons, kpis, steps */
+.ai-chip, .chip, .chipf, .btn, .btn-ai, .railbtn, .kpi, .conn { transition: transform .15s ease, box-shadow .15s ease, background .15s ease, border-color .15s ease; }
+.ai-chip:hover, .chipf:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(0,40,53,.10); }
+.btn:hover, .btn-ai:hover, .railbtn:hover { transform: translateY(-1px); }
+.btn:active, .btn-ai:active, .ai-chip:active { transform: translateY(0) scale(.97); }
+.kpi:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,40,53,.10); }
+.conn:hover { transform: translateY(-2px); border-color: var(--ansr-navy); box-shadow: 0 8px 20px rgba(0,40,53,.10); }
+.node.active .dot { animation: gen-pulse 1.1s ease-in-out infinite; }
+
 /* print: audit pack */
 @media print { .no-print { display: none !important; } .section { break-inside: avoid; } body { font-size: 12px; } }
 

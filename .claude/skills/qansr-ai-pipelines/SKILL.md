@@ -12,8 +12,30 @@ Each pipeline: `id, name, kind, description, provider, model, skills[], enabled`
 - **kind** = `deterministic` (no model — pure calc/IO) · `llm` · `hybrid` (deterministic + model narration).
 - Only **enabled** `llm`/`hybrid` pipelines may call a provider.
 
-Current pipelines: `contract-intake` · `normalize` · `calc` (deterministic) · `assure` ·
-`statement` (deterministic) · `clarify` · `qa`.
+Current pipelines, grouped by product (each row in admin shows **gate** + **skills** + **model selector**):
+
+**Mint**
+| id | kind | model selector | skills |
+|---|---|---|---|
+| contract-intake | hybrid | ✅ | qansr-contract-intake, knowledge-store |
+| normalize | hybrid | ✅ | qansr-normalizer |
+| calc | deterministic | — | qansr-calc-engine, lifecycle-ledger |
+| assure | hybrid | ✅ | variance, invoice-assurance, exceptions |
+| statement | deterministic | — | qansr-statement-generator |
+| clarify | llm | ✅ | qansr-ai-clarify |
+| qa (grounded chat) | hybrid | ✅ | knowledge-store, **bigflex**, **atlas** |
+
+**Atlas** (the cross-contract learning brain)
+| id | kind | model selector | skills |
+|---|---|---|---|
+| atlas-classify | hybrid | ✅ | atlas, bigflex |
+| atlas-preintake | llm | ✅ | atlas, knowledge-store |
+| atlas-embed | deterministic | — | atlas |
+| atlas-federation | deterministic | — | atlas |
+| atlas-epidemiology | deterministic | — | atlas |
+| atlas-drift | deterministic | — | atlas |
+
+**Merge policy (mergeDefaults):** a user's runtime choices (provider / model / enabled / prompt) are preserved across config saves, while **code-defined descriptive fields (name / description / skills / kind) always take the latest** from `DEFAULT_CONFIG` — so new pipelines and registry edits propagate over a saved prod config without wiping settings (same rule already used for provider model lists).
 
 ## The gate (non-negotiable)
 1. Raw user text is **never** sent to a model outside a pipeline.
