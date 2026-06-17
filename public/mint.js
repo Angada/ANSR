@@ -109,7 +109,7 @@ function renderUnderstanding() {
       <a class="chip chip--approved" href="${d.apiUrl}" target="_blank">API · ${esc(d.docId)}</a>
       <span class="lbl">${d.rowCount} rows</span>${head}</div>
     <div class="chatbox">${bubbles}${qs}
-      <div class="ai-row"><input id="rosterAsk" placeholder="reply or instruct in plain English…" onkeydown="if(event.key==='Enter')rosterFreeText(this.value)"><button class="btn-ai" onclick="rosterFreeText(document.getElementById('rosterAsk').value)">Send</button></div>
+      <div class="ai-row"><input id="rosterAsk" placeholder="reply or instruct in plain English…" onkeydown="if(event.key==='Enter')rosterFreeText(this.value)"><button class="send-btn" aria-label="Send" onclick="rosterFreeText(document.getElementById('rosterAsk').value)">➤</button></div>
     </div>
     <div class="recal-wrap"><button class="btn-recal ${pending ? "" : "dirty"}" id="rosterSave" onclick="recalSaveRoster()">↻ Recalibrate &amp; save to database</button></div>
     <div id="rsavemeter"></div>`;
@@ -369,7 +369,7 @@ function boxCard(b) {
       <div class="ai-head"><span class="tw">✨</span> Ask this box</div>
       <div class="ai-chips">${chips}</div>
       <div class="ai-log" id="log-${b.id}"></div>
-      <div class="ai-row"><input id="ask-${b.id}" placeholder="ask or instruct…" onkeydown="if(event.key==='Enter')askBox('${b.id}', this.value)"><button class="btn-ai" onclick="askBox('${b.id}', document.getElementById('ask-${b.id}').value)">Send</button></div>
+      <div class="ai-row"><input id="ask-${b.id}" placeholder="ask or instruct…" onkeydown="if(event.key==='Enter')askBox('${b.id}', this.value)"><button class="send-btn" aria-label="Send" onclick="askBox('${b.id}', document.getElementById('ask-${b.id}').value)">➤</button></div>
     </div>
   </div>`;
 }
