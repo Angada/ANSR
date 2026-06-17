@@ -2,8 +2,11 @@
 // new one), and serve the archetype wiki. Cross-contract meta-learning layer.
 import { q } from "../db/client.js";
 import { getRuleBook } from "../engine/run.js";
+import { putExtract, getExtract } from "../storage.js";
 import { fingerprint, archetypeSlug, archetypeName, playbook } from "./fingerprint.js";
 import { rank, decide } from "./match.js";
+
+const ATLAS_NS = "_ATLAS"; // store namespace for the MD knowledge wikis
 
 async function loadArchetypes() {
   try { return (await q(`select id, slug, name, version, fingerprint, rule_template, operators, required_inputs, normalizers, playbook_md, stats from archetype where status='active'`)).rows || []; }
@@ -43,9 +46,58 @@ export async function route(client) {
   if (archetype) await q(`update archetype set stats = jsonb_set(coalesce(stats,'{}'::jsonb),'{members}', (select to_jsonb(count(*)) from contract_fingerprint where archetype_id=$1)::jsonb), updated_at=now() where id=$1`, [archetype.id]).catch(() => {});
   q(`insert into audit_log(actor,action,object_type,object_id,detail) values('atlas','atlas.route','customer',$1,$2::jsonb)`,
     [client, JSON.stringify({ decision: c.decision, archetype: archetype?.slug, sim })]).catch(() => {});
+  await refreshWiki().catch(() => {}); // regenerate the MD knowledge wikis (hybrid learning)
   return { client, decision: c.decision, similarity: sim, archetype: archetype ? { id: archetype.id, slug: archetype.slug, name: archetype.name, version: archetype.version } : null,
     candidates: c.candidates, fingerprint: fp, preloaded: archetype?.rule_template || rb, playbook_md: archetype?.playbook_md };
 }
+
+// ---- hybrid knowledge: MD wikis + relationship graph + common denominators ----
+function tally(arcs, key) {
+  const m = {}; for (const a of arcs) for (const x of (a.fingerprint?.[key] || [])) m[x] = (m[x] || 0) + 1;
+  return Object.entries(m).sort((a, b) => b[1] - a[1]);
+}
+function inter(a = [], b = []) { const B = new Set(b); return a.filter((x) => B.has(x)); }
+
+async function refreshWiki() {
+  let arcs = []; try { arcs = (await q(`select * from archetype where status='active'`)).rows || []; } catch { return; }
+  const membersBy = {};
+  try { for (const r of (await q(`select f.archetype_id, c.code, c.name from contract_fingerprint f join customer c on c.id=f.customer_id`)).rows || []) (membersBy[r.archetype_id] ||= []).push(r); } catch { /* */ }
+
+  // per-archetype wiki (playbook + fingerprint + members + neighbours)
+  for (const a of arcs) {
+    const mem = membersBy[a.id] || [];
+    const neighbours = arcs.filter((b) => b.id !== a.id).map((b) => ({ slug: b.slug, sharedHeads: inter(a.fingerprint?.heads, b.fingerprint?.heads), sharedDims: inter(a.fingerprint?.dims, b.fingerprint?.dims) }))
+      .filter((n) => n.sharedHeads.length || n.sharedDims.length);
+    const md = [
+      `# Archetype · ${a.name} (\`${a.slug}\` v${a.version})`, "",
+      a.playbook_md || "", "",
+      `## Fingerprint`, "```json", JSON.stringify(a.fingerprint, null, 1), "```", "",
+      `## Member contracts (${mem.length})`, ...mem.map((m) => `- ${m.name || m.code} (${m.code})`), "",
+      `## Related archetypes`, ...(neighbours.length ? neighbours.map((n) => `- **${n.slug}** — shares heads [${n.sharedHeads.join(", ")}]${n.sharedDims.length ? `, dims [${n.sharedDims.join(", ")}]` : ""}`) : ["- none yet"]),
+    ].join("\n");
+    await putExtract(ATLAS_NS, a.slug, md).catch(() => {});
+  }
+
+  // index wiki = relationship graph + common denominators across ALL contracts
+  const commonHeads = tally(arcs, "heads"), commonDims = tally(arcs, "dims"), commonMeasures = tally(arcs, "measures");
+  const edges = [];
+  for (let i = 0; i < arcs.length; i++) for (let j = i + 1; j < arcs.length; j++) {
+    const sh = inter(arcs[i].fingerprint?.heads, arcs[j].fingerprint?.heads);
+    if (sh.length) edges.push(`- ${arcs[i].slug} ⟷ ${arcs[j].slug} — shared: ${sh.join(", ")}`);
+  }
+  const idx = [
+    `# Atlas — contract archetype wiki`, `_${arcs.length} archetypes · regenerated each route_`, "",
+    `## Archetypes`, ...arcs.map((a) => `- [${a.name}](/api/atlas/wiki/${a.slug}) \`${a.slug}\` — ${(membersBy[a.id] || []).length} contracts · heads: ${(a.fingerprint?.heads || []).join(", ")}`), "",
+    `## Common denominators (across all contracts)`,
+    `**Revenue heads:** ${commonHeads.map(([k, n]) => `${k}×${n}`).join(" · ") || "—"}`,
+    `**Dimensions:** ${commonDims.map(([k, n]) => `${k}×${n}`).join(" · ") || "—"}`,
+    `**Measures:** ${commonMeasures.map(([k, n]) => `${k}×${n}`).join(" · ") || "—"}`, "",
+    `## Relationship graph`, ...(edges.length ? edges : ["- (single archetype — no edges yet)"]),
+  ].join("\n");
+  await putExtract(ATLAS_NS, "index", idx).catch(() => {});
+}
+
+export async function getWiki(slug) { return getExtract(ATLAS_NS, slug || "index"); }
 
 export async function listArchetypes() {
   const rows = await loadArchetypes();

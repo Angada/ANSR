@@ -17,7 +17,7 @@ import { inferMapping, detectIssues, summarizeIssues, CANONICAL } from "./roster
 import { runPipeline, aiMap, buildContext } from "./ai.js";
 import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples } from "./engine/run.js";
 import { getRate, setManualRate } from "./fx.js";
-import { classify as atlasClassify, route as atlasRoute, listArchetypes, archetypeDetail } from "./atlas/atlas.js";
+import { classify as atlasClassify, route as atlasRoute, listArchetypes, archetypeDetail, getWiki } from "./atlas/atlas.js";
 import { runMigrations } from "./migrate.js";
 import { stubClauses, upsertInterpretation, getInterpretations } from "./clauses.js";
 
@@ -441,6 +441,9 @@ app.post("/api/atlas/classify/:client", async (req, res) => { try { res.json(awa
 app.post("/api/atlas/route/:client", async (req, res) => { try { res.json(await atlasRoute(slug(req.params.client))); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.get("/api/atlas/archetypes", async (_req, res) => { try { res.json({ archetypes: await listArchetypes() }); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.get("/api/atlas/archetype/:slug", async (req, res) => { const a = await archetypeDetail(req.params.slug); a ? res.json(a) : res.status(404).json({ error: "not found" }); });
+// hybrid-knowledge wikis (MD) — doc×api switch over the Atlas namespace
+app.get("/api/atlas/wiki", async (_req, res) => { const md = await getWiki("index"); res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.send(md || "# Atlas\nNo archetypes yet — route a contract."); });
+app.get("/api/atlas/wiki/:slug", async (req, res) => { const md = await getWiki(req.params.slug); md == null ? res.status(404).send("not found") : (res.setHeader("Content-Type", "text/plain; charset=utf-8"), res.send(md)); });
 app.post("/api/box/:id/amend", (req, res) => {
   res.json({ ok: true, box_id: req.params.id, version: 2, note: "stub — amendment recorded; recompiles rule on real engine" });
 });

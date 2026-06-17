@@ -61,4 +61,10 @@ window.showArch = async (slug) => {
   $("#detail").scrollIntoView({ behavior: "smooth", block: "start" });
 };
 
+window.showWiki = async () => {
+  const md = await (await fetch("/api/atlas/wiki")).text();
+  $("#detail").innerHTML = `<div class="band" style="margin-top:14px"><pre style="white-space:pre-wrap;font:inherit;font-size:13px;color:var(--ansr-text);margin:0">${esc(md)}</pre></div>`;
+  $("#detail").scrollIntoView({ behavior: "smooth", block: "start" });
+};
+
 init();

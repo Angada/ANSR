@@ -24,6 +24,10 @@ Makes each new contract faster/cheaper than the last. Step 0 before intake.
 - **Atlas** (`server/atlas/atlas.js`) — `classify` (no mutation) / `route` (adopt or crystallise an archetype, persist `contract_fingerprint`, bump stats) / wiki list + detail. Cross-contract learning via `norm_federation` (contract→archetype→global promotion ladder + conflict detection).
 - **Schema** (`db/init/010_atlas.sql`): `archetype` (fingerprint + rule_template + operators + required_inputs + normalizers + playbook_md + stats), `contract_fingerprint`, `norm_federation`.
 - **APIs**: `POST /api/atlas/classify/:client` · `/api/atlas/route/:client` · `GET /api/atlas/archetypes` · `/api/atlas/archetype/:slug`. **UI**: `public/atlas.*` (live agent card).
+- **Hybrid learning (not just DB rows)** — every route regenerates:
+  - **MD wikis** per archetype (playbook + fingerprint + members + related archetypes) at `_ATLAS/<slug>.md`, served via the doc×api switch (`GET /api/atlas/wiki/:slug`).
+  - a **relationship-graph index** (`/api/atlas/wiki`) — archetypes, edges (shared heads/dims), and **common denominators** across all contracts (head/dimension/measure frequencies).
+  - **schema templates** in `archetype.rule_template` (jsonb), **DB structures** for matching, and **`norm_federation`** for shared label dictionaries. So knowledge lives as MD (human/AI-readable) + graph + schema + DB together.
 - **Effect at scale**: contract #1 seeds an archetype; same-shape contracts auto-match (sim→1) and pre-load the rule book/inputs/playbook; exception epidemiology + drift detection make clarifications-per-contract trend to ~0.
 
 ## Per-run artifacts — the hybrid store (DB · MD · JSON · vault)
