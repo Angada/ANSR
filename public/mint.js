@@ -149,14 +149,23 @@ window.recalSaveRoster = async () => {
 };
 
 // After save: collapse above, surface the action sequence — calculate → invoice → charts.
-function showActions() {
-  const month = new Date().toISOString().slice(0, 7);
+// The invoice-month picker is CALIBRATED from the worksheet's own dates.
+async function showActions() {
+  let r = { min: null, max: null, default: null };
+  try { r = await (await fetch(`/api/mint/daterange/${$("#client").value}`)).json(); } catch { /* */ }
+  const month = r.default || new Date().toISOString().slice(0, 7);
+  const bounds = `${r.min ? `min="${r.min}"` : ""} ${r.max ? `max="${r.max}"` : ""}`;
+  const hint = r.min && r.max
+    ? (r.min === r.max ? `worksheet has data for ${r.max}` : `worksheet spans ${r.min} → ${r.max}`)
+    : "no dates in the worksheet — pick any month";
   $("#validate").innerHTML = `<div class="band grad-teal" style="margin-top:16px">
     <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 6px">Calculate the bill</h3>
     <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-      <div><label class="lbl">Invoice month</label><input type="month" id="calcMonth" value="${month}" style="min-width:150px"></div>
+      <div><label class="lbl">Invoice month</label><input type="month" id="calcMonth" value="${month}" ${bounds} style="min-width:150px"></div>
       <button class="btn-ai" id="runCalc"><span class="tw">✨</span>Calculate invoice</button>
-    </div><div id="calcmeter"></div></div>`;
+    </div>
+    <p class="lbl" style="margin:8px 0 0;color:var(--ansr-gray)">📅 ${hint}.</p>
+    <div id="calcmeter"></div></div>`;
   $("#runCalc").addEventListener("click", runCompute);
   document.getElementById("validate").scrollIntoView({ behavior: "smooth", block: "center" });
 }

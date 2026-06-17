@@ -16,6 +16,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { inferMapping, detectIssues, summarizeIssues, CANONICAL } from "./roster.js";
 import { runPipeline, aiMap, buildContext } from "./ai.js";
 import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples, federation, epidemiology } from "./engine/run.js";
+import { parseDate } from "./engine/normalize.js";
 import { getRate, setManualRate } from "./fx.js";
 import { classify as atlasClassify, route as atlasRoute, listArchetypes, archetypeDetail, getWiki } from "./atlas/atlas.js";
 import { createDrift } from "./atlas/drift.js";
@@ -156,6 +157,20 @@ app.get("/api/mint/runs/:client", async (req, res) => {
     if (r.rows?.length) return res.json({ runs: r.rows.map((x) => ({ run_no: x.run_no, month: x.invoice_month || x.created, status: x.status, label: x.label })) });
   } catch { /* fall back */ }
   res.json({ runs: stubRuns(client) });
+});
+
+// Billing-month range CALIBRATED from the worksheet's own dates — scans every
+// date-like value in the ledger (generic; works for any contract structure).
+// SaaS/usage contracts with no dates → empty range → client falls back to today.
+app.get("/api/mint/daterange/:client", async (req, res) => {
+  const client = slug(req.params.client);
+  const set = new Set();
+  try {
+    const rows = (await q(`select raw from placement where customer_id=(select id from customer where code=$1)`, [client])).rows || [];
+    for (const r of rows) for (const v of Object.values(r.raw || {})) { const d = parseDate(v); if (d.iso) set.add(d.iso.slice(0, 7)); }
+  } catch { /* */ }
+  const months = [...set].sort();
+  res.json(months.length ? { min: months[0], max: months[months.length - 1], months, default: months[months.length - 1] } : { min: null, max: null, months: [], default: null });
 });
 app.get("/api/mint/run/:client/:no", async (req, res) => {
   const client = slug(req.params.client), no = Number(req.params.no) || 1;
