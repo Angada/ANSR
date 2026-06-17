@@ -246,6 +246,29 @@ function invoiceFromManifest(client, m) {
     notes: "Computed by Q&ANSR · Mint from the SOW + worksheet. Clause- and calc-traceable." };
 }
 
+// Analytics — generic, assembled from every computed run's manifest (no
+// contract-specific assumptions): monthly series + a flat, filterable line list.
+app.get("/api/mint/analytics/:client", async (req, res) => {
+  const client = slug(req.params.client);
+  let runs = [];
+  try { runs = (await q(`select run_no, manifest from run where customer_id=(select id from customer where code=$1) order by run_no`, [client])).rows || []; } catch { /* */ }
+  const byMonth = new Map(); // latest run per invoice_month
+  for (const r of runs) { const m = r.manifest; if (m?.source === "engine" && m.invoice_month) byMonth.set(m.invoice_month, m); }
+  const months = [], lines = [];
+  let currency = "USD";
+  for (const m of [...byMonth.values()].sort((a, b) => a.invoice_month.localeCompare(b.invoice_month))) {
+    currency = m.currency || currency;
+    months.push({ month: m.invoice_month, oss: m.totals?.oss || 0, ta: m.totals?.ta || 0, grand: m.totals?.grand || 0, run_no: m.run_no, exceptions: (m.exceptions || []).length });
+    if (m.oss) lines.push({ month: m.invoice_month, head: "OSS", name: "Operations Support", level: "", referral: null, tech: null, ccy: m.currency, amount: m.oss.oss_amount });
+    for (const t of m.ta || []) {
+      if (t.sourcing_billed) lines.push({ month: m.invoice_month, head: "TA · Sourcing", name: t.employee, level: t.level, referral: t.referral, tech: t.tech, ccy: t.ccy, amount: t.sourcing_billed });
+      if (t.acceptance_billed) lines.push({ month: m.invoice_month, head: "TA · Acceptance", name: t.employee, level: t.level, referral: t.referral, tech: t.tech, ccy: t.ccy, amount: t.acceptance_billed });
+      if (t.balance_billed) lines.push({ month: m.invoice_month, head: "TA · Balance", name: t.employee, level: t.level, referral: t.referral, tech: t.tech, ccy: t.ccy, amount: t.balance_billed });
+    }
+  }
+  res.json({ client, currency, months, lines });
+});
+
 app.post("/api/mint/purge", async (req, res) => {
   const client = slug(req.body?.client || "ANSR-KENVUE");
   try {
