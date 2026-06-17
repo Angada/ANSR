@@ -53,12 +53,16 @@ async function mapRoster() {
   $("#rmap").disabled = false;
   if (!ROSTER || ROSTER.error) { $("#rout").innerHTML = `<p class="lbl" style="color:#d6402a;margin-top:10px">${esc(ROSTER?.error || "Could not read the sheet.")}</p>`; return; }
   ROSTER.answers = {};
-  ROSTER._clar = rosterClarifications(ROSTER);
+  // prefer the AI's natural-language read + questions; fall back to heuristics
+  ROSTER._clar = ROSTER.ai
+    ? (ROSTER.ai.questions || []).map((x) => ({ topic: x.topic || "note", q: esc(x.question || ""), options: (x.options && x.options.length ? x.options : ["OK"]) }))
+    : rosterClarifications(ROSTER);
   renderUnderstanding();
 }
 
 // Plain-English read of the data — what we understood, no tables.
 function rosterUnderstanding(d) {
+  if (d.ai?.understanding?.length) return d.ai.understanding.map(esc); // natural AI read
   const m = d.mapping || {}; const out = [];
   out.push(`I read <b>${d.rowCount}</b> row${d.rowCount === 1 ? "" : "s"} from sheet “${esc(d.sheet || "")}” in <b>${esc(d.filename)}</b>.`);
   const mapped = Object.entries(m).map(([f, h]) => `<b>${FIELD_LABEL[f] || f}</b> ← “${esc(h)}”`);
@@ -100,9 +104,10 @@ function renderUnderstanding() {
             : `<div class="ai-chips">${c.options.map((o) => `<span class="ai-chip" onclick="answerRoster(${i}, this.dataset.v)" data-v="${esc(o)}">${esc(o)}</span>`).join("")}</div>`}
     </div>`;
   }).join("");
-  const head = (!cl.length || !pending)
+  const aiBadge = d.ai?.mode === "ai" ? `<span class="chip chip--approved" title="read by ${esc(d.ai.model || "AI")}">🤖 AI read</span>` : "";
+  const head = ((!cl.length || !pending)
     ? `<span class="chip chip--approved">All columns understood ✓</span>`
-    : `<span class="chip chip--flag">${pending} to confirm</span>`;
+    : `<span class="chip chip--flag">${pending} to confirm</span>`) + aiBadge;
   $("#rout").innerHTML = `
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <span class="chip">📄 ${esc(d.filename)}</span>

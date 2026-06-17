@@ -314,11 +314,35 @@ app.post("/api/mint/roster/map", upload.single("file"), async (req, res) => {
     await q(`insert into document(customer_id,doc_type,filename,sha256,storage_path,md_path,meta)
              values((select id from customer where code=$1),'roster',$2,$3,$4,$5,$6) on conflict do nothing`,
       [client, f.originalname, sha256, storagePath, mdPath, JSON.stringify({ sheet: sheet?.name, rows: rows.length })]).catch(() => {});
+    // AI reads the actual data and explains it in natural language + asks only the
+    // clarifications it genuinely needs (gated normalize pipeline). Heuristic
+    // fallback lives in the client when there's no model/key.
+    const ai = await understandRoster(client, { headers, mapping, sample: rows.slice(0, 6), issues }).catch(() => null);
     res.json({ filename: f.originalname, docId, apiUrl: `/api/doc/${client}/${docId}`,
       sheet: sheet?.name, headers, canonical: CANONICAL, mapping, rowCount: rows.length,
-      rows: rows.slice(0, 25), issues, summary: summarizeIssues(issues) });
+      rows: rows.slice(0, 25), issues, summary: summarizeIssues(issues), ai });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// AI worksheet understanding — natural language, asks real clarifications.
+async function understandRoster(client, { headers, mapping, sample, issues }) {
+  let rb = {}; try { rb = await getRuleBook(client); } catch { /* */ }
+  const need = (rb.inputs || []).map((i) => i.field).join(", ") || "name, dates, CTC, source, level";
+  const sys = `You are a friendly AR analyst reading a client's employee working sheet so it can be billed.
+Talk like a helpful colleague — natural, warm, concise. NEVER output tables or JSON prose; write plain sentences.
+The billing needs these inputs: ${need}.
+Return STRICT JSON only: {"understanding":["short natural sentence", ...], "questions":[{"topic":"...","question":"natural question","options":["opt a","opt b"]}]}
+Rules: only ask a question when you genuinely can't tell from the data (e.g. whether Total CTC = fixed + variable, or a date format that's ambiguous). Use topic "ctc" for CTC composition, "date_format" for date format, "map:<field>" to confirm a column for a billing field. If everything is clear, return an empty questions array.`;
+  const user = `Headers: ${JSON.stringify(headers)}
+My auto-mapping (billing field → column): ${JSON.stringify(mapping)}
+A few sample rows: ${JSON.stringify(sample)}
+Data issues I noticed: ${JSON.stringify((issues || []).slice(0, 8))}`;
+  const out = await runPipeline("normalize", { system: sys, user, maxTokens: 900 });
+  if (out.mode !== "ai" || !out.text) return null;
+  const m = out.text.match(/\{[\s\S]*\}/); if (!m) return null;
+  try { const j = JSON.parse(m[0]); return { understanding: j.understanding || [], questions: j.questions || [], mode: out.mode, model: out.model }; }
+  catch { return null; }
+}
 
 // the periodic feed can be an API, not just a file: push rows[] or pull a url.
 // Flows into the SAME map → confirm → compute pipeline as an upload.
