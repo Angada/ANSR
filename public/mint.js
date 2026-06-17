@@ -170,7 +170,7 @@ function renderRunResult(res, month) {
   const clar = (res.clarifications || []).map((c) => `
     <div class="ai-box" style="margin-top:8px">
       <div class="ai-head"><span class="tw">✨</span> ${esc(c.question)} <span class="chip chip--flag" style="margin-left:auto">${c.rows_affected || 1} rows</span></div>
-      <div class="ai-chips">${(c.options || []).map((o) => `<span class="ai-chip" onclick="resolveClar('${esc(c.topic)}','${esc(o)}','${month}')">${esc(o)}</span>`).join("")}</div>
+      <div class="ai-chips">${(c.options || []).map((o) => `<span class="ai-chip" onclick="resolveClar('${esc(c.topic)}','${esc(o)}','${month}',${res.run_no})">${esc(o)}</span>`).join("")}</div>
     </div>`).join("");
   const exc = (res.exceptions || []).map((e) => `<div class="chk miss"><span class="ic">✕</span><span><b>${esc(e.ext_id || "row")}</b> — ${esc(e.issue)} <span class="lbl">${esc(e.detail || "")}</span></span></div>`).join("");
   $("#outcome").innerHTML = `
@@ -196,6 +196,7 @@ function renderRunResult(res, month) {
         <a class="btn-ai" href="/invoice-doc.html?customer=${$("#client").value}&run=${res.run_no}#invoice"><span class="tw">✨</span>Generate invoice</a>
         <a class="btn btn--ghost" href="/invoice-doc.html?customer=${$("#client").value}&run=${res.run_no}#calc">Detailed calculations</a>
         <a class="btn btn--ghost" href="/invoice.html?customer=${$("#client").value}&run=${res.run_no}">Replay + heatmap</a>
+        <button class="btn btn--ghost" id="recalRunBtn" onclick="recalibrateRun(${res.run_no},'${month}')">↻ Recalibrate this run</button>
         <button class="btn btn--ghost" id="releaseBtn" onclick="releaseRun(${res.run_no})" style="border-color:var(--ansr-teal);color:var(--ansr-teal)">🔒 Release &amp; lock</button>
       </div>
       <div id="releaseMsg" class="lbl" style="margin-top:8px"></div>
@@ -205,6 +206,16 @@ function renderRunResult(res, month) {
   setTimeout(() => sequenceReveal($("#outcome"), ".ai-box, .chk", 90, 0), 380);
 }
 
+// Recalibrate an existing run in place — recompute run `no` with the current
+// rules + decisions (does NOT spawn a new run). For old runs: chat, view, recal.
+window.recalibrateRun = async (no, month) => {
+  const btn = document.getElementById("recalRunBtn"); if (btn) { btn.disabled = true; btn.textContent = "↻ Recalibrating…"; }
+  const m = month || new Date().toISOString().slice(0, 7);
+  const res = await (await fetch("/api/mint/run/compute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, month: m, runNo: no }) })).json();
+  window.RUN = res; renderRunResult(res, m);
+  await loadRuns(); $("#run").value = no;
+};
+
 window.releaseRun = async (no) => {
   appConfirm("Release run", `Freeze run ${no} for ${$("#client").value}? The statement becomes immutable for audit; a later calculation opens a new version.`, async () => {
     const r = await (await fetch(`/api/mint/run/${$("#client").value}/${no}/release`, { method: "POST" })).json();
@@ -213,8 +224,8 @@ window.releaseRun = async (no) => {
   }, "Release", false);
 };
 
-window.resolveClar = async (topic, choice, month) => {
-  const res = await (await fetch("/api/mint/clarify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, topic, choice, month }) })).json();
+window.resolveClar = async (topic, choice, month, runNo) => {
+  const res = await (await fetch("/api/mint/clarify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, topic, choice, month, runNo }) })).json();
   window.RUN = res; renderRunResult(res, month);
 };
 
@@ -264,6 +275,12 @@ async function openRun(no) {
   $("#stepwrap").style.display = "block";
   renderStepper(DATA.steps.length); // all done
   render();
+  // old engine run → show its computed outcome (view + recalibrate + chat)
+  if (DATA.source === "engine" && DATA.totals) {
+    foldFlow(true);
+    window.RUN = DATA;
+    renderRunResult({ run_no: DATA.run_no, computed: DATA.computed, exceptions: DATA.exceptions || [], clarifications: DATA.clarifications || [], totals: DATA.totals, currency: DATA.currency }, DATA.invoice_month);
+  } else { $("#outcome").innerHTML = ""; }
 }
 
 function renderStepper(doneUpTo, active = -1) {

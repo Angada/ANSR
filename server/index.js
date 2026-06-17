@@ -358,7 +358,9 @@ app.post("/api/mint/roster/confirm", async (req, res) => {
 app.post("/api/mint/run/compute", async (req, res) => {
   const client = slug(req.body?.client || "ANSR-KENVUE");
   const month = (req.body?.month || new Date().toISOString().slice(0, 7));
-  try { res.json(await computeAndPersist(client, month)); }
+  // runNo present → recalibrate THAT existing run in place; absent → a new full run.
+  const runNo = req.body?.runNo;
+  try { res.json(await computeAndPersist(client, month, { runNo: runNo ?? undefined })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -385,13 +387,17 @@ app.get("/api/mint/clarifications/:client", async (req, res) => {
 app.post("/api/mint/clarify", async (req, res) => {
   const client = slug(req.body?.client || "ANSR-KENVUE");
   const { topic, choice, month } = req.body || {};
+  let runNo = req.body?.runNo;
   if (!topic || !choice) return res.status(400).json({ error: "topic + choice required" });
   try {
     await q(`insert into decision(customer_id, topic, choice, decided_by) values((select id from customer where code=$1),$2,$3,'vik')
              on conflict (customer_id, topic) do update set choice=excluded.choice, decided_at=now()`, [client, topic, choice]);
     await federation.record(client, topic, choice).catch(() => {}); // promote across the archetype
     const m = month || (await q(`select invoice_month from run where customer_id=(select id from customer where code=$1) order by run_no desc limit 1`, [client])).rows?.[0]?.invoice_month || new Date().toISOString().slice(0, 7);
-    res.json(await computeAndPersist(client, m));
+    // recompute the SAME run being clarified (not a new one). fall back to the
+    // latest non-released run for the month if the client didn't send a run_no.
+    if (runNo == null) runNo = (await q(`select run_no from run where customer_id=(select id from customer where code=$1) and invoice_month=$2 and status<>'released' order by run_no desc limit 1`, [client, m])).rows?.[0]?.run_no ?? null;
+    res.json(await computeAndPersist(client, m, { runNo: runNo ?? undefined }));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -54,7 +54,10 @@ export async function saveLedger(client, docId, mapping) {
   return n;
 }
 
-export async function computeAndPersist(client, month) {
+// opts.runNo → recompute THAT run in place (the clarify loop edits one run).
+// no runNo → a fresh run: every Calculate is a brand-new full run (its own
+// dataset); old runs are kept intact for view / chat / recalibrate.
+export async function computeAndPersist(client, month, opts = {}) {
   const ruleBook = await getRuleBook(client);
   const decisions = await getDecisions(client);
   let placements = [];
@@ -70,14 +73,13 @@ export async function computeAndPersist(client, month) {
   const res = await computeRun({ month, ruleBook, ledger, getRate, currency: ruleBook.base_currency });
   const clarifications = [...clarMap.values()];
 
-  // reuse the month's open draft run (the clarify loop edits in place); only a
-  // released run is frozen → a fresh compute then opens a new version.
-  let runNo = null;
+  // runNo given → recompute that run (clarify loop edits one run in place).
+  // otherwise → allocate a NEW run_no: each fresh Calculate is a full new run,
+  // never overwriting an old one (old runs stay for view / chat / recalibrate).
+  let runNo = opts.runNo ?? null;
   try {
-    const ex = await q(`select run_no from run where customer_id=(select id from customer where code=$1) and invoice_month=$2 and status<>'released' order by run_no desc limit 1`, [client, month]);
-    runNo = ex.rows?.[0]?.run_no ?? null;
     if (runNo == null) runNo = (await q(`select coalesce(max(run_no),0)+1 n from run where customer_id=(select id from customer where code=$1)`, [client])).rows[0].n;
-  } catch { runNo = 1; }
+  } catch { runNo = runNo ?? 1; }
   // wipe prior facts for this run before re-inserting (idempotent recompute)
   try {
     const rid = (await q(`select id from run where customer_id=(select id from customer where code=$1) and run_no=$2`, [client, runNo])).rows?.[0]?.id;
