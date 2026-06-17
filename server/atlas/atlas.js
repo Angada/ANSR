@@ -5,22 +5,32 @@ import { getRuleBook } from "../engine/run.js";
 import { putExtract, getExtract } from "../storage.js";
 import { fingerprint, archetypeSlug, archetypeName, playbook } from "./fingerprint.js";
 import { rank, decide } from "./match.js";
+import { createEmbedder } from "./embed.js";
 
 const ATLAS_NS = "_ATLAS"; // store namespace for the MD knowledge wikis
+const embedder = createEmbedder();
 
 async function loadArchetypes() {
-  try { return (await q(`select id, slug, name, version, fingerprint, rule_template, operators, required_inputs, normalizers, playbook_md, stats from archetype where status='active'`)).rows || []; }
+  try { return (await q(`select id, slug, name, version, fingerprint, embedding, rule_template, operators, required_inputs, normalizers, playbook_md, stats from archetype where status='active'`)).rows || []; }
   catch { return []; }
 }
 
-// classify only — no mutation
+// classify only — no mutation. Structural Jaccard decides; embeddings add a
+// semantic score (blended for transparency / tie-breaking, not the gate).
 export async function classify(client) {
   const rb = await getRuleBook(client);
   const fp = fingerprint(rb);
   const archetypes = await loadArchetypes();
   const candidates = rank(fp, archetypes);
+  const fpEmb = embedder.embed(embedder.fpText(fp));
+  for (const cand of candidates) {
+    const a = archetypes.find((x) => x.id === cand.archetype_id);
+    const ae = a?.embedding || embedder.embed(embedder.fpText(a?.fingerprint || {}));
+    cand.semantic = Number(embedder.cosine(fpEmb, ae).toFixed(4));
+    cand.score = Number((0.75 * cand.sim + 0.25 * cand.semantic).toFixed(4));
+  }
   const decision = archetypes.length ? decide(candidates[0]) : "novel";
-  return { client, fingerprint: fp, candidates: candidates.slice(0, 5), decision, top: candidates[0] || null, rule_book: rb };
+  return { client, fingerprint: fp, embedding: fpEmb, candidates: candidates.slice(0, 5), decision, top: candidates[0] || null, rule_book: rb };
 }
 
 // route — adopt the matched archetype or crystallise a new one; persist + learn
@@ -37,11 +47,16 @@ export async function route(client) {
       [slug, name, JSON.stringify(fp), JSON.stringify(rb), fp.heads, JSON.stringify(rb.inputs || []), JSON.stringify(rb.normalizers || {}), playbook(name, fp, rb)]).catch(() => {});
     archetype = (await q(`select * from archetype where slug=$1`, [slug])).rows[0];
   }
+  // store the archetype's centroid embedding once (semantic match signal)
+  if (archetype && !archetype.embedding) {
+    const ae = embedder.embed(embedder.fpText(archetype.fingerprint || fp));
+    await q(`update archetype set embedding=$2::jsonb where id=$1`, [archetype.id, JSON.stringify(ae)]).catch(() => {});
+  }
   const sim = c.top?.sim ?? (c.decision === "novel" ? 1 : 0);
-  await q(`insert into contract_fingerprint(customer_id, archetype_id, signals, similarity, decision, candidates, confidence)
-           values((select id from customer where code=$1),$2,$3::jsonb,$4,$5,$6::jsonb,$4)
-           on conflict (customer_id) do update set archetype_id=excluded.archetype_id, signals=excluded.signals, similarity=excluded.similarity, decision=excluded.decision, candidates=excluded.candidates`,
-    [client, archetype?.id || null, JSON.stringify(fp), sim, c.decision, JSON.stringify(c.candidates)]).catch(() => {});
+  await q(`insert into contract_fingerprint(customer_id, archetype_id, signals, similarity, decision, candidates, confidence, embedding)
+           values((select id from customer where code=$1),$2,$3::jsonb,$4,$5,$6::jsonb,$4,$7::jsonb)
+           on conflict (customer_id) do update set archetype_id=excluded.archetype_id, signals=excluded.signals, similarity=excluded.similarity, decision=excluded.decision, candidates=excluded.candidates, embedding=excluded.embedding`,
+    [client, archetype?.id || null, JSON.stringify(fp), sim, c.decision, JSON.stringify(c.candidates), JSON.stringify(c.embedding || [])]).catch(() => {});
   // member-count stat
   if (archetype) await q(`update archetype set stats = jsonb_set(coalesce(stats,'{}'::jsonb),'{members}', (select to_jsonb(count(*)) from contract_fingerprint where archetype_id=$1)::jsonb), updated_at=now() where id=$1`, [archetype.id]).catch(() => {});
   q(`insert into audit_log(actor,action,object_type,object_id,detail) values('atlas','atlas.route','customer',$1,$2::jsonb)`,

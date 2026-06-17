@@ -18,6 +18,8 @@ import { runPipeline, aiMap, buildContext } from "./ai.js";
 import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples, federation, epidemiology } from "./engine/run.js";
 import { getRate, setManualRate } from "./fx.js";
 import { classify as atlasClassify, route as atlasRoute, listArchetypes, archetypeDetail, getWiki } from "./atlas/atlas.js";
+import { createDrift } from "./atlas/drift.js";
+import { createPreIntake } from "./atlas/preintake.js";
 import { runMigrations } from "./migrate.js";
 import { stubClauses, upsertInterpretation, getInterpretations } from "./clauses.js";
 
@@ -453,6 +455,11 @@ app.post("/api/atlas/route/:client", async (req, res) => { try { res.json(await 
 app.get("/api/atlas/archetypes", async (_req, res) => { try { res.json({ archetypes: await listArchetypes() }); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.get("/api/atlas/archetype/:slug", async (req, res) => { const a = await archetypeDetail(req.params.slug); a ? res.json(a) : res.status(404).json({ error: "not found" }); });
 app.get("/api/atlas/epidemiology/:client", async (req, res) => { try { res.json(await epidemiology.prewarn(slug(req.params.client))); } catch (e) { res.status(500).json({ error: e.message }); } });
+const atlasDrift = createDrift(q), atlasPreIntake = createPreIntake(q);
+app.get("/api/atlas/drift/:client", async (req, res) => { try { res.json(await atlasDrift.check(slug(req.params.client))); } catch (e) { res.status(500).json({ error: e.message }); } });
+app.post("/api/atlas/fork/:client", async (req, res) => { try { res.json(await atlasDrift.fork(slug(req.params.client))); } catch (e) { res.status(500).json({ error: e.message }); } });
+app.post("/api/atlas/preintake", async (req, res) => { try { res.json(await atlasPreIntake.propose(slug(req.body?.client || ""), req.body?.sow || "")); } catch (e) { res.status(500).json({ error: e.message }); } });
+app.post("/api/atlas/preintake/confirm", async (req, res) => { try { res.json(await atlasPreIntake.confirm(slug(req.body?.client || ""), req.body || {})); } catch (e) { res.status(500).json({ error: e.message }); } });
 // hybrid-knowledge wikis (MD) — doc×api switch over the Atlas namespace
 app.get("/api/atlas/wiki", async (_req, res) => { const md = await getWiki("index"); res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.send(md || "# Atlas\nNo archetypes yet — route a contract."); });
 app.get("/api/atlas/wiki/:slug", async (req, res) => { const md = await getWiki(req.params.slug); md == null ? res.status(404).send("not found") : (res.setHeader("Content-Type", "text/plain; charset=utf-8"), res.send(md)); });
