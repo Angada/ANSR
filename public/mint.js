@@ -354,6 +354,9 @@ const humanize = (k) => READY_LABEL[k] || k.replace(/_/g, " ").replace(/^./, (c)
 // What the monthly calc NEEDS from the worksheet — inferred from the rule book.
 // Not column mapping, not rule-presence: the input fields + why each is needed.
 function requiredInputs() {
+  // Atlas template-fill: if a matched archetype pre-loaded a compiled rule book,
+  // its required inputs are authoritative.
+  if (DATA.compiled_rule_book?.inputs?.length) return DATA.compiled_rule_book.inputs.map((i) => ({ field: i.field, why: i.why || i.type || "required" }));
   const rb = DATA.boxes.find((b) => b.box_type_code === "billing_rules")?.content || {};
   const req = []; const add = (field, why) => { if (!req.some((r) => r.field === field)) req.push({ field, why }); };
   const rt = rb.ta_rate_table, ms = rb.milestones, oss = rb.oss_slabs;
@@ -385,8 +388,12 @@ function render() {
   const srcChip = DATA.source && DATA.source.startsWith("ai:")
     ? `<span class="chip chip--approved" style="margin-left:6px">live · ${esc(DATA.source.slice(3))}</span>`
     : `<span class="chip chip--draft" style="margin-left:6px">${DATA.sow ? "SOW added · set a model key for live boxes" : "sample data"}</span>`;
+  const a = DATA.atlas;
+  const atlasChip = a?.archetype
+    ? `<a href="/atlas.html" class="chip ${a.decision === "novel" ? "chip--draft" : "chip--approved"}" style="margin-left:6px;text-decoration:none" title="Atlas archetype">🧭 ${a.decision === "novel" ? "new archetype" : "matched"} · ${esc(a.archetype.slug)}${a.similarity ? " · " + Math.round(a.similarity * 100) + "%" : ""}${DATA.compiled_rule_book ? " · rule book pre-loaded" : ""}</a>`
+    : "";
   $("#result").innerHTML = `
-    <div class="sd lbl" style="margin-bottom:8px">${SECDESC.summary} <span class="chip" style="margin-left:6px">Run ${DATA.run_no}</span>${srcChip}</div>
+    <div class="sd lbl" style="margin-bottom:8px">${SECDESC.summary} <span class="chip" style="margin-left:6px">Run ${DATA.run_no}</span>${srcChip}${atlasChip}</div>
     <p class="sum-text" style="margin:0 0 10px">${esc(DATA.summary.text)}</p>
     <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:2px">Key findings</div>
     <ul class="findings sm">${DATA.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>`;

@@ -203,6 +203,14 @@ app.post("/api/mint/run", async (req, res) => {
   }
   if (!payload) payload = stubAnalysis(client, runNo);
 
+  // Atlas template-fill: route this contract; a matched archetype pre-loads its
+  // compiled rule book so the journey starts ready (AI later fills only deltas).
+  try {
+    const route = await atlasRoute(client);
+    payload.atlas = { decision: route.decision, similarity: route.similarity, archetype: route.archetype };
+    if (route.decision !== "novel" && route.preloaded?.cost_heads?.length) payload.compiled_rule_book = route.preloaded;
+  } catch { /* atlas optional */ }
+
   // persist the run (history / audit) — best-effort
   try {
     await q(`insert into run(customer_id, run_no, label, status, manifest, started_at, finished_at)

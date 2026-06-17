@@ -20,7 +20,10 @@ export async function getRuleBook(client) {
   let box = null;
   try {
     const r = await q(`select manifest from run where customer_id=(select id from customer where code=$1) order by run_no desc limit 1`, [client]);
-    box = (r.rows?.[0]?.manifest?.boxes || []).find((b) => b.box_type_code === "billing_rules");
+    const man = r.rows?.[0]?.manifest;
+    // Atlas template-fill: an already-compiled rule book (from a matched archetype) wins.
+    if (man?.compiled_rule_book?.cost_heads?.length) return man.compiled_rule_book;
+    box = (man?.boxes || []).find((b) => b.box_type_code === "billing_rules");
   } catch { /* */ }
   if (!box) box = stubAnalysis(client).boxes.find((b) => b.box_type_code === "billing_rules");
   return compileRuleBook(box);
