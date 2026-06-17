@@ -72,6 +72,10 @@ async function refreshWiki() {
       `# Archetype · ${a.name} (\`${a.slug}\` v${a.version})`, "",
       a.playbook_md || "", "",
       `## Fingerprint`, "```json", JSON.stringify(a.fingerprint, null, 1), "```", "",
+      `## Recurring exceptions (epidemiology)`,
+      ...((a.exception_patterns || []).length
+        ? a.exception_patterns.map((p) => `- **${p.issue}** — ${Math.round((p.prevalence || 0) * 100)}% of members (${p.contracts_hit}/${mem.length}), ${p.occurrences}× · _fix:_ ${p.fix}`)
+        : ["- none recorded yet"]), "",
       `## Member contracts (${mem.length})`, ...mem.map((m) => `- ${m.name || m.code} (${m.code})`), "",
       `## Related archetypes`, ...(neighbours.length ? neighbours.map((n) => `- **${n.slug}** — shares heads [${n.sharedHeads.join(", ")}]${n.sharedDims.length ? `, dims [${n.sharedDims.join(", ")}]` : ""}`) : ["- none yet"]),
     ].join("\n");

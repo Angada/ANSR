@@ -8,9 +8,11 @@ import { compileRuleBook } from "./rulebook.js";
 import { normalizeRow } from "./normalize.js";
 import { computeRun, runWorkedExamples } from "./compute.js";
 import { createFederation } from "../atlas/federation.js";
+import { createEpidemiology } from "../atlas/epidemiology.js";
 
 const cid = (client) => `(select id from customer where code='${client.replace(/'/g, "")}')`;
 export const federation = createFederation(q);
+export const epidemiology = createEpidemiology(q);
 
 export async function getDecisions(client) {
   const out = {};
@@ -113,6 +115,9 @@ export async function computeAndPersist(client, month) {
     q(`insert into audit_log(actor,action,object_type,object_id,detail) values('vik','run.compute','run',$1,$2::jsonb)`,
       [`${client}#${runNo}`, JSON.stringify({ computed: res.ta.length, exceptions: res.exceptions.length, totals: res.totals })]).catch(() => {});
   } catch { /* json-only */ }
+
+  // Atlas epidemiology: refresh this archetype's recurring-exception patterns
+  await epidemiology.record(client).catch(() => {});
 
   return { ok: true, run_no: runNo, month, totals: res.totals, computed: res.ta.length, exceptions: res.exceptions, clarifications, hc: res.hc };
 }

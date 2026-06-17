@@ -15,7 +15,7 @@ import { stubRun, stubOps, stubContracts, stubContract, stubRuns, stubAnalysis, 
 import Anthropic from "@anthropic-ai/sdk";
 import { inferMapping, detectIssues, summarizeIssues, CANONICAL } from "./roster.js";
 import { runPipeline, aiMap, buildContext } from "./ai.js";
-import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples, federation } from "./engine/run.js";
+import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples, federation, epidemiology } from "./engine/run.js";
 import { getRate, setManualRate } from "./fx.js";
 import { classify as atlasClassify, route as atlasRoute, listArchetypes, archetypeDetail, getWiki } from "./atlas/atlas.js";
 import { runMigrations } from "./migrate.js";
@@ -209,6 +209,8 @@ app.post("/api/mint/run", async (req, res) => {
     const route = await atlasRoute(client);
     payload.atlas = { decision: route.decision, similarity: route.similarity, archetype: route.archetype };
     if (route.decision !== "novel" && route.preloaded?.cost_heads?.length) payload.compiled_rule_book = route.preloaded;
+    // epidemiology pre-warning: recurring exceptions across this archetype's siblings
+    try { const pw = await epidemiology.prewarn(client); if (pw.warnings?.length) payload.atlas.prewarn = pw.warnings; } catch { /* */ }
   } catch { /* atlas optional */ }
 
   // persist the run (history / audit) — best-effort
@@ -450,6 +452,7 @@ app.post("/api/atlas/classify/:client", async (req, res) => { try { res.json(awa
 app.post("/api/atlas/route/:client", async (req, res) => { try { res.json(await atlasRoute(slug(req.params.client))); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.get("/api/atlas/archetypes", async (_req, res) => { try { res.json({ archetypes: await listArchetypes() }); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.get("/api/atlas/archetype/:slug", async (req, res) => { const a = await archetypeDetail(req.params.slug); a ? res.json(a) : res.status(404).json({ error: "not found" }); });
+app.get("/api/atlas/epidemiology/:client", async (req, res) => { try { res.json(await epidemiology.prewarn(slug(req.params.client))); } catch (e) { res.status(500).json({ error: e.message }); } });
 // hybrid-knowledge wikis (MD) — doc×api switch over the Atlas namespace
 app.get("/api/atlas/wiki", async (_req, res) => { const md = await getWiki("index"); res.setHeader("Content-Type", "text/plain; charset=utf-8"); res.send(md || "# Atlas\nNo archetypes yet — route a contract."); });
 app.get("/api/atlas/wiki/:slug", async (req, res) => { const md = await getWiki(req.params.slug); md == null ? res.status(404).send("not found") : (res.setHeader("Content-Type", "text/plain; charset=utf-8"), res.send(md)); });
