@@ -447,8 +447,16 @@ function dragScroll(el) {
     if (e.pointerType !== "mouse") return; // let touch/pen swipe natively
     if (e.target.closest("input,button,select,textarea,a,.ai-chip,summary")) return;
     down = true; sx = e.clientX; sl = el.scrollLeft; el.style.cursor = "grabbing";
+    try { el.setPointerCapture(e.pointerId); } catch { /* */ }
   });
   el.addEventListener("pointermove", (e) => { if (down) el.scrollLeft = sl - (e.clientX - sx); });
+  // mouse-wheel → horizontal scroll (desktop wheels only scroll vertically)
+  el.addEventListener("wheel", (e) => {
+    if (el.scrollWidth <= el.clientWidth) return;          // nothing to scroll
+    const d = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    if (!d) return;
+    el.scrollLeft += d; e.preventDefault();                // keep the page still while over the rail
+  }, { passive: false });
   const up = (e) => {
     if (!down) return; down = false; el.style.cursor = "grab";
     const dx = e.clientX - sx;
