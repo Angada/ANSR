@@ -331,11 +331,14 @@ async function generate() {
 async function revealFlowSequence() {
   const steps = [...document.querySelectorAll("#flow .flowstep")];
   steps.forEach((s) => { s.style.opacity = "0"; s.classList.remove("gen--in"); });
+  // pre-hide the analysis boxes NOW (before their block appears) so they only ever
+  // open one-by-one — never flash visible then blank out (the open/close bug).
+  document.querySelectorAll("#boxrail .boxcard").forEach((c) => c.classList.add("gen"));
   for (let i = 0; i < steps.length; i++) {
     await new Promise((r) => setTimeout(r, i === 0 ? 350 : 480));
     steps[i].style.opacity = ""; steps[i].classList.add("gen--in");
-    const rail = steps[i].querySelector("#boxrail");
-    if (rail) sequenceReveal(rail, ".boxcard", 240, 120);
+    const cards = [...steps[i].querySelectorAll("#boxrail .boxcard")];
+    cards.forEach((c, j) => setTimeout(() => { c.classList.remove("gen"); c.classList.add("gen--in"); }, 150 + j * 240));
     steps[i].scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }
