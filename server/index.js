@@ -167,7 +167,11 @@ app.get("/api/mint/daterange/:client", async (req, res) => {
   const set = new Set();
   try {
     const rows = (await q(`select raw from placement where customer_id=(select id from customer where code=$1)`, [client])).rows || [];
-    for (const r of rows) for (const v of Object.values(r.raw || {})) { const d = parseDate(v); if (d.iso) set.add(d.iso.slice(0, 7)); }
+    for (const r of rows) for (const [k, v] of Object.entries(r.raw || {})) {
+      if (!/date/i.test(k)) continue;                      // only real date fields, not CTC/seats/etc.
+      const d = parseDate(v); if (!d.iso) continue;
+      const y = +d.iso.slice(0, 4); if (y >= 2000 && y <= 2100) set.add(d.iso.slice(0, 7)); // sane years
+    }
   } catch { /* */ }
   const months = [...set].sort();
   res.json(months.length ? { min: months[0], max: months[months.length - 1], months, default: months[months.length - 1] } : { min: null, max: null, months: [], default: null });
