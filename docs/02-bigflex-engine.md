@@ -39,11 +39,13 @@ The `billing_rules` box gets **compiled** (`server/engine/rulebook.js → compil
 - **cost_head** — one billable line type. Kenvue has `ta` and `oss`.
 - **kind** — the *pattern* of that line:
   - `one_time_split` — a fee split across milestones
-  - `recurring_slab` — a monthly fee that depends on a headcount band
-  - `per_unit` — per transaction/seat/license
-  - `flat` — fixed monthly / retainer
-  - `clawback` — reversal
-  - `credit` — credit note
+  - `recurring_slab` — a recurring fee picked from a slab table by **any measure** (active headcount, seats, GB stored, transactions…)
+  - `per_unit` — rate × a measure summed across the sheet (per transaction/seat/license)
+  - `flat` — fixed amount for the period (retainer / platform fee)
+  - `clawback` — reversal (negative line)
+  - `credit` — credit note (negative line)
+
+The engine iterates **every** cost head and dispatches by kind → returns a `line` per head plus `by_head` totals; an **unknown kind is flagged ("rule needs a human"), never guessed**. So a contract with no TA/OSS (e.g. SaaS per-seat + flat platform fee) computes on the same engine with zero code changes.
 - **rate_table** — a keyed lookup ("level + band + referral → %").
 - **slabs** — headcount bands → fee.
 - **normalizers** — messy-label → clean-label dictionaries ("GDC" means `non_referral`).
