@@ -75,10 +75,32 @@ const DEFAULT_CONFIG = {
       description: "When data is ambiguous, ask a clause/evidence-backed question + recommend an option; persist the decision.",
       provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-ai-clarify"], enabled: true,
       prompt: "Given an ambiguity, trace the evidence across documents, recommend one option with confidence and risk-if-wrong, and cite the clause. Keep it to a single clear question." },
-    "qa": { id: "qa", product: "Mint", name: "AR Analyst Q&A", kind: "hybrid",
-      description: "Answer 'why is this invoice line X' with evidence + calc trail + clause reference. Deterministic md/db + AI-read.",
-      provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-knowledge-store"], enabled: true,
-      prompt: "Answer as an AR analyst. Every answer must show evidence + the calc trail + the clause reference. Never invent numbers — read them from the DB/markdown." },
+    "qa": { id: "qa", product: "Mint", name: "AR Analyst Q&A (grounded chat)", kind: "hybrid",
+      description: "Answer 'why is this invoice line X' from the calc TRACE (BigFlex) + the contract clauses + the archetype playbook (Atlas). Deterministic md/db read + AI phrasing; corrections promote across the family.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-knowledge-store", "bigflex", "atlas"], enabled: true,
+      prompt: "Answer as an AR analyst. Ground every answer in: (1) the calc trace for the number, (2) the cited contract clause, (3) the archetype playbook for how this family of contracts behaves. Never invent numbers — read them from the DB/markdown trace. If the user corrects you, record it as an interpretation/decision." },
+
+    // ---- Atlas — the cross-contract learning brain (its own product group) ----
+    "atlas-classify": { id: "atlas-classify", product: "Atlas", name: "Classify & Route", kind: "hybrid",
+      description: "Fingerprint a contract's billing shape, match it to an archetype (weighted Jaccard + embedding blend), and route it. On a PARTIAL match the model maps divergent fields onto the family template; matched/novel are deterministic.",
+      provider: "anthropic", model: "claude-sonnet-4-6", skills: ["atlas", "bigflex"], enabled: true,
+      prompt: "Given a contract fingerprint and the closest archetype template, map each divergent field (heads/dims/measures/milestones) onto the template or flag it as genuinely new. Never silently force a mismatch — flag divergences for human review." },
+    "atlas-preintake": { id: "atlas-preintake", product: "Atlas", name: "Pre-intake (raw SOW)", kind: "llm",
+      description: "Read raw SOW prose BEFORE compile and propose the likely archetype shape + candidate families. Persists nothing — returns a confirm token for the human gate. Falls back to keyword heuristics when no key.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["atlas", "qansr-knowledge-store"], enabled: true,
+      prompt: "Read the raw SOW text and infer its billing physiology: revenue heads (one_time_split / recurring_slab / per_unit / flat), driver dimensions, measures, milestones, currency. Return a structured fingerprint only — do not invent rates. This is a pre-compile proposal a human will confirm." },
+    "atlas-embed": { id: "atlas-embed", product: "Atlas", name: "Semantic Embedding", kind: "deterministic",
+      description: "Vector embedding of a fingerprint for the semantic-similarity blend (0.75·Jaccard + 0.25·cosine). Key-free hashed vector today; swappable for a provider embedding model.",
+      provider: "", model: "", skills: ["atlas"], enabled: true, prompt: "" },
+    "atlas-federation": { id: "atlas-federation", product: "Atlas", name: "Federated Normalizer Learning", kind: "deterministic",
+      description: "Promote a label confirmed on one contract across its archetype once ≥2 siblings agree (conflict-detected). Auto-applies to future siblings. No model call.",
+      provider: "", model: "", skills: ["atlas"], enabled: true, prompt: "" },
+    "atlas-epidemiology": { id: "atlas-epidemiology", product: "Atlas", name: "Exception Epidemiology", kind: "deterministic",
+      description: "Recompute the archetype's recurring exceptions after each run (prevalence + suggested fix) and pre-warn new contracts of that family. No model call.",
+      provider: "", model: "", skills: ["atlas"], enabled: true, prompt: "" },
+    "atlas-drift": { id: "atlas-drift", product: "Atlas", name: "Drift & Fork", kind: "deterministic",
+      description: "Detect when a contract's fingerprint no longer fits its archetype (sim<.8 or heads changed) and suggest reroute or fork a new archetype version (lineage kept). No model call.",
+      provider: "", model: "", skills: ["atlas"], enabled: true, prompt: "" },
   },
 };
 
@@ -95,7 +117,13 @@ function mergeDefaults(cfg) {
   // DEFAULT so new models appear even over a saved config; keep saved apiKey/baseURL.
   for (const [id, p] of Object.entries(cfg.providers || {})) providers[id] = { ...DEFAULT_CONFIG.providers[id], ...p, models: DEFAULT_CONFIG.providers[id]?.models || p.models };
   const pipelines = { ...DEFAULT_CONFIG.pipelines };
-  for (const [id, p] of Object.entries(cfg.pipelines || {})) pipelines[id] = { ...DEFAULT_CONFIG.pipelines[id], ...p };
+  for (const [id, p] of Object.entries(cfg.pipelines || {})) {
+    const d = DEFAULT_CONFIG.pipelines[id] || {};
+    // user keeps runtime choices (provider/model/enabled/prompt); code-defined
+    // descriptive fields (name/description/skills/kind) always take the latest
+    // from DEFAULT so registry edits propagate over a saved config.
+    pipelines[id] = { ...d, ...p, name: d.name ?? p.name, description: d.description ?? p.description, skills: d.skills ?? p.skills, kind: d.kind ?? p.kind };
+  }
   return { ...DEFAULT_CONFIG, ...cfg, providers, pipelines };
 }
 
