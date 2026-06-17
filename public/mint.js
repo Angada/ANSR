@@ -43,55 +43,116 @@ async function mapRoster() {
   const f = $("#rfile").files[0];
   if (!f) { appAlert("No file", "Choose a working sheet first."); return; }
   if (f.size > 25 * 1024 * 1024) { appAlert("File too large", "Max 25 MB."); return; }
-  $("#rmap").disabled = true; $("#rout").innerHTML = `<p class="lbl" style="margin-top:10px">Reading + mapping…</p>`;
+  $("#rmap").disabled = true;
+  $("#rout").innerHTML = `<div id="rmeter" style="margin-top:12px"></div>`;
   const fd = new FormData(); fd.append("file", f); fd.append("client", $("#client").value);
-  ROSTER = await (await fetch("/api/mint/roster/map", { method: "POST", body: fd })).json();
+  const p = fetch("/api/mint/roster/map", { method: "POST", body: fd }).then((r) => r.json());
+  // AI reads + understands the sheet (meter runs over the read)
+  await runMeter(["Reading the working sheet", "Understanding each column", "Checking the data row by row", "Preparing what I need to confirm"], "rmeter", "✓ Read the sheet");
+  ROSTER = await p;
   $("#rmap").disabled = false;
-  renderRoster();
+  if (!ROSTER || ROSTER.error) { $("#rout").innerHTML = `<p class="lbl" style="color:#d6402a;margin-top:10px">${esc(ROSTER?.error || "Could not read the sheet.")}</p>`; return; }
+  ROSTER.answers = {};
+  ROSTER._clar = rosterClarifications(ROSTER);
+  renderUnderstanding();
 }
 
-function renderRoster() {
-  const d = ROSTER; const s = d.summary;
-  const mapRows = d.canonical.map((fld) => {
-    const opts = ['<option value="">— not mapped —</option>'].concat(d.headers.map((h) => `<option value="${esc(h)}" ${d.mapping[fld] === h ? "selected" : ""}>${esc(h)}</option>`)).join("");
-    return `<tr><td class="lbl" style="white-space:nowrap;padding-right:10px">${FIELD_LABEL[fld] || fld}</td><td><select data-fld="${fld}" style="min-height:36px">${opts}</select></td></tr>`;
+// Plain-English read of the data — what we understood, no tables.
+function rosterUnderstanding(d) {
+  const m = d.mapping || {}; const out = [];
+  out.push(`I read <b>${d.rowCount}</b> row${d.rowCount === 1 ? "" : "s"} from sheet “${esc(d.sheet || "")}” in <b>${esc(d.filename)}</b>.`);
+  const mapped = Object.entries(m).map(([f, h]) => `<b>${FIELD_LABEL[f] || f}</b> ← “${esc(h)}”`);
+  if (mapped.length) out.push(`I understood these columns: ${mapped.join(" · ")}.`);
+  out.push(`Dates are read per row and normalised (dd/mm vs mm/dd resolved), and amounts convert to the billing currency via FX before any rate is applied.`);
+  const s = d.summary || {};
+  if (s.total) {
+    const parts = Object.entries(s.byField || {}).map(([f, n]) => `${n} × ${FIELD_LABEL[f] || f}`);
+    out.push(`I spotted <b>${s.total}</b> thing${s.total === 1 ? "" : "s"} to handle: ${parts.join(", ")}. Rows missing a must-have are held as exceptions (not billed) until resolved.`);
+  } else out.push(`Every row has its must-have data — nothing is blocked.`);
+  return out;
+}
+
+// What I need to confirm — asked as questions in English, never a table.
+function rosterClarifications(d) {
+  const m = d.mapping || {}; const cl = [];
+  if (m.fixed_ctc && m.variable_ctc)
+    cl.push({ topic: "ctc", q: `Your sheet has <b>“${esc(m.fixed_ctc)}”</b> and <b>“${esc(m.variable_ctc)}”</b>. Should <b>Total CTC = Fixed + Variable</b> (the contract usually means fixed + target bonus)?`, options: ["Yes — Fixed + Variable", "No — Fixed only"] });
+  else if (m.fixed_ctc && !m.variable_ctc)
+    cl.push({ topic: "ctc", q: `I mapped CTC to <b>“${esc(m.fixed_ctc)}”</b> but found no variable/bonus column. Is total CTC just this fixed amount?`, options: ["Yes — fixed only", "No — there's a variable column I missed"] });
+  const unmapped = (d.headers || []).filter((h) => !Object.values(m).includes(h));
+  for (const fld of ["name", "join_date", "fixed_ctc", "source", "role"]) {
+    if (!m[fld] && unmapped.length) cl.push({ topic: `map:${fld}`, q: `I couldn't confidently find <b>${FIELD_LABEL[fld]}</b>. Which column holds it?`, options: ["(not in the sheet)", ...unmapped] });
+  }
+  const amb = (d.issues || []).find((x) => /ambiguous/.test(x.issue));
+  if (amb) cl.push({ topic: "date_format", q: `Some dates are ambiguous (e.g. <b>“${esc(amb.value)}”</b> — could be DD/MM or MM/DD). Which format does your sheet use?`, options: ["DD/MM/YYYY (day first)", "MM/DD/YYYY (month first)"] });
+  return cl;
+}
+
+function renderUnderstanding() {
+  const d = ROSTER, cl = d._clar || [];
+  const pending = cl.filter((c) => !d.answers[c.topic]).length;
+  const bubbles = rosterUnderstanding(d).map((t) => `<div class="bubble ai">${t}</div>`).join("");
+  const qs = cl.map((c, i) => {
+    const ans = d.answers[c.topic];
+    return `<div class="bubble q ${ans ? "done" : ""}">
+      <div class="qtxt">${c.q}</div>
+      ${ans ? `<div class="qans">✓ ${esc(ans)}</div>`
+            : `<div class="ai-chips">${c.options.map((o) => `<span class="ai-chip" onclick="answerRoster(${i}, this.dataset.v)" data-v="${esc(o)}">${esc(o)}</span>`).join("")}</div>`}
+    </div>`;
   }).join("");
-  const issuesHtml = d.issues.length ? d.issues.map((x) => `
-    <div class="step on" style="border-left-color:${x.severity === "block" ? "#d6402a" : "var(--ansr-orange)"}">
-      <span class="chip ${x.severity === "block" ? "chip--flag" : "chip--draft"}">row ${x.row}</span>
-      <strong>${FIELD_LABEL[x.field] || x.field}</strong> — ${esc(x.issue)} ${x.value ? `<span class="lbl">(“${esc(x.value)}”)</span>` : ""}
-    </div>`).join("") : `<p class="lbl" style="color:var(--ansr-teal)">No issues found.</p>`;
+  const head = (!cl.length || !pending)
+    ? `<span class="chip chip--approved">All columns understood ✓</span>`
+    : `<span class="chip chip--flag">${pending} to confirm</span>`;
   $("#rout").innerHTML = `
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <span class="chip">📄 ${esc(d.filename)}</span><span class="lbl">→</span>
+      <span class="chip">📄 ${esc(d.filename)}</span>
       <a class="chip chip--approved" href="${d.apiUrl}" target="_blank">API · ${esc(d.docId)}</a>
-      <span class="lbl">${d.rowCount} rows · sheet “${esc(d.sheet || "")}”</span>
+      <span class="lbl">${d.rowCount} rows</span>${head}</div>
+    <div class="chatbox">${bubbles}${qs}
+      <div class="ai-row"><input id="rosterAsk" placeholder="reply or instruct in plain English…" onkeydown="if(event.key==='Enter')rosterFreeText(this.value)"><button class="btn-ai" onclick="rosterFreeText(document.getElementById('rosterAsk').value)">Send</button></div>
     </div>
-    <details class="section" style="margin-top:12px" open><summary><b>Column mapping</b> <span class="chip">${Object.keys(d.mapping).length}/${d.canonical.length} mapped</span></summary>
-      <div class="body"><table>${mapRows}</table></div></details>
-    <details class="section" open><summary><b>Issues to fix</b> <span class="chip chip--flag">${s.blocks} block</span> <span class="chip chip--draft">${s.warns} warn</span></summary>
-      <div class="body scroll-y">${issuesHtml}</div></details>
-    <button class="btn" id="rconfirm" ${s.blocks ? "" : ""}>Confirm &amp; save to DB</button>
-    <span id="rconfirm-msg" class="lbl" style="margin-left:8px">${s.blocks ? "fix blocks above, or confirm to stage anyway" : ""}</span>`;
-  // mapping edits update ROSTER
-  $("#rout").querySelectorAll("select[data-fld]").forEach((sel) => sel.addEventListener("change", () => {
-    if (sel.value) ROSTER.mapping[sel.dataset.fld] = sel.value; else delete ROSTER.mapping[sel.dataset.fld];
-  }));
-  $("#rconfirm").addEventListener("click", confirmRoster);
+    <div class="recal-wrap"><button class="btn-recal ${pending ? "" : "dirty"}" id="rosterSave" onclick="recalSaveRoster()">↻ Recalibrate &amp; save to database</button></div>
+    <div id="rsavemeter"></div>`;
 }
 
-async function confirmRoster() {
+window.answerRoster = (i, opt) => {
+  const c = ROSTER._clar[i]; if (!c) return;
+  ROSTER.answers[c.topic] = opt; applyRosterAnswer(c.topic, opt); renderUnderstanding();
+};
+window.rosterFreeText = (t) => {
+  const v = (t || "").trim(); if (!v) return;
+  const inp = document.getElementById("rosterAsk"); if (inp) inp.value = "";
+  (ROSTER.notes ||= []).push(v);
+  appAlert("Noted", "Thanks — I'll factor that in when you recalibrate & save.");
+};
+function applyRosterAnswer(topic, opt) {
+  if (topic === "ctc") { if (/fixed only/i.test(opt)) delete ROSTER.mapping.variable_ctc; }
+  else if (topic.startsWith("map:")) { const f = topic.slice(4); if (/not in the sheet/i.test(opt)) delete ROSTER.mapping[f]; else ROSTER.mapping[f] = opt; }
+  else if (topic === "date_format") { ROSTER.dateFormat = opt.startsWith("DD") ? "DD/MM/YYYY" : "MM/DD/YYYY"; }
+}
+
+window.recalSaveRoster = async () => {
+  const btn = document.getElementById("rosterSave"); if (btn) btn.disabled = true;
+  await runMeter(["Applying your confirmations", "Mapping columns to the rule book", "Saving rows to the database"], "rsavemeter", "");
   const r = await (await fetch("/api/mint/roster/confirm", { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ client: $("#client").value, docId: ROSTER.docId, mapping: ROSTER.mapping }) })).json();
-  $("#rconfirm-msg").innerHTML = `<span style="color:var(--ansr-teal)">✓ ${r.saved} rows saved to the ledger · source switched to API</span>`;
+  if (ROSTER.dateFormat) fetch("/api/mint/clarify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, topic: "date_format", choice: ROSTER.dateFormat, month: new Date().toISOString().slice(0, 7) }) }).catch(() => {});
+  document.getElementById("rsavemeter").innerHTML = `<span class="lbl" style="color:var(--ansr-teal)">✓ ${r.saved} rows saved to the database · ready to bill</span>`;
+  foldFlow(true); // collapse the whole analysis flow — now we act on it
+  showActions();
+};
+
+// After save: collapse above, surface the action sequence — calculate → invoice → charts.
+function showActions() {
   const month = new Date().toISOString().slice(0, 7);
   $("#validate").innerHTML = `<div class="band grad-teal" style="margin-top:16px">
     <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 6px">Calculate the bill</h3>
     <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
       <div><label class="lbl">Invoice month</label><input type="month" id="calcMonth" value="${month}" style="min-width:150px"></div>
-      <button class="btn-ai" id="runCalc"><span class="tw">✨</span>Run calculation</button>
+      <button class="btn-ai" id="runCalc"><span class="tw">✨</span>Calculate invoice</button>
     </div><div id="calcmeter"></div></div>`;
   $("#runCalc").addEventListener("click", runCompute);
+  document.getElementById("validate").scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 async function runCompute() {
@@ -119,6 +180,14 @@ function renderRunResult(res, month) {
         <span class="chip ${res.exceptions?.length ? "chip--flag" : "chip--draft"}">${res.exceptions?.length || 0} exceptions</span>
         <span class="chip ${res.clarifications?.length ? "chip--flag" : "chip--draft"}">${res.clarifications?.length || 0} clarifications</span>
         <span style="margin-left:auto;font-weight:500;color:var(--ansr-navy)">${month} · ${m}</span>
+      </div>
+      <div class="band grad-soft" style="margin:8px 0;padding:12px 14px">
+        <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:6px">Summary — ${month} · by cost head</div>
+        <div style="display:flex;gap:22px;flex-wrap:wrap">
+          <div><div class="lbl">OSS · operations</div><b>${money(res.totals?.oss, cur)}</b></div>
+          <div><div class="lbl">TA · recruitment</div><b>${money(res.totals?.ta, cur)}</b></div>
+          <div><div class="lbl">Grand total</div><b style="color:var(--ansr-navy)">${m}</b></div>
+        </div>
       </div>
       ${res.clarifications?.length ? `<div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-top:8px">Clarifications — answer once, applies to all rows + future runs</div>${clar}` : ""}
       ${res.exceptions?.length ? `<div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin:10px 0 2px">Quarantined (not billed)</div>${exc}` : ""}
@@ -424,8 +493,9 @@ function render() {
     <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalBuild" onclick="recalBuild()">↻ Recalibrate from analysis${DIRTY ? " — changes pending" : ""}</button></div>
     <div id="buildmeter"></div>`;
   dragScroll(document.getElementById("boxrail"));
-  // generation motion: reveal each analysis box light→dark, one after another
-  sequenceReveal(document.getElementById("boxrail"), ".boxcard", 220);
+  // generation motion: after the process meter is done, reveal each analysis box
+  // light→dark, one clearly after the next (box 1, then box 2, …)
+  sequenceReveal(document.getElementById("boxrail"), ".boxcard", 320, 350);
 
   // step 3 — understanding + worksheet needs + clarify + lock
   renderReady();

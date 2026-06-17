@@ -408,7 +408,17 @@ td.pending, .pending-val { color: var(--ansr-gray-mid); }
 
 /* the "being generated" skeleton state */
 .gen { position: relative; border: 1.5px dashed var(--ansr-line) !important; }
-.gen > * { opacity: .25; filter: blur(.5px); transition: opacity .4s ease, filter .4s ease; }
+.gen > * { opacity: 0; filter: blur(1px); transition: opacity .45s ease, filter .45s ease; }
+
+/* worksheet AI chat: plain-English understanding + clarification bubbles (no tables) */
+.chatbox { margin-top: 12px; border: 1px solid var(--ansr-border); border-radius: 12px; background: var(--ansr-white); padding: 12px; }
+.chatbox .bubble { border-radius: 12px; padding: 10px 13px; margin: 8px 0; font-size: 13.5px; line-height: 1.5; max-width: 92%; animation: gen-pop .4s ease both; }
+.chatbox .bubble.ai { background: var(--ansr-surface); color: var(--ansr-text); border: 1px solid var(--ansr-border); }
+.chatbox .bubble.q { background: linear-gradient(120deg, #f3e9ff, #efe2fb); border: 1px solid #e2cdf6; }
+.chatbox .bubble.q .qtxt { color: var(--ansr-navy); font-weight: 500; margin-bottom: 8px; }
+.chatbox .bubble.q .qans { color: var(--ansr-teal); font-weight: 500; font-size: 13px; }
+.chatbox .bubble.done { opacity: .92; }
+.chatbox .ai-row { margin-top: 10px; }
 .gen::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 3;
   background: linear-gradient(100deg, transparent 30%, rgba(255,84,0,.10) 48%, rgba(123,45,196,.08) 56%, transparent 72%);
   background-size: 220% 100%; animation: gen-shimmer 1.05s linear infinite; }
