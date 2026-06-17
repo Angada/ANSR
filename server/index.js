@@ -17,6 +17,7 @@ import { inferMapping, detectIssues, summarizeIssues, CANONICAL } from "./roster
 import { runPipeline, aiMap, buildContext } from "./ai.js";
 import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples } from "./engine/run.js";
 import { getRate, setManualRate } from "./fx.js";
+import { classify as atlasClassify, route as atlasRoute, listArchetypes, archetypeDetail } from "./atlas/atlas.js";
 import { stubClauses, upsertInterpretation, getInterpretations } from "./clauses.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -433,6 +434,12 @@ app.post("/api/mint/interpret", async (req, res) => {
 
 // the AI write-up / mapping for the Admin tab
 app.get("/api/ai/map", (_req, res) => res.json({ pipelines: aiMap() }));
+
+// ---- Atlas — contract archetype library (meta-learning) --------------------
+app.post("/api/atlas/classify/:client", async (req, res) => { try { res.json(await atlasClassify(slug(req.params.client))); } catch (e) { res.status(500).json({ error: e.message }); } });
+app.post("/api/atlas/route/:client", async (req, res) => { try { res.json(await atlasRoute(slug(req.params.client))); } catch (e) { res.status(500).json({ error: e.message }); } });
+app.get("/api/atlas/archetypes", async (_req, res) => { try { res.json({ archetypes: await listArchetypes() }); } catch (e) { res.status(500).json({ error: e.message }); } });
+app.get("/api/atlas/archetype/:slug", async (req, res) => { const a = await archetypeDetail(req.params.slug); a ? res.json(a) : res.status(404).json({ error: "not found" }); });
 app.post("/api/box/:id/amend", (req, res) => {
   res.json({ ok: true, box_id: req.params.id, version: 2, note: "stub — amendment recorded; recompiles rule on real engine" });
 });

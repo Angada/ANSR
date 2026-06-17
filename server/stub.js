@@ -10,7 +10,7 @@ export function stubOps() {
   const A = (name, role, blurb, href, status) => ({ name, role, blurb, href: href || "", status });
   return [
     A("Mint", "AR Reconciler", "Reads your contracts + employee list, rebuilds every invoice (TA + OSS) from the contract's own rules, and explains each number with a clause-backed, replayable trail.", "/mint.html", "live"),
-    A("Atlas", "Contract Aggregator", "Portfolio view across all contracts — complete billing to-date plus a forecast, with the reason behind every projected number.", "", "coming"),
+    A("Atlas", "Contract Archetypes", "Fingerprints every contract by its billing physiology and groups them into reusable archetypes — each new contract auto-routes to a known pattern that pre-loads its rule book, inputs and playbook.", "/atlas.html", "live"),
     A("Sift", "Roster Normalizer", "Cleans messy employee data — sources, roles, statuses, dates, CTC, currency — and learns your labels so next month is zero-touch.", "", "coming"),
     A("Tally", "Reconciliation", "Scores deviations and drills to the line + clause behind any mismatch.", "", "coming"),
     A("Flag", "Exceptions Desk", "Surfaces rows that can't be safely billed — missing dates, CTC, duplicates — fixable in plain language.", "", "coming"),

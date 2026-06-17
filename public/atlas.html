@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Atlas — Contract Archetypes</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div id="appbar"></div>
+  <div class="wrap mint">
+    <div class="hero" style="padding:20px 18px 16px">
+      <div class="eyebrow">Atlas</div>
+      <h1 style="font-size:23px;margin:6px 0 0">Contract archetype library</h1>
+      <p style="font-size:14px">Every contract is fingerprinted by its billing physiology. Similar ones crystallise into archetypes that pre-load the rule book, inputs and playbook — so each new contract is faster than the last.</p>
+    </div>
+
+    <div class="band grad-soft">
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+        <div style="flex:1;min-width:160px"><label class="lbl">Classify a client</label><select id="client"></select></div>
+        <button class="btn-ai" id="classify"><span class="tw">✨</span>Classify</button>
+        <button class="btn" id="route">Route &amp; learn</button>
+      </div>
+      <div id="result"></div>
+    </div>
+
+    <h3 style="color:var(--ansr-navy);font-weight:500;margin:18px 0 6px">Archetypes <span id="acount" class="chip"></span></h3>
+    <div id="archetypes" class="agents"></div>
+    <div id="detail"></div>
+  </div>
+  <script src="/q.js"></script>
+  <script>qHeader();</script>
+  <script src="/atlas.js"></script>
+</body>
+</html>
