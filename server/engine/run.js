@@ -7,11 +7,15 @@ import { getRate } from "../fx.js";
 import { compileRuleBook } from "./rulebook.js";
 import { normalizeRow } from "./normalize.js";
 import { computeRun, runWorkedExamples } from "./compute.js";
+import { createFederation } from "../atlas/federation.js";
 
 const cid = (client) => `(select id from customer where code='${client.replace(/'/g, "")}')`;
+export const federation = createFederation(q);
 
 export async function getDecisions(client) {
   const out = {};
+  // Atlas federation: archetype/global-promoted mappings auto-apply (contract decisions override)
+  try { Object.assign(out, await federation.decisionsFor(client)); } catch { /* */ }
   try { const r = await q(`select topic, choice from decision where customer_id=(select id from customer where code=$1)`, [client]); for (const x of r.rows || []) out[x.topic] = x.choice; } catch { /* */ }
   return out;
 }

@@ -15,7 +15,7 @@ import { stubRun, stubOps, stubContracts, stubContract, stubRuns, stubAnalysis, 
 import Anthropic from "@anthropic-ai/sdk";
 import { inferMapping, detectIssues, summarizeIssues, CANONICAL } from "./roster.js";
 import { runPipeline, aiMap, buildContext } from "./ai.js";
-import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples } from "./engine/run.js";
+import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples, federation } from "./engine/run.js";
 import { getRate, setManualRate } from "./fx.js";
 import { classify as atlasClassify, route as atlasRoute, listArchetypes, archetypeDetail, getWiki } from "./atlas/atlas.js";
 import { runMigrations } from "./migrate.js";
@@ -385,6 +385,7 @@ app.post("/api/mint/clarify", async (req, res) => {
   try {
     await q(`insert into decision(customer_id, topic, choice, decided_by) values((select id from customer where code=$1),$2,$3,'vik')
              on conflict (customer_id, topic) do update set choice=excluded.choice, decided_at=now()`, [client, topic, choice]);
+    await federation.record(client, topic, choice).catch(() => {}); // promote across the archetype
     const m = month || (await q(`select invoice_month from run where customer_id=(select id from customer where code=$1) order by run_no desc limit 1`, [client])).rows?.[0]?.invoice_month || new Date().toISOString().slice(0, 7);
     res.json(await computeAndPersist(client, m));
   } catch (e) { res.status(500).json({ error: e.message }); }
