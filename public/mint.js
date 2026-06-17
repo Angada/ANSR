@@ -127,9 +127,19 @@ function renderRunResult(res, month) {
         <a class="btn-ai" href="/invoice-doc.html?customer=${$("#client").value}&run=${res.run_no}#invoice"><span class="tw">✨</span>Generate invoice</a>
         <a class="btn btn--ghost" href="/invoice-doc.html?customer=${$("#client").value}&run=${res.run_no}#calc">Detailed calculations</a>
         <a class="btn btn--ghost" href="/invoice.html?customer=${$("#client").value}&run=${res.run_no}">Replay + heatmap</a>
+        <button class="btn btn--ghost" id="releaseBtn" onclick="releaseRun(${res.run_no})" style="border-color:var(--ansr-teal);color:var(--ansr-teal)">🔒 Release &amp; lock</button>
       </div>
+      <div id="releaseMsg" class="lbl" style="margin-top:8px"></div>
     </div>`;
 }
+
+window.releaseRun = async (no) => {
+  appConfirm("Release run", `Freeze run ${no} for ${$("#client").value}? The statement becomes immutable for audit; a later calculation opens a new version.`, async () => {
+    const r = await (await fetch(`/api/mint/run/${$("#client").value}/${no}/release`, { method: "POST" })).json();
+    $("#releaseMsg").innerHTML = r.released ? `<span style="color:var(--ansr-teal)">🔒 Released — run ${no} is locked.</span>` : (r.error || "release failed");
+    const b = document.getElementById("releaseBtn"); if (b && r.released) { b.disabled = true; b.textContent = "🔒 Released"; }
+  }, "Release", false);
+};
 
 window.resolveClar = async (topic, choice, month) => {
   const res = await (await fetch("/api/mint/clarify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, topic, choice, month }) })).json();

@@ -322,6 +322,17 @@ app.post("/api/mint/run/compute", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// release (freeze) a run — immutable statement for audit; next compute = new version
+app.post("/api/mint/run/:client/:no/release", async (req, res) => {
+  const client = slug(req.params.client), no = Number(req.params.no);
+  try {
+    await q(`update run set status='released', finished_at=now() where customer_id=(select id from customer where code=$1) and run_no=$2`, [client, no]);
+    await q(`update run set manifest = jsonb_set(manifest,'{status}','"released"') where customer_id=(select id from customer where code=$1) and run_no=$2`, [client, no]).catch(() => {});
+    q(`insert into audit_log(actor,action,object_type,object_id,detail) values('vik','run.release','run',$1,'{}'::jsonb)`, [`${client}#${no}`]).catch(() => {});
+    res.json({ ok: true, released: true, run_no: no });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // clarifications: derived during compute; the latest run's open ones
 app.get("/api/mint/clarifications/:client", async (req, res) => {
   const client = slug(req.params.client);

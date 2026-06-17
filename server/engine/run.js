@@ -61,9 +61,19 @@ export async function computeAndPersist(client, month) {
   const res = await computeRun({ month, ruleBook, ledger, getRate, currency: ruleBook.base_currency });
   const clarifications = [...clarMap.values()];
 
-  // next run no
-  let runNo = 1;
-  try { runNo = (await q(`select coalesce(max(run_no),0)+1 n from run where customer_id=(select id from customer where code=$1)`, [client])).rows[0].n; } catch { /* */ }
+  // reuse the month's open draft run (the clarify loop edits in place); only a
+  // released run is frozen → a fresh compute then opens a new version.
+  let runNo = null;
+  try {
+    const ex = await q(`select run_no from run where customer_id=(select id from customer where code=$1) and invoice_month=$2 and status<>'released' order by run_no desc limit 1`, [client, month]);
+    runNo = ex.rows?.[0]?.run_no ?? null;
+    if (runNo == null) runNo = (await q(`select coalesce(max(run_no),0)+1 n from run where customer_id=(select id from customer where code=$1)`, [client])).rows[0].n;
+  } catch { runNo = 1; }
+  // wipe prior facts for this run before re-inserting (idempotent recompute)
+  try {
+    const rid = (await q(`select id from run where customer_id=(select id from customer where code=$1) and run_no=$2`, [client, runNo])).rows?.[0]?.id;
+    if (rid) { for (const tbl of ["ta_calc", "oss_calc", "trace", "exception_item"]) await q(`delete from ${tbl} where run_id=$1`, [rid]).catch(() => {}); await q(`delete from statement where run_id=$1`, [rid]).catch(() => {}); }
+  } catch { /* */ }
 
   const manifest = {
     client, run_no: runNo, invoice_month: month, currency: ruleBook.base_currency, source: "engine",
