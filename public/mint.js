@@ -300,10 +300,27 @@ async function generate() {
     renderStepper(i, i);
     await new Promise((r) => setTimeout(r, 650));
   }
-  renderStepper(DATA.steps.length);
-  render();
+  renderStepper(DATA.steps.length);                       // every step ✓
+  await new Promise((r) => setTimeout(r, 500));           // hold on the finished meter
+  render();                                               // fill content (hidden)
+  await revealFlowSequence();                             // then block 1, block 2, …
   await loadRuns(); $("#run").value = DATA.run_no;
   $("#gen").disabled = false;
+}
+
+// After the whole process meter is done, reveal the flow blocks one after the
+// other (block 1 loads, then block 2, …); the analysis block also cascades its
+// boxes once it appears.
+async function revealFlowSequence() {
+  const steps = [...document.querySelectorAll("#flow .flowstep")];
+  steps.forEach((s) => { s.style.opacity = "0"; s.classList.remove("gen--in"); });
+  for (let i = 0; i < steps.length; i++) {
+    await new Promise((r) => setTimeout(r, i === 0 ? 350 : 480));
+    steps[i].style.opacity = ""; steps[i].classList.add("gen--in");
+    const rail = steps[i].querySelector("#boxrail");
+    if (rail) sequenceReveal(rail, ".boxcard", 240, 120);
+    steps[i].scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
 }
 
 function purge() {
@@ -510,9 +527,8 @@ function render() {
     <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalBuild" onclick="recalBuild()">↻ Recalibrate from analysis${DIRTY ? " — changes pending" : ""}</button></div>
     <div id="buildmeter"></div>`;
   dragScroll(document.getElementById("boxrail"));
-  // generation motion: after the process meter is done, reveal each analysis box
-  // light→dark, one clearly after the next (box 1, then box 2, …)
-  sequenceReveal(document.getElementById("boxrail"), ".boxcard", 320, 350);
+  // box reveal is driven by revealFlowSequence() during generate(), so the whole
+  // process meter finishes first, then block 1, then block 2, …
 
   // step 3 — understanding + worksheet needs + clarify + lock
   renderReady();
