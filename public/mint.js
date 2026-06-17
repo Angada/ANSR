@@ -3,6 +3,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
 const confClass = (c) => (c >= 0.85 ? "hi" : c >= 0.6 ? "mid" : "lo");
+const money = (n, c = "USD") => (c === "USD" ? "$" : (c ? c + " " : "")) + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
 let DATA = null;
 
 async function init() {
