@@ -8,10 +8,12 @@ import { compileRuleBook } from "./rulebook.js";
 import { normalizeRow } from "./normalize.js";
 import { computeRun, runWorkedExamples } from "./compute.js";
 
-export function createEngine({ q, getExtract, getRuleBookBox, getRate, summaryFor, federation }) {
+export function createEngine({ q, getExtract, getRuleBookBox, getRate, summaryFor, federation, epidemiology }) {
   // federation (optional): createFederation(q) from ../atlas/federation.js. When
   // supplied, a label confirmed on one contract auto-applies to its archetype
   // siblings — contract-level decisions still override the federated default.
+  // epidemiology (optional): createEpidemiology(q) — after each run, refresh the
+  // archetype's recurring-exception patterns so siblings get pre-warned.
   async function getDecisions(client) {
     const out = {};
     if (federation) try { Object.assign(out, await federation.decisionsFor(client)); } catch { /* */ }
@@ -90,9 +92,14 @@ export function createEngine({ q, getExtract, getRuleBookBox, getRate, summaryFo
         [runId, client, month, ruleBook.base_currency, res.totals.oss, res.totals.ta, res.totals.grand]).catch(() => {});
     } catch { /* json-only */ }
 
+    // refresh archetype exception epidemiology so siblings get pre-warned
+    if (epidemiology) await epidemiology.record(client).catch(() => {});
+
     return { ok: true, run_no: runNo, month, totals: res.totals, computed: res.ta.length, exceptions: res.exceptions, clarifications, hc: res.hc };
   }
 
   async function selfTest(client) { return runWorkedExamples(await getRuleBook(client), getRate); }
-  return { getDecisions, recordDecision, getRuleBook, saveLedger, computeAndPersist, selfTest };
+  // prewarn (optional): the archetype's recurring exceptions for a (new) contract
+  async function prewarn(client) { return epidemiology ? epidemiology.prewarn(client) : { archetype: null, warnings: [] }; }
+  return { getDecisions, recordDecision, getRuleBook, saveLedger, computeAndPersist, selfTest, prewarn };
 }

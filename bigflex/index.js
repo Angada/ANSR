@@ -10,3 +10,4 @@ export { createEngine } from "./engine/run.js";
 export { fingerprint, archetypeSlug, archetypeName, playbook } from "./atlas/fingerprint.js";
 export { similarity, rank, decide } from "./atlas/match.js";
 export { createFederation } from "./atlas/federation.js";
+export { createEpidemiology, suggestFix } from "./atlas/epidemiology.js";
