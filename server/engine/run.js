@@ -67,7 +67,9 @@ export async function computeAndPersist(client, month, opts = {}) {
   const ledger = placements.map((p) => {
     const { normalized, clarifications } = normalizeRow(p.raw || {}, ruleBook, decisions);
     for (const c of clarifications) if (!clarMap.has(c.topic)) clarMap.set(c.topic, { ...c, rows_affected: 1 }); else clarMap.get(c.topic).rows_affected++;
-    return { id: p.id, ext_id: p.ext_id, name: p.name || normalized.name, ...normalized };
+    // keep raw fields (e.g. seats, gb_stored, api_calls) so generic measures
+    // resolve; normalized canonical fields win on conflict.
+    return { id: p.id, ext_id: p.ext_id, ...(p.raw || {}), name: p.name || normalized.name, ...normalized };
   });
 
   const res = await computeRun({ month, ruleBook, ledger, getRate, currency: ruleBook.base_currency });
@@ -91,6 +93,7 @@ export async function computeAndPersist(client, month, opts = {}) {
     steps: ["Normalising rows", "Active headcount", "TA rate lookup + FX", "Milestone split", "Statement"],
     summary: { title: "Contract summary", text: stubAnalysis(client).summary.text }, findings: stubAnalysis(client).findings,
     boxes: stubAnalysis(client).boxes,
+    compiled_rule_book: ruleBook, // carry the rule book forward so getRuleBook stays correct across runs
     oss: res.oss, ta: res.ta, lines: res.lines, by_head: res.by_head, exceptions: res.exceptions, totals: res.totals, hc: res.hc,
     computed: res.ta.length, clarifications,
   };
