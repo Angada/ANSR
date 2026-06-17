@@ -82,53 +82,59 @@ function renderRoster() {
 
 async function confirmRoster() {
   const r = await (await fetch("/api/mint/roster/confirm", { method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ client: $("#client").value, docId: ROSTER.docId, rowCount: ROSTER.rowCount, mapping: ROSTER.mapping }) })).json();
-  $("#rconfirm-msg").innerHTML = `<span style="color:var(--ansr-teal)">✓ saved ${r.saved} rows · ${r.db} · source switched to API</span>`;
-  runValidation();
+    body: JSON.stringify({ client: $("#client").value, docId: ROSTER.docId, mapping: ROSTER.mapping }) })).json();
+  $("#rconfirm-msg").innerHTML = `<span style="color:var(--ansr-teal)">✓ ${r.saved} rows saved to the ledger · source switched to API</span>`;
+  const month = new Date().toISOString().slice(0, 7);
+  $("#validate").innerHTML = `<div class="band grad-teal" style="margin-top:16px">
+    <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 6px">Calculate the bill</h3>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+      <div><label class="lbl">Invoice month</label><input type="month" id="calcMonth" value="${month}" style="min-width:150px"></div>
+      <button class="btn-ai" id="runCalc"><span class="tw">✨</span>Run calculation</button>
+    </div><div id="calcmeter"></div></div>`;
+  $("#runCalc").addEventListener("click", runCompute);
 }
 
-// validation bar — contract terms (AI) vs the supplied data, step by step
-async function runValidation() {
-  const { steps, ready } = await (await fetch(`/api/mint/validate/${$("#client").value}`)).json();
-  const wrap = $("#validate");
-  wrap.innerHTML = `<div class="band grad-teal" style="margin-top:16px"><h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 8px">Validation — contract terms vs data</h3><div id="vsteps"></div><div id="vdone"></div></div>`;
-  const vs = $("#vsteps");
-  for (let i = 0; i < steps.length; i++) {
-    const s = steps[i];
-    vs.insertAdjacentHTML("beforeend", `<div class="step" id="vs-${i}"><span class="conf-dot mid"></span>${esc(s.label)} <span class="lbl">…</span></div>`);
-    await new Promise((r) => setTimeout(r, 500));
-    const icon = s.status === "warn" ? `<span style="color:var(--ansr-orange-deep)">⚠ ${esc(s.detail || "warning")}</span>` : `<span style="color:var(--ansr-teal)">✓ ${esc(s.detail || "pass")}</span>`;
-    $(`#vs-${i}`).className = "step on";
-    $(`#vs-${i}`).innerHTML = `<span class="conf-dot ${s.status === "warn" ? "mid" : "hi"}"></span>${esc(s.label)} ${icon}`;
-  }
-  if (ready) $("#vdone").innerHTML = `<div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-    <span class="chip chip--approved">✓ Completed · ready to accept file</span>
-    <button class="btn" id="accept">Accept file &amp; calculate</button></div>`;
-  $("#accept")?.addEventListener("click", acceptFile);
+async function runCompute() {
+  const month = $("#calcMonth").value || new Date().toISOString().slice(0, 7);
+  $("#runCalc").disabled = true;
+  await runMeter(["Normalising rows", "Active-headcount roll-forward", "TA rate lookup + FX", "Milestone split", "Building statement"], "calcmeter", "✓ Computed");
+  const res = await (await fetch("/api/mint/run/compute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, month }) })).json();
+  $("#runCalc").disabled = false;
+  window.RUN = res; renderRunResult(res, month);
 }
 
-async function acceptFile() {
-  const o = $("#outcome");
-  if (window.READY === false) {
-    o.innerHTML = `<div class="band" style="margin-top:16px;border-left:3px solid var(--ansr-orange)"><b style="color:var(--ansr-navy)">Not ready</b><p class="lbl" style="margin:4px 0 0">Contract readiness has missing items — resolve them in the checklist above before results.</p></div>`;
-    document.querySelector('.flowstep[data-n="3"] .chip--flag')?.scrollIntoView({ block: "center" });
-    return;
-  }
-  // analyzing → fold all 4 steps behind so the result is front-and-centre
-  foldFlow(true);
-  o.innerHTML = `<p class="lbl" style="margin-top:16px">Calculating invoice…</p>`;
-  await new Promise((r) => setTimeout(r, 800));
-  o.innerHTML = `
+function renderRunResult(res, month) {
+  const cur = (res.totals && res.currency) || "USD";
+  const m = money(res.totals?.grand, cur);
+  const clar = (res.clarifications || []).map((c) => `
+    <div class="ai-box" style="margin-top:8px">
+      <div class="ai-head"><span class="tw">✨</span> ${esc(c.question)} <span class="chip chip--flag" style="margin-left:auto">${c.rows_affected || 1} rows</span></div>
+      <div class="ai-chips">${(c.options || []).map((o) => `<span class="ai-chip" onclick="resolveClar('${esc(c.topic)}','${esc(o)}','${month}')">${esc(o)}</span>`).join("")}</div>
+    </div>`).join("");
+  const exc = (res.exceptions || []).map((e) => `<div class="chk miss"><span class="ic">✕</span><span><b>${esc(e.ext_id || "row")}</b> — ${esc(e.issue)} <span class="lbl">${esc(e.detail || "")}</span></span></div>`).join("");
+  $("#outcome").innerHTML = `
     <div class="band" style="margin-top:16px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="chip chip--approved">Calculation complete</span><span class="lbl">outcome generated</span></div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <a class="btn" href="/invoice-doc.html?customer=${$("#client").value}&run=${DATA?.run_no || 3}#months">Invoicing summary</a>
-        <a class="btn-ai" href="/invoice-doc.html?customer=${$("#client").value}&run=${DATA?.run_no || 3}#invoice"><span class="tw">✨</span>Generate invoice</a>
-        <a class="btn btn--ghost" href="/invoice-doc.html?customer=${$("#client").value}&run=${DATA?.run_no || 3}#calc">Detailed calculations</a>
-        <a class="btn btn--ghost" href="/invoice.html?customer=${$("#client").value}&run=${DATA?.run_no || 3}">Replay + heatmap</a>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <span class="chip chip--approved">Computed ${res.computed} lines</span>
+        <span class="chip ${res.exceptions?.length ? "chip--flag" : "chip--draft"}">${res.exceptions?.length || 0} exceptions</span>
+        <span class="chip ${res.clarifications?.length ? "chip--flag" : "chip--draft"}">${res.clarifications?.length || 0} clarifications</span>
+        <span style="margin-left:auto;font-weight:500;color:var(--ansr-navy)">${month} · ${m}</span>
+      </div>
+      ${res.clarifications?.length ? `<div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-top:8px">Clarifications — answer once, applies to all rows + future runs</div>${clar}` : ""}
+      ${res.exceptions?.length ? `<div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin:10px 0 2px">Quarantined (not billed)</div>${exc}` : ""}
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+        <a class="btn" href="/invoice-doc.html?customer=${$("#client").value}&run=${res.run_no}#months">Invoicing summary</a>
+        <a class="btn-ai" href="/invoice-doc.html?customer=${$("#client").value}&run=${res.run_no}#invoice"><span class="tw">✨</span>Generate invoice</a>
+        <a class="btn btn--ghost" href="/invoice-doc.html?customer=${$("#client").value}&run=${res.run_no}#calc">Detailed calculations</a>
+        <a class="btn btn--ghost" href="/invoice.html?customer=${$("#client").value}&run=${res.run_no}">Replay + heatmap</a>
       </div>
     </div>`;
 }
+
+window.resolveClar = async (topic, choice, month) => {
+  const res = await (await fetch("/api/mint/clarify", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, topic, choice, month }) })).json();
+  window.RUN = res; renderRunResult(res, month);
+};
 
 let _lastClient = null;
 // inline new-client line entry (no popup, no currency — FX normalises per doc)

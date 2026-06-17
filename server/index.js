@@ -15,6 +15,8 @@ import { stubRun, stubOps, stubContracts, stubContract, stubRuns, stubAnalysis, 
 import Anthropic from "@anthropic-ai/sdk";
 import { inferMapping, detectIssues, summarizeIssues, CANONICAL } from "./roster.js";
 import { runPipeline, aiMap, buildContext } from "./ai.js";
+import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples } from "./engine/run.js";
+import { getRate, setManualRate } from "./fx.js";
 import { stubClauses, upsertInterpretation, getInterpretations } from "./clauses.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -111,8 +113,13 @@ app.get("/api/ops", (_req, res) => res.json({ ops: stubOps() }));
 app.get("/api/contracts", (_req, res) => res.json({ contracts: stubContracts() }));
 app.get("/api/contract/:id", (req, res) => res.json(stubContract(slug(req.params.id))));
 app.get("/api/runs/:customer", (req, res) => res.json({ runs: stubRuns(slug(req.params.customer)) }));
-app.get("/api/run/:customer/:runNo", (req, res) => {
-  res.json(stubRun(slug(req.params.customer), Number(req.params.runNo) || 1));
+app.get("/api/run/:customer/:runNo", async (req, res) => {
+  const client = slug(req.params.customer), no = Number(req.params.runNo) || 1;
+  try {
+    const r = await q(`select manifest from run where customer_id=(select id from customer where code=$1) and run_no=$2`, [client, no]);
+    if (r.rows?.[0]?.manifest?.source === "engine") return res.json(r.rows[0].manifest);
+  } catch { /* */ }
+  res.json(stubRun(client, no));
 });
 
 // ---- Mint contract analysis (run system: recall / new / purge) -------------
@@ -212,7 +219,32 @@ app.post("/api/mint/run", async (req, res) => {
   res.json(payload);
 });
 
-app.get("/api/mint/invoice/:client/:no", (req, res) => res.json(stubInvoice(slug(req.params.client), Number(req.params.no) || 3)));
+app.get("/api/mint/invoice/:client/:no", async (req, res) => {
+  const client = slug(req.params.client), no = Number(req.params.no) || 3;
+  try {
+    const r = await q(`select manifest from run where customer_id=(select id from customer where code=$1) and run_no=$2`, [client, no]);
+    const m = r.rows?.[0]?.manifest;
+    if (m?.source === "engine") return res.json(invoiceFromManifest(client, m));
+  } catch { /* */ }
+  res.json(stubInvoice(client, no));
+});
+function invoiceFromManifest(client, m) {
+  const c = m.currency || "USD";
+  const sum = (k) => (m.ta || []).reduce((s, t) => s + (t[k] || 0), 0);
+  const lines = [
+    m.oss ? { head: "OSS", desc: `Operations Support Fee · ${m.invoice_month} · ${m.oss.closing_active_hc} active HC`, hsn: "998511", amount: m.oss.oss_amount } : null,
+    { head: "TA — Sourcing", desc: "Sourcing commencement advances", hsn: "998511", amount: sum("sourcing_billed") },
+    { head: "TA — Acceptance", desc: "Offer acceptance advances", hsn: "998511", amount: sum("acceptance_billed") },
+    { head: "TA — Balance", desc: "Balance TA fees (post-onboarding)", hsn: "998511", amount: sum("balance_billed") },
+  ].filter((l) => l && l.amount > 0);
+  const subtotal = lines.reduce((s, l) => s + l.amount, 0);
+  return { client, run_no: m.run_no, invoice_month: m.invoice_month, currency: c, source: "engine",
+    invoice_no: `ANSR/${client.replace(/[^A-Z0-9]/g, "").slice(0, 4)}/${(m.invoice_month || "").replace("-", "")}/${String(m.run_no).padStart(2, "0")}`,
+    from: { name: "ANSR Global Services Pvt. Ltd.", addr: "<ANSR registered address>", gstin: "<ANSR GSTIN>", email: "billing@ansr.com" },
+    to: { name: client, addr: "<client billing address>", attn: "<accounts payable>", gstin: "<client GSTIN>" },
+    lines, subtotal, tax: { label: "Tax", rate: 0, amount: 0, note: "place-of-supply / GST as applicable" }, total: subtotal,
+    notes: "Computed by Q&ANSR · Mint from the SOW + worksheet. Clause- and calc-traceable." };
+}
 
 app.post("/api/mint/purge", async (req, res) => {
   const client = slug(req.body?.client || "ANSR-KENVUE");
@@ -241,6 +273,7 @@ app.post("/api/mint/roster/map", upload.single("file"), async (req, res) => {
     const docId = `roster-${sha256.slice(0, 8)}`;
     const storagePath = await putOriginal(client, sha256, extname(f.originalname), buf);
     const mdPath = await putExtract(client, docId, toMarkdown({ docType: "roster", originalName: f.originalname, sha256, extract }));
+    await putExtract(client, `${docId}-rows`, JSON.stringify(rows)); // full parsed rows for the ledger save
     await q(`insert into document(customer_id,doc_type,filename,sha256,storage_path,md_path,meta)
              values((select id from customer where code=$1),'roster',$2,$3,$4,$5,$6) on conflict do nothing`,
       [client, f.originalname, sha256, storagePath, mdPath, JSON.stringify({ sheet: sheet?.name, rows: rows.length })]).catch(() => {});
@@ -250,11 +283,54 @@ app.post("/api/mint/roster/map", upload.single("file"), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post("/api/mint/roster/confirm", (req, res) => {
-  const { client, docId, rowCount, mapping } = req.body || {};
-  // stub save — the real version inserts/updates `placement` rows from mapping.
-  res.json({ ok: true, saved: rowCount || 0, db: "postgres + md", mapped_fields: Object.keys(mapping || {}).length,
-    apiUrl: `/api/doc/${slug(client || "ANSR-KENVUE")}/${docId}`, switched: true });
+app.post("/api/mint/roster/confirm", async (req, res) => {
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  const { docId, mapping } = req.body || {};
+  const saved = await saveLedger(client, docId, mapping);
+  res.json({ ok: true, saved, db: "postgres", mapped_fields: Object.keys(mapping || {}).length,
+    apiUrl: `/api/doc/${client}/${docId}`, switched: true });
+});
+
+// run the calc engine for a month → compute clean rows, quarantine the rest
+app.post("/api/mint/run/compute", async (req, res) => {
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  const month = (req.body?.month || new Date().toISOString().slice(0, 7));
+  try { res.json(await computeAndPersist(client, month)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// clarifications: derived during compute; the latest run's open ones
+app.get("/api/mint/clarifications/:client", async (req, res) => {
+  const client = slug(req.params.client);
+  try {
+    const r = await q(`select manifest from run where customer_id=(select id from customer where code=$1) order by run_no desc limit 1`, [client]);
+    res.json({ clarifications: r.rows?.[0]?.manifest?.clarifications || [], exceptions: r.rows?.[0]?.manifest?.exceptions || [] });
+  } catch { res.json({ clarifications: [], exceptions: [] }); }
+});
+// resolve a clarification → persist decision → recompute that month
+app.post("/api/mint/clarify", async (req, res) => {
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  const { topic, choice, month } = req.body || {};
+  if (!topic || !choice) return res.status(400).json({ error: "topic + choice required" });
+  try {
+    await q(`insert into decision(customer_id, topic, choice, decided_by) values((select id from customer where code=$1),$2,$3,'vik')
+             on conflict (customer_id, topic) do update set choice=excluded.choice, decided_at=now()`, [client, topic, choice]);
+    const m = month || (await q(`select invoice_month from run where customer_id=(select id from customer where code=$1) order by run_no desc limit 1`, [client])).rows?.[0]?.invoice_month || new Date().toISOString().slice(0, 7);
+    res.json(await computeAndPersist(client, m));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// compiled rule book + worked-example self-test (trust badge)
+app.get("/api/mint/rulebook/:client", async (req, res) => {
+  const client = slug(req.params.client);
+  const rb = await getRuleBook(client);
+  res.json({ rule_book: rb, tests: await runWorkedExamples(rb, getRate), warnings: rb._warnings || [] });
+});
+// FX manual override / pin
+app.post("/api/fx/override", async (req, res) => {
+  const { from, to, rate, date } = req.body || {};
+  if (!from || !to || !rate) return res.status(400).json({ error: "from,to,rate required" });
+  res.json(await setManualRate(from, to, Number(rate), date));
 });
 
 // validation: contract terms (AI-identified) vs the supplied data
