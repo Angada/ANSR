@@ -18,6 +18,7 @@ import { runPipeline, aiMap, buildContext } from "./ai.js";
 import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples } from "./engine/run.js";
 import { getRate, setManualRate } from "./fx.js";
 import { classify as atlasClassify, route as atlasRoute, listArchetypes, archetypeDetail } from "./atlas/atlas.js";
+import { runMigrations } from "./migrate.js";
 import { stubClauses, upsertInterpretation, getInterpretations } from "./clauses.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -506,8 +507,10 @@ app.use((err, _req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 4100;
-// Bind the config backend (Postgres in prod, local file in dev) before serving.
-initConfig()
+// Apply schema (idempotent) + bind the config backend before serving.
+runMigrations()
+  .catch(() => {})
+  .then(() => initConfig())
   .then((backend) => console.log(`Q&ANSR config backend: ${backend} · storage: ${usingBucket() ? "supabase-bucket" : "local-disk"}`))
   .catch(() => {})
   .finally(() => app.listen(PORT, () => console.log(`Q&ANSR on http://localhost:${PORT}`)));
