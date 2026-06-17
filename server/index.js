@@ -151,9 +151,9 @@ app.post("/api/clients", async (req, res) => {
 app.get("/api/mint/runs/:client", async (req, res) => {
   const client = slug(req.params.client);
   try {
-    const r = await q(`select run_no, label, status, to_char(finished_at,'YYYY-MM-DD') as month from run
+    const r = await q(`select run_no, label, status, invoice_month, to_char(finished_at,'YYYY-MM-DD') as created from run
                        where customer_id=(select id from customer where code=$1) order by run_no`, [client]);
-    if (r.rows?.length) return res.json({ runs: r.rows.map((x) => ({ run_no: x.run_no, month: x.month, status: x.status, label: x.label })) });
+    if (r.rows?.length) return res.json({ runs: r.rows.map((x) => ({ run_no: x.run_no, month: x.invoice_month || x.created, status: x.status, label: x.label })) });
   } catch { /* fall back */ }
   res.json({ runs: stubRuns(client) });
 });

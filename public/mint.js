@@ -263,7 +263,7 @@ async function loadRuns(selectLast) {
   $("#sowRow").style.display = "none"; // existing client → just recall/run; SOW row only on +new
   const { runs } = await (await fetch(`/api/mint/runs/${$("#client").value}`)).json();
   $("#run").innerHTML = runs.length
-    ? runs.map((r) => `<option value="${r.run_no}">Run ${r.run_no} · ${r.month} · ${r.status}</option>`).join("")
+    ? runs.map((r) => `<option value="${r.run_no}">v${r.run_no} · ${r.month || "—"} · ${r.status}</option>`).join("")
     : `<option value="">— no runs —</option>`;
   if (runs.length) { if (selectLast) $("#run").value = runs[runs.length - 1].run_no; await openRun($("#run").value); }
   else { clearSteps(); $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">No runs yet — press Generate Contract Analysis.</p>`; }
@@ -493,7 +493,7 @@ function render() {
     ? `<a href="/atlas.html" class="chip ${a.decision === "novel" ? "chip--draft" : "chip--approved"}" style="margin-left:6px;text-decoration:none" title="Atlas archetype">🧭 ${a.decision === "novel" ? "new archetype" : "matched"} · ${esc(a.archetype.slug)}${a.similarity ? " · " + Math.round(a.similarity * 100) + "%" : ""}${DATA.compiled_rule_book ? " · rule book pre-loaded" : ""}</a>`
     : "";
   $("#result").innerHTML = `
-    <div class="sd lbl" style="margin-bottom:8px">${SECDESC.summary} <span class="chip" style="margin-left:6px">Run ${DATA.run_no}</span>${srcChip}${atlasChip}</div>
+    <div class="sd lbl" style="margin-bottom:8px">${SECDESC.summary} <span class="chip" style="margin-left:6px" title="each Calculate is a new version">v${DATA.run_no}</span>${srcChip}${atlasChip}</div>
     <p class="sum-text" style="margin:0 0 10px">${esc(DATA.summary.text)}</p>
     <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:2px">Key findings</div>
     <ul class="findings sm">${DATA.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>`;
