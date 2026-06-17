@@ -1,0 +1,17 @@
+{
+  "name": "bigflex",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "TheBigFlex — turn any document-defined ruleset + a periodic data feed (file OR API) into computed, explainable, auditable outputs, for thousands of tenants with no per-tenant code.",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./engine/*": "./engine/*",
+    "./ui/*": "./ui/*",
+    "./db/schema": "./db/schema.sql"
+  },
+  "files": ["engine", "ui", "db", "index.js", "SKILL.md", "README.md"],
+  "engines": { "node": ">=18" },
+  "scripts": { "test": "node test/smoke.mjs" },
+  "license": "UNLICENSED"
+}

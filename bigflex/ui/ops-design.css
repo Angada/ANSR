@@ -1,0 +1,228 @@
+/* ============================================================================
+   ANSR OPS — enterprise-AI ops design system
+   The visual language of the Mint reconciler: the numbered run, the vertical
+   step flow with right-angled connectors, equal-height analysis boxes with a
+   pinned AI lane, readiness gates, evidence tables.
+
+   Mobile-first · 100% responsive · touch targets ≥44px · flat (no heavy
+   shadows) · one accent, one ink, one AI lane.
+
+   THEMING: every component reads the --brand-* API below — never a raw hex.
+   Rebrand an entire deployment (logo + colour) by overriding --brand-* in one
+   block; ship per-tenant themes with [data-brand="x"]{ ... }. See the skill.
+   ============================================================================ */
+@import url("/brand/tokens.css");
+
+/* ---- THEME API (override to rebrand; defaults = ANSR) --------------------- */
+:root {
+  --brand-accent:       var(--ansr-orange);       /* primary: CTA, step number, active */
+  --brand-accent-hover: var(--ansr-orange-hover);
+  --brand-accent-deep:  var(--ansr-orange-deep);  /* on-tint text, flags */
+  --brand-accent-tint:  var(--ansr-orange-tint);  /* pale accent fill */
+  --brand-ink:          var(--ansr-navy);         /* headings / strong text */
+  --brand-secondary:    var(--ansr-teal);         /* success / approved / "done" */
+  --brand-secondary-tint:#e3f0f1;
+  --brand-ai:           #6b2db0;                  /* the AI lane (distinct from accent) */
+  --brand-ai-tint:      #faf5fd;
+  --brand-ai-line:      #d9c2f0;
+
+  --brand-text:         var(--ansr-text);
+  --brand-muted:        var(--ansr-gray);
+  --brand-surface:      var(--ansr-white);        /* cards */
+  --brand-canvas:       var(--ansr-bg);           /* page */
+  --brand-border:       var(--ansr-border);
+  --brand-line:         var(--ansr-line);
+
+  --brand-radius:       10px;
+  --brand-radius-pill:  var(--ansr-radius-pill);
+  --brand-font:         var(--ansr-font);
+  --brand-transition:   var(--ansr-transition);
+
+  /* logo: set --brand-logo to a url() and the height to fit the bar */
+  --brand-logo:         url("/brand/assets/logos/QAnsr-logo.png");
+  --brand-logo-h:       80px;
+  --brand-logo-h-sm:    60px;
+
+  /* confidence ramp (AI trust) */
+  --conf-hi:            var(--brand-secondary);
+  --conf-mid:           var(--ansr-orange);
+  --conf-lo:            #b3261e;
+
+  /* box geometry */
+  --box-h:              460px;
+  --box-h-sm:           430px;
+  --flow-rail:          34px;   /* width of the numbered connector column */
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--brand-canvas); color: var(--brand-text);
+  font-family: var(--brand-font); font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+img, svg, table { max-width: 100%; }
+
+/* ---- layout -------------------------------------------------------------- */
+.ops-wrap { width: 100%; max-width: var(--ansr-container); margin: 0 auto; padding: 0 16px; }
+
+/* ---- app bar (themeable logo) ------------------------------------------- */
+.ops-appbar { position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 16px;
+  padding: 10px 16px; background: var(--brand-surface); border-bottom: 1px solid var(--brand-border); }
+.ops-appbar .logo { height: var(--brand-logo-h); width: auto; aspect-ratio: 3/1; display: block;
+  background: var(--brand-logo) left center / contain no-repeat; }
+.ops-appbar nav { display: flex; gap: 4px; }
+.ops-appbar .navtab { text-decoration: none; color: var(--brand-muted); font-weight: 500; font-size: 15px;
+  padding: 8px 12px; border-radius: 8px; transition: var(--brand-transition); }
+.ops-appbar .navtab:hover { background: var(--ansr-surface); color: var(--brand-ink); }
+.ops-appbar .navtab.active { color: var(--brand-ink); background: var(--brand-accent-tint); }
+.ops-appbar .user { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+@media (max-width: 480px) { .ops-appbar .logo { height: var(--brand-logo-h-sm); } }
+
+/* ---- hero + bands -------------------------------------------------------- */
+.ops-hero { border-radius: 14px; padding: 20px 18px 16px; margin: 14px 0;
+  background: linear-gradient(115deg, var(--brand-accent-tint), var(--brand-surface) 70%); }
+.ops-hero .eyebrow { color: var(--brand-accent); font-weight: 600; letter-spacing: .12em; font-size: 12px; text-transform: uppercase; }
+.ops-hero h1 { color: var(--brand-ink); font-size: 23px; margin: 6px 0 0; font-weight: 500; }
+.ops-band { border: 1px solid var(--brand-border); border-radius: 14px; padding: 16px; margin: 14px 0; background: var(--brand-surface); }
+.ops-band.grad-soft  { background: linear-gradient(180deg, var(--ansr-surface), var(--brand-surface)); }
+.ops-band.grad-accent{ background: linear-gradient(120deg, var(--brand-accent-tint), var(--brand-surface) 75%); }
+.ops-band.grad-teal  { background: linear-gradient(120deg, var(--brand-secondary-tint), var(--brand-surface) 75%); }
+
+/* ============================================================================
+   THE RUN — horizontal numbered stepper (live progress of one analysis run)
+   ============================================================================ */
+.ops-run { display: flex; gap: 0; overflow-x: auto; padding: 6px 0 2px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.ops-run::-webkit-scrollbar { display: none; }
+.ops-run .node { flex: 1 1 0; min-width: 92px; display: flex; flex-direction: column; align-items: center; position: relative; padding: 0 2px; }
+.ops-run .node::after { content: ""; position: absolute; top: 16px; left: 50%; width: 100%; height: 2px; background: var(--brand-border); z-index: 1; }
+.ops-run .node:last-child::after { display: none; }
+.ops-run .node.done::after { background: var(--brand-secondary-tint); }
+.ops-run .node .dot { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--brand-surface); border: 2px solid var(--brand-border); color: var(--brand-muted); font-weight: 600; font-size: 13px; z-index: 2; transition: var(--brand-transition); }
+.ops-run .node.done .dot { background: var(--brand-secondary-tint); border-color: var(--brand-secondary); color: var(--brand-secondary); }
+.ops-run .node.active .dot { border-color: var(--brand-accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-accent) 18%, transparent); transform: scale(1.1); }
+.ops-run .node .lbl { font-size: 11px; margin-top: 7px; color: var(--brand-muted); text-align: center; line-height: 1.25; max-width: 96px; }
+.ops-run .node.active .lbl { color: var(--brand-ink); font-weight: 500; }
+
+/* ============================================================================
+   THE FLOW — numbered vertical steps with right-angled left connectors
+   ============================================================================ */
+.ops-flow { margin: 14px 0; }
+.ops-step { display: grid; grid-template-columns: var(--flow-rail) 1fr; gap: 12px; align-items: start; }
+.ops-step + .ops-step { margin-top: 12px; }
+.ops-step .rail { position: relative; display: flex; justify-content: center; align-self: stretch; }
+.ops-step .num { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: var(--brand-surface); border: 2px solid var(--brand-accent); color: var(--brand-accent); font-weight: 600; font-size: 14px; z-index: 2; flex: 0 0 auto; }
+/* vertical segment down to the next number */
+.ops-step:not(:last-child) .rail::before { content: ""; position: absolute; top: 30px; bottom: -42px; left: 50%;
+  width: 2px; transform: translateX(-50%); background: var(--brand-border); z-index: 1; }
+/* right-angled tick into the step body */
+.ops-step .rail::after { content: ""; position: absolute; top: 14px; left: 50%; width: 18px; height: 2px; background: var(--brand-border); z-index: 1; }
+.ops-step .body { min-width: 0; } /* let inner tables/rails scroll */
+.ops-step .title { display: block; width: 100%; text-align: left; background: none; border: 0; cursor: pointer;
+  color: var(--brand-ink); font-weight: 500; font-size: 15px; padding: 4px 0 8px; }
+.ops-step .title::after { content: "⌄"; float: right; color: var(--brand-muted); transition: transform .2s linear; }
+.ops-step .content { overflow: hidden; transition: max-height .25s ease, opacity .2s ease; }
+.ops-step.folded .content { max-height: 0; opacity: 0; }
+.ops-step.folded .title::after { transform: rotate(-90deg); }
+.ops-step.done .num { background: var(--brand-secondary-tint); border-color: var(--brand-secondary); color: var(--brand-secondary); }
+
+/* ---- section header (titled lane inside a step) -------------------------- */
+.ops-sechead { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  background: linear-gradient(100deg, var(--brand-accent-tint), var(--brand-surface) 70%); border: 1px solid var(--brand-border);
+  border-left: 3px solid var(--brand-accent); border-radius: var(--brand-radius); padding: 10px 14px; margin: 8px 0 10px; }
+.ops-sechead.teal { background: linear-gradient(100deg, var(--brand-secondary-tint), var(--brand-surface) 70%); border-left-color: var(--brand-secondary); }
+.ops-sechead .st { color: var(--brand-ink); font-weight: 500; font-size: 15px; }
+.ops-sechead .sd { color: var(--brand-muted); font-size: 12px; margin-top: 1px; }
+
+/* ============================================================================
+   ANALYSIS BOXES — equal-height carousel · scrollable data · pinned AI lane
+   ============================================================================ */
+.ops-boxrail { display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; padding-bottom: 4px; }
+.ops-boxrail::-webkit-scrollbar { display: none; }
+.ops-boxrail > .ops-box { flex: 0 0 calc(46% - 7px); scroll-snap-align: start; } /* neighbour peeks = scroll cue */
+@media (max-width: 680px) { .ops-boxrail > .ops-box { flex: 0 0 80%; } }
+
+.ops-box { display: flex; flex-direction: column; height: var(--box-h); overflow: hidden;
+  border: 1px solid var(--brand-border); border-radius: var(--brand-radius); background: var(--brand-surface);
+  font-size: 13px; line-height: 1.45; }
+.ops-box .bc-head { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--brand-border); }
+.ops-box .bc-head b { font-size: 14px; color: var(--brand-ink); }
+.ops-box .bc-data { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 12px; }
+.ops-box .bc-data > div, .ops-box .bc-data p { font-size: 13px; }
+@media (max-width: 680px) { .ops-box { height: var(--box-h-sm); } }
+
+/* AI lane — pinned to the foot of every box (chat + results stay put) */
+.ops-ai { flex: 0 0 auto; border-top: 1px solid var(--brand-ai-line); background: linear-gradient(180deg, var(--brand-ai-tint), var(--brand-surface)); padding: 12px 14px; }
+.ops-ai .ai-head { display: flex; align-items: center; gap: 8px; color: var(--brand-ai); font-weight: 500; margin-bottom: 8px; font-size: 14px; }
+.ops-ai .ai-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.ops-ai .ai-chip { border: 1px solid var(--brand-ai-line); background: var(--brand-surface); color: var(--brand-ai);
+  border-radius: 20px; padding: 4px 11px; font-size: 12px; cursor: pointer; transition: var(--brand-transition); }
+.ops-ai .ai-chip:hover { background: var(--brand-ai); color: #fff; border-color: var(--brand-ai); }
+.ops-ai .ai-log { max-height: 110px; overflow-y: auto; margin: 6px 0; }
+.ops-ai .ai-msg { font-size: 12.5px; margin: 4px 0; }
+.ops-ai .ai-msg .who { color: var(--brand-muted); font-weight: 500; }
+.ops-ai .ai-msg.bot .who { color: var(--brand-ai); }
+.ops-ai .ai-row { display: flex; gap: 8px; }
+.ops-ai .ai-row input { font-size: 14px; min-height: 40px; }
+
+/* ---- confidence dots (AI trust signal) ----------------------------------- */
+.conf-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.conf-dot.hi { background: var(--conf-hi); } .conf-dot.mid { background: var(--conf-mid); } .conf-dot.lo { background: var(--conf-lo); }
+.conf-hi { background: color-mix(in srgb, var(--conf-hi) 12%, transparent); }
+.conf-mid { background: color-mix(in srgb, var(--conf-mid) 12%, transparent); }
+.conf-lo { background: color-mix(in srgb, var(--conf-lo) 12%, transparent); }
+
+/* ---- readiness checklist (the gate before results) ----------------------- */
+.ops-chk { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--brand-border); font-size: 13px; }
+.ops-chk:last-child { border-bottom: 0; }
+.ops-chk .ic { flex: 0 0 18px; font-size: 14px; }
+.ops-chk.ok .ic { color: var(--brand-secondary); } .ops-chk.miss .ic { color: var(--brand-accent-deep); }
+.ops-chk .ask { margin-left: auto; }
+
+/* ---- evidence table (horizontal scroll, sticky head + first col) --------- */
+.ops-scroll-x { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ops-scroll-x table { border-collapse: collapse; min-width: max-content; }
+.ops-scroll-x th, .ops-scroll-x td { padding: 5px 10px; border-bottom: 1px solid var(--brand-border); white-space: nowrap; text-align: left; font-size: 12px; }
+.ops-scroll-x thead th { position: sticky; top: 0; background: var(--ansr-surface); z-index: 1; }
+.ops-scroll-x .pin { position: sticky; left: 0; background: var(--brand-surface); z-index: 2; }
+
+/* ---- chips --------------------------------------------------------------- */
+.chip { display: inline-flex; align-items: center; gap: 5px; border-radius: 20px; padding: 4px 11px; font-size: 12.5px; font-weight: 500; line-height: 1.3;
+  background: var(--brand-accent-tint); color: var(--brand-accent-deep); }
+.chip--draft { background: var(--ansr-fill); color: var(--brand-muted); }
+.chip--approved { background: var(--brand-secondary-tint); color: var(--brand-secondary); }
+.chip--flag { background: var(--brand-accent-tint); color: var(--brand-accent-deep); }
+
+/* ---- buttons ------------------------------------------------------------- */
+.btn { min-height: 44px; padding: 12px 24px; border: 0; border-radius: var(--brand-radius-pill);
+  background: var(--brand-accent); color: #fff; font: inherit; font-weight: 500; cursor: pointer; transition: var(--brand-transition); }
+.btn:hover { background: var(--brand-accent-hover); }
+.btn--ghost { background: transparent; color: var(--brand-text); border: 1px solid var(--brand-line); border-radius: var(--ansr-radius-input); }
+.btn--ghost:hover { background: var(--brand-ink); color: #fff; border-color: var(--brand-ink); }
+.btn-ai { min-height: 44px; padding: 12px 22px; border: 0; border-radius: var(--brand-radius-pill); cursor: pointer; font: inherit; font-weight: 500;
+  color: #fff; background: linear-gradient(120deg, var(--brand-ai), #9b51d6); }
+.btn-ai .tw { margin-right: 6px; }
+
+/* ---- inputs (≥16px to stop iOS zoom) ------------------------------------- */
+input, select, textarea { font: inherit; font-size: 16px; min-height: 44px; padding: 10px 12px;
+  border: 1px solid var(--brand-border); border-radius: var(--ansr-radius-input); width: 100%; background: var(--brand-surface); color: var(--brand-text); }
+.lbl { color: var(--brand-muted); font-size: 12px; }
+
+/* ---- validation steps (terms vs data) ------------------------------------ */
+.ops-vstep { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-left: 3px solid var(--brand-border); margin: 6px 0; background: var(--ansr-surface); border-radius: 0 8px 8px 0; font-size: 13px; }
+.ops-vstep.on { border-left-color: var(--brand-secondary); }
+
+/* ---- modal (destructive confirm) ----------------------------------------- */
+.modal-bg { position: fixed; inset: 0; background: rgba(0,36,46,.45); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 20px; }
+.modal { background: var(--brand-surface); border-radius: var(--brand-radius); padding: 20px; max-width: 420px; width: 100%; }
+.modal h3 { color: var(--brand-ink); margin: 0 0 8px; font-weight: 500; }
+.modal .row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+
+/* ---- dark section (for inverted hero/footers) ---------------------------- */
+.ops-dark { background: var(--brand-ink); color: #fff; border-radius: 14px; padding: 18px; }
+.ops-dark .st, .ops-dark h1, .ops-dark h2, .ops-dark h3 { color: #fff; }
+.ops-dark .lbl { color: color-mix(in srgb, #fff 70%, transparent); }
+
+/* ---- motion respect ------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
