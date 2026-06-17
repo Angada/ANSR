@@ -2,13 +2,13 @@
 // can mutate (rate table reshaped, a head added) until its fingerprint no longer
 // fits. check() catches that; fork() crystallises a new archetype VERSION from
 // the contract's current physiology and re-routes it (parent_id links lineage).
-import { getRuleBook } from "../engine/run.js";
 import { fingerprint, archetypeSlug, archetypeName, playbook } from "./fingerprint.js";
 import { similarity, rank } from "./match.js";
 
 const MATCH = 0.8;
 
-export function createDrift(q) {
+// host injects getRuleBook(client) → compiled rule book (decoupled, portable).
+export function createDrift({ q, getRuleBook }) {
   async function activeArchetypes() {
     try { return (await q(`select id, slug, name, version, fingerprint from archetype where status='active'`)).rows || []; }
     catch { return []; }

@@ -455,7 +455,7 @@ app.post("/api/atlas/route/:client", async (req, res) => { try { res.json(await 
 app.get("/api/atlas/archetypes", async (_req, res) => { try { res.json({ archetypes: await listArchetypes() }); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.get("/api/atlas/archetype/:slug", async (req, res) => { const a = await archetypeDetail(req.params.slug); a ? res.json(a) : res.status(404).json({ error: "not found" }); });
 app.get("/api/atlas/epidemiology/:client", async (req, res) => { try { res.json(await epidemiology.prewarn(slug(req.params.client))); } catch (e) { res.status(500).json({ error: e.message }); } });
-const atlasDrift = createDrift(q), atlasPreIntake = createPreIntake(q);
+const atlasDrift = createDrift({ q, getRuleBook }), atlasPreIntake = createPreIntake(q);
 app.get("/api/atlas/drift/:client", async (req, res) => { try { res.json(await atlasDrift.check(slug(req.params.client))); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.post("/api/atlas/fork/:client", async (req, res) => { try { res.json(await atlasDrift.fork(slug(req.params.client))); } catch (e) { res.status(500).json({ error: e.message }); } });
 app.post("/api/atlas/preintake", async (req, res) => { try { res.json(await atlasPreIntake.propose(slug(req.body?.client || ""), req.body?.sow || "")); } catch (e) { res.status(500).json({ error: e.message }); } });
