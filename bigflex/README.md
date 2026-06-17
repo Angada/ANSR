@@ -17,7 +17,10 @@ Tenants are **data** (a compiled rule book), never code. The only logic in code 
   - `match.js` — weighted-Jaccard `similarity`/`rank`/`decide` (matched ≥.8 · partial ≥.5 · novel)
   - `federation.js` — `createFederation(q)`: federated normalizer learning (label confirmed once → promoted across the archetype)
   - `epidemiology.js` — `createEpidemiology(q)`: recurring-exception learning (a failure seen on siblings pre-warns a new contract, with a suggested fix)
-- `db/schema.sql` + `db/010_atlas.sql` — the canonical schema (Postgres) incl. `archetype`/`contract_fingerprint`/`norm_federation`
+  - `embed.js` — `createEmbedder()`: deterministic key-free hashed embedding + cosine (semantic match signal, blended with structural Jaccard)
+  - `drift.js` — `createDrift({q,getRuleBook})`: detect when a contract diverges from its archetype (`check`) and fork a new archetype version (`fork`, `parent_id` lineage)
+  - `preintake.js` — `createPreIntake(q)`: fingerprint from RAW SOW text + human-confirm gate (`propose`/`confirm`) before adopting a template
+- `db/schema.sql` + `db/010_atlas.sql` + `db/011_atlas_semantic.sql` — the canonical schema (Postgres) incl. `archetype`/`contract_fingerprint`/`norm_federation` + embedding/lineage/drift columns
 - `ui/` — drop-in kit: `app.css` (header, modals, chips, charts, mobile), `q.js` (shared header + modals + Dubai dates), `ops-design.css`, `tokens.css` (brand)
 - `SKILL.md` — the full architecture + reuse guide
 
@@ -52,6 +55,11 @@ await engine.recordDecision(client, "source:GDC", "non_referral"); // confirm on
 `createFederation(q)` makes every clarification compound. When a host calls `engine.recordDecision(client, topic, choice)` (e.g. on a clarification answer), it (1) saves the contract-scope mapping, (2) recomputes consensus among contracts of the same archetype, (3) **promotes** the canonical label once ≥2 distinct contracts agree (flags `conflicted` on disagreement). `getDecisions` then merges promoted archetype/global mappings **under** contract decisions, so a sibling contract auto-applies the label without ever being asked — clarifications-per-contract decay toward zero. Requires `db/010_atlas.sql` + a `contract_fingerprint` row linking each customer to its archetype.
 
 `createEpidemiology(q)` does the same for **failures**. After each `computeAndPersist`, the engine refreshes the archetype's `exception_patterns` — every distinct issue, how many sibling contracts it hit, its prevalence, and a heuristic fix hint. `engine.prewarn(client)` returns the recurring ones (>1 contract or prevalence ≥ .5) so a brand-new contract of that shape is warned *before* its first run and steered to the known fix.
+
+## Atlas — semantics, drift & pre-intake (needs `db/011_atlas_semantic.sql`)
+- **Embeddings** — `createEmbedder()` gives a deterministic, key-free hashed vector + `cosine`. The classifier blends it with the structural score (`0.75·Jaccard + 0.25·cosine`) for transparency and tie-breaking; the structural similarity still decides matched/partial/novel. Store the centroid on the archetype + contract for reuse.
+- **Drift + fork** — `createDrift({q, getRuleBook})`. `check(client)` recomputes the contract's fingerprint and flags drift when it falls below match (sim < .8) or its revenue heads changed, suggesting `reroute:<slug>` (a better archetype exists) or `fork`. `fork(client)` crystallises a **new archetype version** from the contract's current shape (`parent_id` lineage) and re-routes it — archetypes evolve instead of silently mis-applying.
+- **Pre-intake gate** — `createPreIntake(q)`. `propose(client, sowText)` fingerprints the **raw SOW prose** (before the rule book is compiled), ranks archetypes, and returns a `confirm_token` that binds the shown fingerprint — **nothing is persisted**. `confirm(client, {fingerprint, confirm_token, archetype_slug})` adopts it only if the token still matches, so a human always approves the shape before a template is applied.
 
 ## The contract you inject
 - **`q(text, params)`** → `{ rows }` (Postgres). Apply `db/schema.sql` first.

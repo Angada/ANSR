@@ -11,3 +11,6 @@ export { fingerprint, archetypeSlug, archetypeName, playbook } from "./atlas/fin
 export { similarity, rank, decide } from "./atlas/match.js";
 export { createFederation } from "./atlas/federation.js";
 export { createEpidemiology, suggestFix } from "./atlas/epidemiology.js";
+export { createEmbedder } from "./atlas/embed.js";
+export { createDrift } from "./atlas/drift.js";
+export { createPreIntake } from "./atlas/preintake.js";
