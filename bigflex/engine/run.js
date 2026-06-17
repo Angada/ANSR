@@ -8,11 +8,21 @@ import { compileRuleBook } from "./rulebook.js";
 import { normalizeRow } from "./normalize.js";
 import { computeRun, runWorkedExamples } from "./compute.js";
 
-export function createEngine({ q, getExtract, getRuleBookBox, getRate, summaryFor }) {
+export function createEngine({ q, getExtract, getRuleBookBox, getRate, summaryFor, federation }) {
+  // federation (optional): createFederation(q) from ../atlas/federation.js. When
+  // supplied, a label confirmed on one contract auto-applies to its archetype
+  // siblings — contract-level decisions still override the federated default.
   async function getDecisions(client) {
     const out = {};
+    if (federation) try { Object.assign(out, await federation.decisionsFor(client)); } catch { /* */ }
     try { for (const x of (await q(`select topic, choice from decision where customer_id=(select id from customer where code=$1)`, [client])).rows || []) out[x.topic] = x.choice; } catch { /* */ }
     return out;
+  }
+  // record a clarification answer so federation can promote it across the archetype
+  async function recordDecision(client, topic, choice) {
+    await q(`insert into decision(customer_id, topic, choice, decided_by) values((select id from customer where code=$1),$2,$3,'host')
+             on conflict (customer_id, topic) do update set choice=excluded.choice, decided_at=now()`, [client, topic, choice]).catch(() => {});
+    if (federation) await federation.record(client, topic, choice).catch(() => {});
   }
   async function getRuleBook(client) {
     const box = await getRuleBookBox(client); // host supplies the billing_rules box
@@ -84,5 +94,5 @@ export function createEngine({ q, getExtract, getRuleBookBox, getRate, summaryFo
   }
 
   async function selfTest(client) { return runWorkedExamples(await getRuleBook(client), getRate); }
-  return { getDecisions, getRuleBook, saveLedger, computeAndPersist, selfTest };
+  return { getDecisions, recordDecision, getRuleBook, saveLedger, computeAndPersist, selfTest };
 }

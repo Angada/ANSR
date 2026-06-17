@@ -11,8 +11,12 @@ Tenants are **data** (a compiled rule book), never code. The only logic in code 
   - `normalize.js` — row → canonical via normalizers + decisions; unknowns → clarifications
   - `compute.js` — `computeRun()` (facts + a trace per number; partial-compute + quarantine) + `runWorkedExamples()` (trust gate)
   - `fx.js` — `createFx(q)`: live rate + cache + manual override
-  - `run.js` — `createEngine({q,getExtract,getRuleBookBox,getRate})`: ledger + compute/persist
-- `db/schema.sql` — the 35-table canonical schema (Postgres)
+  - `run.js` — `createEngine({q,getExtract,getRuleBookBox,getRate,federation})`: ledger + compute/persist
+- `atlas/` — classification + the moat:
+  - `fingerprint.js` — a contract's billing *physiology* (heads · dims · measures · milestones · currency) from its rule book
+  - `match.js` — weighted-Jaccard `similarity`/`rank`/`decide` (matched ≥.8 · partial ≥.5 · novel)
+  - `federation.js` — `createFederation(q)`: federated normalizer learning (label confirmed once → promoted across the archetype)
+- `db/schema.sql` + `db/010_atlas.sql` — the canonical schema (Postgres) incl. `archetype`/`contract_fingerprint`/`norm_federation`
 - `ui/` — drop-in kit: `app.css` (header, modals, chips, charts, mobile), `q.js` (shared header + modals + Dubai dates), `ops-design.css`, `tokens.css` (brand)
 - `SKILL.md` — the full architecture + reuse guide
 
@@ -23,18 +27,25 @@ import { createFx, createEngine } from "bigflex";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const q = (t, p) => pool.query(t, p);
+import { createFederation } from "bigflex";
 const { getRate } = createFx(q);
+const federation = createFederation(q);   // optional — the cross-contract moat
 
 const engine = createEngine({
   q,
   getExtract: async (client, docId) => /* read docstore/<client>/<docId>.md|-rows.json */,
   getRuleBookBox: async (client) => /* the approved billing_rules box for this tenant */,
   getRate,
+  federation,                              // getDecisions now inherits archetype-promoted labels
 });
 
 await engine.saveLedger(client, docId, mapping);          // stage the feed (file or API rows)
 const run = await engine.computeAndPersist(client, "2025-03"); // → totals, computed, exceptions, clarifications
+await engine.recordDecision(client, "source:GDC", "non_referral"); // confirm once → promotes across the archetype
 ```
+
+## Atlas — federated learning (the moat)
+`createFederation(q)` makes every clarification compound. When a host calls `engine.recordDecision(client, topic, choice)` (e.g. on a clarification answer), it (1) saves the contract-scope mapping, (2) recomputes consensus among contracts of the same archetype, (3) **promotes** the canonical label once ≥2 distinct contracts agree (flags `conflicted` on disagreement). `getDecisions` then merges promoted archetype/global mappings **under** contract decisions, so a sibling contract auto-applies the label without ever being asked — clarifications-per-contract decay toward zero. Requires `db/010_atlas.sql` + a `contract_fingerprint` row linking each customer to its archetype.
 
 ## The contract you inject
 - **`q(text, params)`** → `{ rows }` (Postgres). Apply `db/schema.sql` first.
