@@ -179,6 +179,12 @@ function renderRunResult(res, month) {
       <div class="ai-chips">${(c.options || []).map((o) => `<span class="ai-chip" onclick="resolveClar('${esc(c.topic)}','${esc(o)}','${month}',${res.run_no})">${esc(o)}</span>`).join("")}</div>
     </div>`).join("");
   const exc = (res.exceptions || []).map((e) => `<div class="chk miss"><span class="ic">✕</span><span><b>${esc(e.ext_id || "row")}</b> — ${esc(e.issue)} <span class="lbl">${esc(e.detail || "")}</span></span></div>`).join("");
+  // actual cost heads from the engine (generic) — fall back to OSS/TA for legacy runs
+  const heads = (res.by_head && Object.keys(res.by_head).length)
+    ? Object.entries(res.by_head)
+    : [["oss", res.totals?.oss || 0], ["ta", res.totals?.ta || 0]].filter(([, v]) => v);
+  const headCells = heads.map(([code, amt]) => `<div><div class="lbl" style="text-transform:capitalize">${esc(String(code).replace(/_/g, " "))}</div><b style="${amt < 0 ? "color:var(--ansr-orange-deep,#c0392b)" : ""}">${money(amt, cur)}</b></div>`).join("")
+    + `<div><div class="lbl">Grand total</div><b style="color:var(--ansr-navy)">${m}</b></div>`;
   $("#outcome").innerHTML = `
     <div class="band" style="margin-top:16px">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
@@ -189,11 +195,7 @@ function renderRunResult(res, month) {
       </div>
       <div class="band grad-soft" style="margin:8px 0;padding:12px 14px">
         <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:6px">Summary — ${month} · by cost head</div>
-        <div style="display:flex;gap:22px;flex-wrap:wrap">
-          <div><div class="lbl">OSS · operations</div><b>${money(res.totals?.oss, cur)}</b></div>
-          <div><div class="lbl">TA · recruitment</div><b>${money(res.totals?.ta, cur)}</b></div>
-          <div><div class="lbl">Grand total</div><b style="color:var(--ansr-navy)">${m}</b></div>
-        </div>
+        <div style="display:flex;gap:22px;flex-wrap:wrap">${headCells}</div>
       </div>
       ${res.clarifications?.length ? `<div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-top:8px">Clarifications — answer once, applies to all rows + future runs</div>${clar}` : ""}
       ${res.exceptions?.length ? `<div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin:10px 0 2px">Quarantined (not billed)</div>${exc}` : ""}
@@ -285,7 +287,7 @@ async function openRun(no) {
   if (DATA.source === "engine" && DATA.totals) {
     foldFlow(true);
     window.RUN = DATA;
-    renderRunResult({ run_no: DATA.run_no, computed: DATA.computed, exceptions: DATA.exceptions || [], clarifications: DATA.clarifications || [], totals: DATA.totals, currency: DATA.currency }, DATA.invoice_month);
+    renderRunResult({ run_no: DATA.run_no, computed: DATA.computed, exceptions: DATA.exceptions || [], clarifications: DATA.clarifications || [], totals: DATA.totals, by_head: DATA.by_head, lines: DATA.lines, currency: DATA.currency }, DATA.invoice_month);
   } else { $("#outcome").innerHTML = ""; }
 }
 

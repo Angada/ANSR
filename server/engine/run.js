@@ -91,7 +91,7 @@ export async function computeAndPersist(client, month, opts = {}) {
     steps: ["Normalising rows", "Active headcount", "TA rate lookup + FX", "Milestone split", "Statement"],
     summary: { title: "Contract summary", text: stubAnalysis(client).summary.text }, findings: stubAnalysis(client).findings,
     boxes: stubAnalysis(client).boxes,
-    oss: res.oss, ta: res.ta, exceptions: res.exceptions, totals: res.totals, hc: res.hc,
+    oss: res.oss, ta: res.ta, lines: res.lines, by_head: res.by_head, exceptions: res.exceptions, totals: res.totals, hc: res.hc,
     computed: res.ta.length, clarifications,
   };
 
@@ -121,7 +121,7 @@ export async function computeAndPersist(client, month, opts = {}) {
   // Atlas epidemiology: refresh this archetype's recurring-exception patterns
   await epidemiology.record(client).catch(() => {});
 
-  return { ok: true, run_no: runNo, month, totals: res.totals, computed: res.ta.length, exceptions: res.exceptions, clarifications, hc: res.hc };
+  return { ok: true, run_no: runNo, month, currency: ruleBook.base_currency, totals: res.totals, lines: res.lines, by_head: res.by_head, computed: res.ta.length + (res.lines?.length || 0), exceptions: res.exceptions, clarifications, hc: res.hc };
 }
 
 export { runWorkedExamples };
