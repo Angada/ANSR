@@ -9,7 +9,7 @@ Tenants are **data** (a compiled rule book), never code. The only logic in code 
   - `operators.js` — rate_lookup · slab · pct · month_of/after · active_headcount roll-forward
   - `rulebook.js` — compile an AI `billing_rules` box → canonical executable rule book
   - `normalize.js` — row → canonical via normalizers + decisions; unknowns → clarifications
-  - `compute.js` — `computeRun()` (facts + a trace per number; partial-compute + quarantine) + `runWorkedExamples()` (trust gate)
+  - `compute.js` — `computeRun()` — generic over cost-head KINDS: `recurring_slab` (any measure: headcount/seats/GB/…), `one_time_split` (milestones), `per_unit` (rate × measure), `flat` (retainer), `clawback`/`credit` (negative). Iterates ALL heads, returns `lines[]` + `by_head` + a trace per number; partial-compute + quarantine; **unknown kinds → flagged ("needs a human"), never guessed**. Plus `runWorkedExamples()` (trust gate)
   - `fx.js` — `createFx(q)`: live rate + cache + manual override
   - `run.js` — `createEngine({q,getExtract,getRuleBookBox,getRate,federation,epidemiology})`: ledger + compute/persist
 - `atlas/` — classification + the moat:
