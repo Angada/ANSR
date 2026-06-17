@@ -306,6 +306,32 @@ app.post("/api/mint/roster/map", upload.single("file"), async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// the periodic feed can be an API, not just a file: push rows[] or pull a url.
+// Flows into the SAME map → confirm → compute pipeline as an upload.
+app.post("/api/mint/roster/api", async (req, res) => {
+  try {
+    const client = slug(req.body?.client || "ANSR-KENVUE");
+    let rows = req.body?.rows;
+    if (!rows && req.body?.url) {
+      const j = await (await fetch(req.body.url)).json();
+      rows = Array.isArray(j) ? j : (j.rows || j.data || j.records);
+    }
+    if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: "no rows — provide rows[] or a url returning an array" });
+    const headers = Object.keys(rows[0]);
+    const mapping = req.body?.mapping || inferMapping(headers);
+    const issues = detectIssues(rows, mapping);
+    const sha = createHash("sha256").update(JSON.stringify(rows).slice(0, 8000) + rows.length).digest("hex");
+    const docId = `api-${sha.slice(0, 8)}`;
+    await putExtract(client, `${docId}-rows`, JSON.stringify(rows));
+    await putExtract(client, docId, toMarkdown({ docType: "roster", originalName: `api-feed (${rows.length} rows)`, sha256: sha, extract: { kind: "document", text: `API data feed · ${rows.length} rows\nheaders: ${headers.join(", ")}\nsource: ${req.body?.url || "pushed rows"}` } }));
+    await q(`insert into document(customer_id,doc_type,filename,sha256,storage_path,md_path,meta)
+             values((select id from customer where code=$1),'roster','api-feed',$2,'api',$3,$4) on conflict do nothing`,
+      [client, sha, `/api/doc/${client}/${docId}`, JSON.stringify({ source: "api", rows: rows.length, url: req.body?.url || null })]).catch(() => {});
+    res.json({ filename: `API feed (${rows.length} rows)`, docId, apiUrl: `/api/doc/${client}/${docId}`, source: "api",
+      sheet: "api", headers, canonical: CANONICAL, mapping, rowCount: rows.length, rows: rows.slice(0, 25), issues, summary: summarizeIssues(issues) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 app.post("/api/mint/roster/confirm", async (req, res) => {
   const client = slug(req.body?.client || "ANSR-KENVUE");
   const { docId, mapping } = req.body || {};
