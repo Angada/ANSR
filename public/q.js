@@ -67,7 +67,6 @@ window.qHeader = async (activeTab = "home") => {
       <nav>
         <a href="/" class="navtab ${activeTab === "home" ? "active" : ""}">Q&amp;</a>
         <a href="/mint.html" class="navtab ${activeTab === "mint" ? "active" : ""}">Mint</a>
-        <a href="/invoice-doc.html" class="navtab ${activeTab === "outcomes" ? "active" : ""}">Outcomes</a>
         <a href="/admin.html" class="navtab ${activeTab === "admin" ? "active" : ""}">Admin</a>
       </nav>
       <div class="user">

@@ -67,10 +67,15 @@ function renderInvoice(inv) {
 }
 
 async function renderMonths() {
-  const { runs } = await (await fetch(`/api/mint/runs/${CLIENT}`)).json();
-  const rows = (runs || []).map((r) => `<tr><td>${esc(r.month || "—")}</td><td>Run ${r.run_no}</td><td>${esc(r.status)}</td><td class="r">${r.grand != null ? money(r.grand, "USD") : "—"}</td></tr>`).join("");
+  const a = await (await fetch(`/api/mint/analytics/${CLIENT}`)).json();
+  const c = a.currency || "USD";
+  const months = a.months || [];
+  const rows = months.map((m) => `<tr><td>${esc(m.month)}</td><td>v${m.run_no}</td><td class="r">${money(m.oss, c)}</td><td class="r">${money(m.ta, c)}</td><td class="r"><b>${money(m.grand, c)}</b></td></tr>`).join("");
+  const tot = months.reduce((s, m) => s + (m.grand || 0), 0);
   $("#months").innerHTML = `<div class="band"><h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 8px">Month-by-month billing</h3>
-    <div class="scroll-x"><table class="grid"><thead><tr><th>Month</th><th>Run</th><th>Status</th><th class="r">Grand total</th></tr></thead><tbody>${rows || `<tr><td colspan=4 class=lbl>No runs yet.</td></tr>`}</tbody></table></div></div>`;
+    <div class="scroll-x"><table class="grid"><thead><tr><th>Month</th><th>Version</th><th class="r">OSS</th><th class="r">TA</th><th class="r">Grand total</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan=5 class=lbl>No computed runs yet.</td></tr>`}</tbody>
+      ${months.length ? `<tfoot><tr><td colspan=4 class="r"><b>Total billed</b></td><td class="r"><b>${money(tot, c)}</b></td></tr></tfoot>` : ""}</table></div></div>`;
 }
 
 async function renderCalc() {

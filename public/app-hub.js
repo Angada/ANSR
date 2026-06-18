@@ -11,7 +11,7 @@ fetch("/api/ops").then((r) => r.json()).then(({ ops }) => {
       </div>
       ${live ? `<span class="go">→</span>` : ""}`;
     return live
-      ? `<a class="agent" href="${a.href}">${inner}</a>`
+      ? `<a class="agent live" href="${a.href}">${inner}</a>`
       : `<div class="agent coming">${inner}</div>`;
   }).join("");
 });

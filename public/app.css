@@ -370,6 +370,10 @@ table.grid tfoot td { border-top: 2px solid var(--ansr-navy); }
 @media (min-width: 680px) { .agents { grid-template-columns: 1fr 1fr; } }
 .agent { display: flex; gap: 12px; padding: 14px; border: 1px solid var(--ansr-border); border-radius: 12px; background: var(--ansr-white); transition: var(--ansr-transition); text-decoration: none; }
 a.agent:hover { border-color: var(--ansr-orange); transform: translateY(-1px); }
+/* live agents read orange (others stay neutral) */
+.agent.live { border-color: var(--ansr-orange); background: var(--ansr-orange-tint); }
+.agent.live .badge { background: var(--ansr-orange); color: #fff; }
+.agent.live .nm b { color: var(--ansr-orange-deep, var(--ansr-orange)); }
 .agent .badge { flex: 0 0 40px; height: 40px; border-radius: 11px; display: grid; place-items: center; font-weight: 500; font-size: 17px; background: var(--ansr-orange-tint); color: var(--ansr-orange-deep); }
 .agent.coming .badge { background: var(--ansr-fill); color: var(--ansr-gray); }
 .agent .nm { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
