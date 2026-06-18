@@ -67,6 +67,7 @@ window.qHeader = async (activeTab = "home") => {
       <nav>
         <a href="/" class="navtab ${activeTab === "home" ? "active" : ""}">Q&amp;</a>
         <a href="/mint.html" class="navtab ${activeTab === "mint" ? "active" : ""}">Mint</a>
+        <a href="/invoice-doc.html" class="navtab ${activeTab === "outcomes" ? "active" : ""}">Outcomes</a>
         <a href="/admin.html" class="navtab ${activeTab === "admin" ? "active" : ""}">Admin</a>
       </nav>
       <div class="user">
@@ -76,4 +77,34 @@ window.qHeader = async (activeTab = "home") => {
       </div>
     </div>
   </header>`;
+};
+
+// ---- global "AI working" spinner — the rotating Q emblem ---------------------
+// Shows whenever an AI-backed request is in flight, on any page. Counter-based so
+// concurrent calls don't flicker it off early.
+let _aiN = 0;
+window.aiSpin = (on, label) => {
+  _aiN = Math.max(0, _aiN + (on ? 1 : -1));
+  let el = document.getElementById("aispin");
+  if (_aiN > 0) {
+    if (!el) {
+      el = document.createElement("div"); el.id = "aispin"; el.className = "aispin";
+      el.innerHTML = `<img src="/brand/assets/logos/q-emblem.png" alt="" class="qspin"><span class="aispin-l">AI working…</span>`;
+      document.body.appendChild(el);
+    }
+    if (label) el.querySelector(".aispin-l").textContent = label;
+  } else if (el) { el.remove(); }
+};
+
+// Auto-show the spinner for AI-backed endpoints — covers every page, no per-call
+// wiring needed. Deterministic endpoints (compute, runs, config) are excluded.
+const _AI_RE = /\/api\/(box\/[^/]+\/chat|mint\/(clarify|roster\/map|run)\b|ai\/)/;
+const _origFetch = window.fetch.bind(window);
+window.fetch = (...args) => {
+  const url = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url) || "";
+  const isAI = _AI_RE.test(url);
+  if (isAI) window.aiSpin(true);
+  const p = _origFetch(...args);
+  if (isAI) p.finally(() => window.aiSpin(false));
+  return p;
 };

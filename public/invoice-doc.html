@@ -3,16 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Invoice — Q&ANSR</title>
+  <title>Outcomes — Q&ANSR</title>
   <link rel="icon" type="image/png" href="/favicon.png">
   <link rel="stylesheet" href="/app.css">
 </head>
 <body>
   <div id="appbar" class="no-print"></div>
   <div class="wrap">
-    <div class="no-print" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:14px 0 4px">
-      <a href="/mint.html" class="navtab" style="color:var(--ansr-gray)">← Mint</a>
-      <span id="ohead" class="lbl" style="font-weight:500;color:var(--ansr-navy)"></span>
+    <h2 class="no-print" style="color:var(--ansr-navy);font-weight:500;margin:14px 0 2px">Outcomes</h2>
+    <p class="no-print lbl" style="margin:0 0 10px;color:var(--ansr-gray)">Retrieve any client + version → invoice, statement, month-by-month, detailed calc.</p>
+    <div class="no-print" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:0 0 6px">
+      <div><label class="lbl">Client</label><select id="selClient" style="min-width:180px"></select></div>
+      <div><label class="lbl">Version</label><select id="selRun" style="min-width:170px"></select></div>
+      <span id="ohead" class="lbl" style="font-weight:500;color:var(--ansr-navy);align-self:center"></span>
       <span style="margin-left:auto"></span>
       <button class="btn-ai" id="print">⬇ Download / Print invoice</button>
     </div>
@@ -30,7 +33,7 @@
     <div id="pane-calc" class="pane" hidden><div id="calc"></div></div>
   </div>
   <script src="/q.js"></script>
-  <script>qHeader("mint");</script>
+  <script>qHeader("outcomes");</script>
   <script src="/invoice-doc.js"></script>
 </body>
 </html>

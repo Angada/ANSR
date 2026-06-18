@@ -2,11 +2,31 @@
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
 const p = new URLSearchParams(location.search);
-const CLIENT = p.get("customer") || p.get("client") || "ANSR-KENVUE";
-const RUN = p.get("run") || "3";
+let CLIENT = p.get("customer") || p.get("client") || "";
+let RUN = p.get("run") || "";
 const money = (n, c) => (c === "USD" ? "$" : (c ? c + " " : "")) + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
 
+// ---- Outcomes retrieval: client + version dropdowns -------------------------
+async function initSelectors() {
+  const { clients } = await (await fetch("/api/clients")).json();
+  const cs = $("#selClient");
+  cs.innerHTML = (clients || []).map((c) => `<option value="${c.id}">${esc(c.name || c.id)}</option>`).join("");
+  if (!CLIENT && clients?.length) CLIENT = clients[0].id;
+  if (CLIENT) cs.value = CLIENT;
+  cs.onchange = async () => { CLIENT = cs.value; RUN = ""; await loadRunOptions(); await load(); };
+  await loadRunOptions();
+  $("#selRun").onchange = async () => { RUN = $("#selRun").value; await load(); };
+}
+async function loadRunOptions() {
+  const { runs } = await (await fetch(`/api/mint/runs/${CLIENT}`)).json();
+  const rs = $("#selRun");
+  rs.innerHTML = (runs || []).length ? runs.map((r) => `<option value="${r.run_no}">v${r.run_no} · ${r.month || "—"} · ${r.status}</option>`).join("") : `<option value="">— no runs —</option>`;
+  if (!RUN && runs?.length) RUN = runs[runs.length - 1].run_no;
+  if (RUN) rs.value = RUN;
+}
+
 async function load() {
+  if (!CLIENT || !RUN) { $("#ohead").textContent = "Pick a client + version"; return; }
   const inv = await (await fetch(`/api/mint/invoice/${CLIENT}/${RUN}`)).json();
   $("#ohead").textContent = `${inv.to.name} · ${inv.invoice_month} · ${inv.currency}${inv.stub ? " · sample" : ""}`;
   renderInvoice(inv);
@@ -14,7 +34,7 @@ async function load() {
   renderMonths();
   renderCalc();
   wireTabs();
-  $("#print").addEventListener("click", () => { showTab("invoice"); window.print(); });
+  $("#print").onclick = () => { showTab("invoice"); window.print(); };
 }
 
 function renderInvoice(inv) {
@@ -163,4 +183,4 @@ function wireTabs() {
   if (["months", "calc", "invoice"].includes(location.hash.slice(1))) showTab(location.hash.slice(1));
 }
 
-load();
+initSelectors().then(load);
