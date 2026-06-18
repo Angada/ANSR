@@ -292,12 +292,10 @@ async function openRun(no) {
   $("#stepwrap").style.display = "block";
   renderStepper(DATA.steps.length); // all done
   render();
-  // old engine run → show its computed outcome (view + recalibrate + chat)
-  if (DATA.source === "engine" && DATA.totals) {
-    foldFlow(true);
-    window.RUN = DATA;
-    renderRunResult({ run_no: DATA.run_no, computed: DATA.computed, exceptions: DATA.exceptions || [], clarifications: DATA.clarifications || [], totals: DATA.totals, by_head: DATA.by_head, lines: DATA.lines, currency: DATA.currency }, DATA.invoice_month);
-  } else { $("#outcome").innerHTML = ""; }
+  $("#outcome").innerHTML = ""; // outputs appear only after the worksheet is processed
+  // reveal the analysis blocks one-by-one; they STAY open so you can review and
+  // then go to the worksheet step (collapse + outputs happen on save there).
+  await revealFlowSequence();
 }
 
 function renderStepper(doneUpTo, active = -1) {

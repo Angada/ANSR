@@ -263,13 +263,22 @@ app.get("/api/mint/invoice/:client/:no", async (req, res) => {
 });
 function invoiceFromManifest(client, m) {
   const c = m.currency || "USD";
-  const sum = (k) => (m.ta || []).reduce((s, t) => s + (t[k] || 0), 0);
-  const lines = [
-    m.oss ? { head: "OSS", desc: `Operations Support Fee · ${m.invoice_month} · ${m.oss.closing_active_hc} active HC`, hsn: "998511", amount: m.oss.oss_amount } : null,
-    { head: "TA — Sourcing", desc: "Sourcing commencement advances", hsn: "998511", amount: sum("sourcing_billed") },
-    { head: "TA — Acceptance", desc: "Offer acceptance advances", hsn: "998511", amount: sum("acceptance_billed") },
-    { head: "TA — Balance", desc: "Balance TA fees (post-onboarding)", hsn: "998511", amount: sum("balance_billed") },
-  ].filter((l) => l && l.amount > 0);
+  const title = (h) => String(h).replace(/_/g, " ").replace(/\b\w/g, (x) => x.toUpperCase());
+  let lines;
+  if (m.by_head && Object.keys(m.by_head).length) {
+    // generic: one line per cost head the engine produced (works for any structure)
+    lines = Object.entries(m.by_head).map(([head, amount]) => ({ head: title(head), desc: `${title(head)} · ${m.invoice_month}`, hsn: "998511", amount }));
+  } else {
+    // legacy fallback: TA/OSS buckets
+    const sum = (k) => (m.ta || []).reduce((s, t) => s + (t[k] || 0), 0);
+    lines = [
+      m.oss ? { head: "OSS", desc: `Operations Support Fee · ${m.invoice_month} · ${m.oss.closing_active_hc} active HC`, hsn: "998511", amount: m.oss.oss_amount } : null,
+      { head: "TA — Sourcing", desc: "Sourcing commencement advances", hsn: "998511", amount: sum("sourcing_billed") },
+      { head: "TA — Acceptance", desc: "Offer acceptance advances", hsn: "998511", amount: sum("acceptance_billed") },
+      { head: "TA — Balance", desc: "Balance TA fees (post-onboarding)", hsn: "998511", amount: sum("balance_billed") },
+    ];
+  }
+  lines = lines.filter((l) => l && l.amount); // drop zero lines; keep negative (credits/clawback)
   const subtotal = lines.reduce((s, l) => s + l.amount, 0);
   return { client, run_no: m.run_no, invoice_month: m.invoice_month, currency: c, source: "engine",
     invoice_no: `ANSR/${client.replace(/[^A-Z0-9]/g, "").slice(0, 4)}/${(m.invoice_month || "").replace("-", "")}/${String(m.run_no).padStart(2, "0")}`,
@@ -292,11 +301,19 @@ app.get("/api/mint/analytics/:client", async (req, res) => {
   for (const m of [...byMonth.values()].sort((a, b) => a.invoice_month.localeCompare(b.invoice_month))) {
     currency = m.currency || currency;
     months.push({ month: m.invoice_month, oss: m.totals?.oss || 0, ta: m.totals?.ta || 0, grand: m.totals?.grand || 0, run_no: m.run_no, exceptions: (m.exceptions || []).length });
-    if (m.oss) lines.push({ month: m.invoice_month, head: "OSS", name: "Operations Support", level: "", referral: null, tech: null, ccy: m.currency, amount: m.oss.oss_amount });
+    const title = (h) => String(h).replace(/_/g, " ").replace(/\b\w/g, (x) => x.toUpperCase());
+    // per-employee detail for one_time_split heads (richer filtering by level/referral)
+    const detailed = new Set();
     for (const t of m.ta || []) {
-      if (t.sourcing_billed) lines.push({ month: m.invoice_month, head: "TA · Sourcing", name: t.employee, level: t.level, referral: t.referral, tech: t.tech, ccy: t.ccy, amount: t.sourcing_billed });
-      if (t.acceptance_billed) lines.push({ month: m.invoice_month, head: "TA · Acceptance", name: t.employee, level: t.level, referral: t.referral, tech: t.tech, ccy: t.ccy, amount: t.acceptance_billed });
-      if (t.balance_billed) lines.push({ month: m.invoice_month, head: "TA · Balance", name: t.employee, level: t.level, referral: t.referral, tech: t.tech, ccy: t.ccy, amount: t.balance_billed });
+      const head = title(t._head || "ta"); detailed.add(t._head || "ta");
+      if (t.sourcing_billed) lines.push({ month: m.invoice_month, head: `${head} · Sourcing`, name: t.employee, level: t.level, referral: t.referral, tech: t.tech, ccy: t.ccy, amount: t.sourcing_billed });
+      if (t.acceptance_billed) lines.push({ month: m.invoice_month, head: `${head} · Acceptance`, name: t.employee, level: t.level, referral: t.referral, tech: t.tech, ccy: t.ccy, amount: t.acceptance_billed });
+      if (t.balance_billed) lines.push({ month: m.invoice_month, head: `${head} · Balance`, name: t.employee, level: t.level, referral: t.referral, tech: t.tech, ccy: t.ccy, amount: t.balance_billed });
+    }
+    // head-level lines for every other cost head (slab / per_unit / flat / credit) — generic
+    for (const [head, amount] of Object.entries(m.by_head || {})) {
+      if (detailed.has(head) || !amount) continue;
+      lines.push({ month: m.invoice_month, head: title(head), name: "", level: "", referral: null, tech: null, ccy: m.currency, amount });
     }
   }
   res.json({ client, currency, months, lines });

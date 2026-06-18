@@ -80,10 +80,17 @@ for (const s of SAMPLES) {
     client: s.code, run_no: 1, source: "engine", invoice_month: MONTH, currency: "USD",
     steps: ["Reading the contract", "Compiling the rule book", "Reading the worksheet", "Computing each cost head", "Statement"],
     summary: { title: "Contract summary", text: s.text }, findings: s.heads.map((h) => `${h.code} — ${h.kind.replace(/_/g, " ")}`),
-    boxes: [box("company", "Company detail", { name: s.name, engagement: "GCC build & operate (sample)" }, "Sample contract — bills off the standard employee worksheet.", "§1"),
-            box("billing_rules", "Rule book & formulas", rb, "Compiled rule book — same calc family as Kenvue, different names/bands/rates/fees. The engine computes from this.", s.heads.map((h) => h.clause_ref).join(" · "))],
+    boxes: [
+      box("company", "Company detail", { legal_name: s.name + " Inc.", engagement: "GCC build & operate (sample)", signatory: "VP, Global Ops" }, "Counterparty and engagement scope.", "§1"),
+      box("legal", "Legal details", { governing_law: "Karnataka, India", term: "36 months", termination: "90-day notice", liability_cap: "12 months fees" }, "Standard legal frame.", "§9–12"),
+      box("payment_terms", "Payment terms", { invoice_frequency: "monthly", due_days: 30, currency: "USD" }, "Billed monthly, net-30, USD.", "§5"),
+      box("commercial_terms", "Commercial terms", { revenue_lines: s.heads.map((h) => h.code).join(" + "), basis: s.heads.map((h) => h.kind.replace(/_/g, " ")).join(" · ") }, "The revenue lines on this contract.", "§3"),
+      box("billing_rules", "Rule book & formulas", rb, "Compiled rule book — same calc family as Kenvue, different names/bands/rates/fees. The engine computes from this.", s.heads.map((h) => h.clause_ref).join(" · ")),
+      box("caveats", "Caveats", { no_pro_rata: "recurring fee is full-month even for mid-month joiners/exits", source_labels: "referral vs non-referral must be mapped before the rate applies" }, "Watch-outs that change billing if mis-handled.", "§3–4"),
+      box("flags", "Flags", { confirm: "confirm bands, rates and fixed fees against the signed SOW before release" }, "Gaps that need a human decision.", "§3"),
+    ],
     compiled_rule_book: rb,
-    totals: res.totals, by_head: res.by_head, lines: res.lines, exceptions: res.exceptions, hc: res.hc, computed: res.lines.length + res.ta.length,
+    oss: res.oss, ta: res.ta, totals: res.totals, by_head: res.by_head, lines: res.lines, exceptions: res.exceptions, hc: res.hc, computed: res.lines.length + res.ta.length,
   };
   await q(`insert into run(customer_id, run_no, invoice_month, currency, label, status, manifest, started_at, finished_at)
            values($1,1,$2,'USD','sample','complete',$3::jsonb,now(),now())
