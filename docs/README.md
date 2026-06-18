@@ -23,6 +23,7 @@ First product on it: **Mint · AR Contract Reconciler**. The engine underneath i
 | 8 | [Deployment & ops](08-deployment.md) | GCP Cloud Run, Supabase, domain/LB, secrets, gotchas. |
 | 9 | [Glossary](09-glossary.md) | Every term defined in one place. |
 | 10 | [AI pipelines](10-ai-pipelines.md) | The pipeline registry — gates, skills & model selector (Mint + Atlas groups). |
+| 11 | [Contract Compiler](11-contract-compiler.md) | The N-dimensional rule model + coverage validation — and the **method** that built it (reusable on ESPL). |
 
 ---
 

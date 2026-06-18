@@ -41,7 +41,17 @@ description: Q&ANSR / BigFlex Postgres schema — the complete data model (38 ta
 | **rule_application** | rule_id, run_step_id, before_json → after_json |
 | **formula_test** | rule_code, scenario, inputs (jsonb), **expected**, actual, status (pending/pass/fail) — the trust gate |
 
-> Note: the live engine computes from the **compiled rule book** (`rule_version.logic`, or `run.manifest.compiled_rule_book`), not by joining ta_rate/oss_slab. Those tables are the normalized term store; the jsonb rule book is what `computeRun` interprets.
+> Note: the live engine computes from the **compiled rule book** (`rule_set.compiled` preferred, else `rule_version.logic` / `run.manifest.compiled_rule_book`), not by joining ta_rate/oss_slab. Those are the normalized term store; the jsonb rule book is what `computeRun` interprets.
+
+### 2b · Contract Compiler (canonical rule set — `db/init/012_ruleset.sql`)
+| Table | Key columns · notes |
+|---|---|
+| **rule_set** | customer_id, version_no, status (draft/structured/validated/locked/superseded), base_currency, **compiled** (jsonb executable book), **coverage_pct**, validated_at, locked_at · uniq(customer_id,version_no) — `getRuleBook` prefers locked/latest |
+| **rule_dimension** | rule_set_id, name (level/referral/tech/location/…), **source_column** (fixed worksheet col), type (enum/bool/range), **allowed_values** (domain) · uniq(rule_set_id,name) |
+| **rule_head** | rule_set_id, code, kind, measure, base, **dimensions** text[], slabs, schedule, rate_field · uniq(rule_set_id,code) |
+| **rate_cell** | rule_set_id, head_code, **dims** (jsonb combo, "*"=wildcard), pct, amount, fee_type — the **sparse** rate matrix; coverage checked logically vs the dimension domains |
+| **rule_validation** | rule_set_id, coverage_pct, status (red/amber/green), gaps, conflicts, examples — readiness snapshot |
+| **rule_clarification** | rule_set_id, topic, question, options, answer, status — pre-worksheet recalibrate loop |
 
 ### 3 · Doc-intelligence boxes
 | Table | Key columns · notes |
