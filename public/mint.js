@@ -18,6 +18,11 @@ async function init() {
   $("#run").addEventListener("change", () => openRun($("#run").value, true)); // explicit switch → animate once
   $("#gen").addEventListener("click", generate);
   $("#purge").addEventListener("click", purge);
+  $("#viewOutcomes").addEventListener("click", () => {
+    const c = $("#client").value, r = $("#run").value;
+    if (!c || c === "__new__") { appAlert("No client", "Pick a client first."); return; }
+    location.href = `/invoice-doc.html?customer=${encodeURIComponent(c)}${r ? "&run=" + encodeURIComponent(r) : ""}`;
+  });
   $("#rmap").addEventListener("click", mapRoster);
   $("#sowBtn").addEventListener("click", uploadSow);
   $("#ncCreate").addEventListener("click", submitNewClient);
