@@ -79,6 +79,18 @@ const SPECS = {
     cells: LEVELS.flatMap((level) => BOOLS.filter((ref) => !(level === "director" && ref)).map((referral) => ({ head_code: "recruitment", dims: { level, referral }, pct: (level === "director" ? 12 : level === "manager" ? 9 : 7) - (referral ? 2 : 0), clause_ref: "§3" }))) },
 };
 
+// build the analysis box set (step 2) from a spec + its compiled rule set
+const oneBox = (code, title, content, ai_explain, clause_ref) => ({ id: code, box_type_code: code, title, content, ai_explain, confidence: 0.95, clause_ref, status: "approved", chat: [], suggestions: [] });
+const bx = (spec, built) => [
+  oneBox("company", "Company detail", { legal_name: spec.name + " Inc.", engagement: "GCC build & operate (sample)", signatory: "VP, Global Ops" }, "Counterparty and engagement scope.", "§1"),
+  oneBox("legal", "Legal details", { governing_law: "Karnataka, India", term: "36 months", termination: "90-day notice", liability_cap: "12 months fees" }, "Standard legal frame.", "§9–12"),
+  oneBox("payment_terms", "Payment terms", { invoice_frequency: "monthly", due_days: 30, currency: "USD", schedule: spec.heads.some((h) => h.milestones) ? "recruitment split across sourcing / acceptance / balance" : "monthly" }, "Billing cadence + payment schedule.", "§5"),
+  oneBox("commercial_terms", "Commercial terms", { revenue_lines: spec.heads.map((h) => h.code).join(" + "), basis: spec.heads.map((h) => h.kind.replace(/_/g, " ")).join(" · "), dimensions: (spec.dimensions || []).map((d) => d.name).join(" × ") || "none" }, "The revenue lines + the dimensions rates vary by.", "§3"),
+  oneBox("billing_rules", "Rule book & formulas", built.ruleBook, `Compiled rule set · coverage ${built.validation.coverage_pct}% (${built.validation.status}). The engine computes from this.`, spec.heads.map((h) => h.clause_ref).join(" · ")),
+  oneBox("caveats", "Caveats", { no_pro_rata: "recurring fee is full-month even for mid-month joiners/exits", dimensions: "rates vary by " + ((spec.dimensions || []).map((d) => d.name).join(", ") || "a flat schedule") }, "Watch-outs that change billing.", "§3–4"),
+  oneBox("flags", "Flags", built.validation.gaps.length ? { coverage_gap: `${built.validation.gaps.length} uncovered rate combo(s) — will flag at compute (soft gate)` } : { status: "rule set fully covered — ready" }, "Gaps that need a human decision.", "§3"),
+];
+
 const MONTH = "2025-03";
 for (const [code, spec] of Object.entries(SPECS)) {
   spec.base_currency = "USD";
@@ -95,7 +107,7 @@ for (const [code, spec] of Object.entries(SPECS)) {
     steps: ["Read contract", "Compile rule set", "Validate coverage", "Read worksheet", "Compute"],
     summary: { title: "Contract summary", text: `${spec.name}: ${spec.heads.map((h) => h.code + " (" + h.kind.replace(/_/g, " ") + ")").join(" + ")}. Coverage ${built.validation.coverage_pct}%.` },
     findings: built.validation.gaps.length ? [`${built.validation.gaps.length} rate gap(s) — flagged at compute (soft gate)`] : ["Rule set fully covered."],
-    boxes: [], compiled_rule_book: built.ruleBook,
+    boxes: bx(spec, built), compiled_rule_book: built.ruleBook,
     oss: res.oss, ta: res.ta, totals: res.totals, by_head: res.by_head, lines: res.lines, exceptions: res.exceptions, hc: res.hc, computed: res.lines.length + res.ta.length,
     coverage_pct: built.validation.coverage_pct, validation_status: built.validation.status };
   await q(`insert into run(customer_id,run_no,invoice_month,currency,label,status,manifest,started_at,finished_at) values($1,1,$2,'USD','sample','complete',$3::jsonb,now(),now()) on conflict (customer_id,run_no) do update set manifest=excluded.manifest`, [cid, MONTH, JSON.stringify(manifest)]);
