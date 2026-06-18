@@ -409,6 +409,17 @@ function boxCard(b) {
   </div>`;
 }
 
+// Contract Compiler readiness chip — coverage % of the canonical rule set.
+async function showCoverage() {
+  try {
+    const rs = await (await fetch(`/api/mint/ruleset/${$("#client").value}`)).json();
+    const sd = document.querySelector("#result .sd"); if (!sd || !rs.exists) return;
+    const cls = rs.status === "green" ? "chip--approved" : rs.status === "amber" ? "chip--flag" : "chip--draft";
+    const gaps = rs.validation?.gaps?.length || 0;
+    sd.insertAdjacentHTML("beforeend", `<span class="chip ${cls}" style="margin-left:6px" title="canonical rule set · ${rs.dimensions.map((d) => d.name).join("×") || "no dimensions"}">📐 coverage ${rs.coverage_pct ?? 0}%${gaps ? " · " + gaps + " gap" + (gaps > 1 ? "s" : "") : ""}</span>`);
+  } catch { /* */ }
+}
+
 const INSTRUCTION = /^(set|change|add|remove|use|map|exclude|include|rename|update|make|apply|override)\b/i;
 
 const PENDING = {};
@@ -540,6 +551,7 @@ function render() {
     <p class="sum-text" style="margin:0 0 10px">${esc(DATA.summary.text)}</p>
     <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin-bottom:2px">Key findings</div>
     <ul class="findings sm">${DATA.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>`;
+  showCoverage();
 
   // step 2 — Analysis boxes (carousel) + recalibrate-from-analysis
   const boxesEl = document.getElementById("boxes");

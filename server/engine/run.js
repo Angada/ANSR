@@ -9,6 +9,7 @@ import { normalizeRow } from "./normalize.js";
 import { computeRun, runWorkedExamples } from "./compute.js";
 import { createFederation } from "../atlas/federation.js";
 import { createEpidemiology } from "../atlas/epidemiology.js";
+import { getRuleSet } from "./ruleset.js";
 
 const cid = (client) => `(select id from customer where code='${client.replace(/'/g, "")}')`;
 export const federation = createFederation(q);
@@ -23,11 +24,16 @@ export async function getDecisions(client) {
 }
 
 export async function getRuleBook(client) {
+  // 1) the Contract Compiler's locked/validated rule set wins (the new model).
+  try {
+    const rs = await getRuleSet(q, client);
+    if (rs?.compiled?.cost_heads?.length) return rs.compiled;
+  } catch { /* */ }
   let box = null;
   try {
     const r = await q(`select manifest from run where customer_id=(select id from customer where code=$1) order by run_no desc limit 1`, [client]);
     const man = r.rows?.[0]?.manifest;
-    // Atlas template-fill: an already-compiled rule book (from a matched archetype) wins.
+    // Atlas template-fill: an already-compiled rule book (from a matched archetype).
     if (man?.compiled_rule_book?.cost_heads?.length) return man.compiled_rule_book;
     box = (man?.boxes || []).find((b) => b.box_type_code === "billing_rules");
   } catch { /* */ }

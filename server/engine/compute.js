@@ -85,7 +85,10 @@ export async function computeRun({ month, ruleBook, ledger, getRate, currency })
           if (fx.rate == null) { exceptions.push({ ext_id: p.ext_id, issue: "fx_unavailable", detail: `${p.ctc_ccy}→${base}`, severity: "block" }); continue; }
         }
         const ctcBase = Math.round(p.total_ctc * fx.rate);
-        const rrow = rateLookup(head.rate_table, { gcc_band: hc.closing, level: p.level, referral: p.referral, tech: p.tech });
+        // ctx = the whole worksheet row + derived band, so rates can key on ANY
+        // declared dimension (level, referral, tech, location, department, …),
+        // not just a hardcoded set.
+        const rrow = rateLookup(head.rate_table, { ...p, gcc_band: hc.closing, band: hc.closing });
         if (!rrow) { exceptions.push({ ext_id: p.ext_id, issue: "no_rate", detail: `no rate for level=${p.level}, band=${hc.closing}, referral=${p.referral}`, severity: "block" }); continue; }
         const gross = pct(ctcBase, rrow.pct);
         const adv = advancesTotal(head.milestones, p);

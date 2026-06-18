@@ -159,6 +159,21 @@ app.get("/api/mint/runs/:client", async (req, res) => {
   res.json({ runs: stubRuns(client) });
 });
 
+// Contract Compiler readiness — the canonical rule set + coverage/validation.
+app.get("/api/mint/ruleset/:client", async (req, res) => {
+  const client = slug(req.params.client);
+  try {
+    const rs = (await q(`select id, version_no, status, coverage_pct, compiled from rule_set
+                         where customer_id=(select id from customer where code=$1) and status<>'superseded'
+                         order by (status='locked') desc, version_no desc limit 1`, [client])).rows?.[0];
+    if (!rs) return res.json({ exists: false });
+    const val = (await q(`select coverage_pct, status, gaps, conflicts, examples from rule_validation where rule_set_id=$1 order by run_at desc limit 1`, [rs.id])).rows?.[0] || null;
+    const dims = (await q(`select name, source_column, type, allowed_values from rule_dimension where rule_set_id=$1`, [rs.id])).rows || [];
+    const heads = (rs.compiled?.cost_heads || []).map((h) => ({ code: h.code, kind: h.kind, dimensions: h.rate_table?.keys || [] }));
+    res.json({ exists: true, version: rs.version_no, status: rs.status, coverage_pct: rs.coverage_pct, dimensions: dims, heads, validation: val });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Billing-month range CALIBRATED from the worksheet's own dates — scans every
 // date-like value in the ledger (generic; works for any contract structure).
 // SaaS/usage contracts with no dates → empty range → client falls back to today.
