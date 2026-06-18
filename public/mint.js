@@ -15,7 +15,7 @@ async function init() {
     if ($("#client").value === "__new__") return createClient();
     loadRuns();
   });
-  $("#run").addEventListener("change", () => openRun($("#run").value));
+  $("#run").addEventListener("change", () => openRun($("#run").value, true)); // explicit switch → animate once
   $("#gen").addEventListener("click", generate);
   $("#purge").addEventListener("click", purge);
   $("#rmap").addEventListener("click", mapRoster);
@@ -274,7 +274,7 @@ async function submitNewClient() {
 }
 function cancelNewClient() { $("#newRow").style.display = "none"; $("#client").value = _lastClient || $("#client").options[0].value; }
 
-async function loadRuns(selectLast) {
+async function loadRuns(selectLast, skipOpen) {
   if ($("#client").value === "__new__") return;
   _lastClient = $("#client").value;
   $("#sowRow").style.display = "none"; // existing client → just recall/run; SOW row only on +new
@@ -282,20 +282,28 @@ async function loadRuns(selectLast) {
   $("#run").innerHTML = runs.length
     ? runs.map((r) => `<option value="${r.run_no}">v${r.run_no} · ${r.month || "—"} · ${r.status}</option>`).join("")
     : `<option value="">— no runs —</option>`;
-  if (runs.length) { if (selectLast) $("#run").value = runs[runs.length - 1].run_no; await openRun($("#run").value); }
-  else { clearSteps(); $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">No runs yet — press Generate Contract Analysis.</p>`; }
+  // skipOpen → just refresh the dropdown (generate() already rendered + revealed;
+  // don't re-open the run or it animates a second time).
+  if (runs.length) { if (selectLast) $("#run").value = runs[runs.length - 1].run_no; if (!skipOpen) await openRun($("#run").value); }
+  else if (!skipOpen) { clearSteps(); $("#result").innerHTML = `<p class="lbl" style="margin-top:14px">No runs yet — press Generate Contract Analysis.</p>`; }
 }
 
-async function openRun(no) {
+async function openRun(no, animate) {
   if (!no) return;
   DATA = await (await fetch(`/api/mint/run/${$("#client").value}/${no}`)).json();
   $("#stepwrap").style.display = "block";
   renderStepper(DATA.steps.length); // all done
   render();
   $("#outcome").innerHTML = ""; // outputs appear only after the worksheet is processed
-  // reveal the analysis blocks one-by-one; they STAY open so you can review and
-  // then go to the worksheet step (collapse + outputs happen on save there).
-  await revealFlowSequence();
+  // animate ONLY on an explicit run switch; page-load / client-switch show instantly
+  // (one staggered reveal per deliberate action — never on every reload).
+  if (animate) await revealFlowSequence(); else showFlowInstant();
+}
+
+// show all flow blocks immediately — no stagger (default CSS state is visible)
+function showFlowInstant() {
+  const flow = document.getElementById("flow");
+  if (flow) { clearTimeout(flow._revealT); flow.classList.remove("revealing"); }
 }
 
 function renderStepper(doneUpTo, active = -1) {
@@ -318,27 +326,24 @@ async function generate() {
   renderStepper(DATA.steps.length);                       // every step ✓
   await new Promise((r) => setTimeout(r, 500));           // hold on the finished meter
   render();                                               // fill content (hidden)
-  await revealFlowSequence();                             // then block 1, block 2, …
-  await loadRuns(); $("#run").value = DATA.run_no;
+  await revealFlowSequence();                             // then block 1, block 2, … (once)
+  await loadRuns(false, true); $("#run").value = DATA.run_no; // refresh dropdown only — no re-open/re-reveal
   $("#gen").disabled = false;
 }
 
 // After the whole process meter is done, reveal the flow blocks one after the
 // other (block 1 loads, then block 2, …); the analysis block also cascades its
 // boxes once it appears.
-async function revealFlowSequence() {
-  const steps = [...document.querySelectorAll("#flow .flowstep")];
-  steps.forEach((s) => { s.style.opacity = "0"; s.classList.remove("gen--in"); });
-  // pre-hide the analysis boxes NOW (before their block appears) so they only ever
-  // open one-by-one — never flash visible then blank out (the open/close bug).
-  document.querySelectorAll("#boxrail .boxcard").forEach((c) => c.classList.add("gen"));
-  for (let i = 0; i < steps.length; i++) {
-    await new Promise((r) => setTimeout(r, i === 0 ? 350 : 480));
-    steps[i].style.opacity = ""; steps[i].classList.add("gen--in");
-    const cards = [...steps[i].querySelectorAll("#boxrail .boxcard")];
-    cards.forEach((c, j) => setTimeout(() => { c.classList.remove("gen"); c.classList.add("gen--in"); }, 150 + j * 240));
-    steps[i].scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }
+// Pure-CSS staggered reveal: toggle one class; CSS does block-1→block-2→… with
+// boxes cascading. Content is visible by default, so nothing can be stranded.
+function revealFlowSequence() {
+  const flow = document.getElementById("flow");
+  if (!flow) return Promise.resolve();
+  flow.classList.remove("revealing"); void flow.offsetWidth; // restart the animation
+  flow.classList.add("revealing");
+  // drop the class after the entrance finishes so later re-renders don't re-animate
+  clearTimeout(flow._revealT); flow._revealT = setTimeout(() => flow.classList.remove("revealing"), 2600);
+  return new Promise((r) => setTimeout(r, 2400));
 }
 
 function purge() {
@@ -412,11 +417,14 @@ function boxCard(b) {
 // Contract Compiler readiness chip — coverage % of the canonical rule set.
 async function showCoverage() {
   try {
-    const rs = await (await fetch(`/api/mint/ruleset/${$("#client").value}`)).json();
+    const client = $("#client").value;
+    const rs = await (await fetch(`/api/mint/ruleset/${client}`)).json();
+    if (client !== $("#client").value) return; // client changed mid-fetch — drop stale result
     const sd = document.querySelector("#result .sd"); if (!sd || !rs.exists) return;
+    sd.querySelector(".cov-chip")?.remove(); // idempotent — never stack chips
     const cls = rs.status === "green" ? "chip--approved" : rs.status === "amber" ? "chip--flag" : "chip--draft";
     const gaps = rs.validation?.gaps?.length || 0;
-    sd.insertAdjacentHTML("beforeend", `<span class="chip ${cls}" style="margin-left:6px" title="canonical rule set · ${rs.dimensions.map((d) => d.name).join("×") || "no dimensions"}">📐 coverage ${rs.coverage_pct ?? 0}%${gaps ? " · " + gaps + " gap" + (gaps > 1 ? "s" : "") : ""}</span>`);
+    sd.insertAdjacentHTML("beforeend", `<span class="chip cov-chip ${cls}" style="margin-left:6px" title="canonical rule set · ${rs.dimensions.map((d) => d.name).join("×") || "no dimensions"}">📐 coverage ${rs.coverage_pct ?? 0}%${gaps ? " · " + gaps + " gap" + (gaps > 1 ? "s" : "") : ""}</span>`);
   } catch { /* */ }
 }
 
