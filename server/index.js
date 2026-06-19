@@ -32,8 +32,8 @@ const app = express();
 app.use(express.json({ limit: "4mb" }));
 
 // ---- soft login (prototype gate — not hardened security) --------------------
-const AUTH_USER = process.env.QANSR_USER || "vik";
-const AUTH_PW = process.env.QANSR_PW || "thedik";
+const AUTH_USER = process.env.QANSR_USER || "admin";
+const AUTH_PW = process.env.QANSR_PW || "admin";
 const AUTH_TOKEN = createHash("sha256").update(`${AUTH_USER}:${AUTH_PW}:qansr-soft`).digest("hex");
 const OPEN = ["/login.html", "/login.js", "/app.css", "/favicon.png", "/apple-touch-icon.png", "/api/login", "/health"];
 const cookieToken = (req) => (req.headers.cookie || "").split(";").map((c) => c.trim()).find((c) => c.startsWith("qansr_auth="))?.slice(11);
