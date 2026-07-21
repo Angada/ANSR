@@ -182,44 +182,65 @@ export function mountWhisperer(app, slug) {
   app.post("/api/wh/hunger/:cohortId/save", async (req, res) => { await wq(`update wh_cohort set hunger_story=$2::jsonb where id=$1`, [Number(req.params.cohortId), JSON.stringify(req.body?.hunger || {})]); res.json({ ok: true }); });
 
   // ---- Feed Stories (heading + topic guide; classified + justified) --------
+  // gap proxy per topic (demand ÷ quality-of-supply) — the brief's core signal
+  const GAP = { "Keywords and resume": 0.9, "Salary negotiation": 0.85, "Using AI to get better jobs": 0.82, "Landing your dream job": 0.7, "Skills to get a new job": 0.6, "Which coding tool to use": 0.6, "Emerging": 0.75 };
+  const ANGLES = ["core", "contrarian", "insider-data"];
+
   app.post("/api/wh/feedstories/:cohortId", async (req, res) => {
     const id = Number(req.params.cohortId);
     const co = (await wq(`select * from wh_cohort where id=$1`, [id])).rows?.[0];
     if (!co) return res.status(404).json({ error: "cohort not found" });
     const hunger = co.hunger_story || {};
-    const topics = (hunger.demand_topics || []).length ? hunger.demand_topics : (await wq(`select name from wh_demand_topic where active order by id limit 3`)).rows.map((r) => r.name);
-    const oneups = (await wq(`select name from wh_one_up where active`)).rows.map((r) => r.name);
-    const frames = (await wq(`select name from wh_emotional_framework where active`)).rows.map((r) => r.name);
+    // the approved 6 demand topics + franchise routing (skip Emerging for generation)
+    const topicRows = (await wq(`select name, franchise, format_home, strategic_weight, question from wh_demand_topic where active and name<>'Emerging' order by id`)).rows;
     const regs = (await wq(`select name from wh_emotional_register where active`)).rows.map((r) => r.name);
-    // real feed + research when integrations are enabled (else empty → mock)
-    const feed = await collectFeed(topics).catch(() => []);
+    const oneups = ["Contrarian take", "Insider data", "Do-this-now"];
+    // historical acceptance per franchise (feedback loop → ranking)
+    const hist = {}; for (const r of (await wq(`select franchise, count(*) filter(where feedback='used') u, count(*) filter(where feedback is not null) t from wh_feed_story group by franchise`)).rows) hist[r.franchise] = Number(r.t) ? Number(r.u) / Number(r.t) : 0;
+
+    const feed = await collectFeed(topicRows.map((t) => t.name)).catch(() => []);
     const made = [];
-    for (let i = 0; i < topics.length; i++) {
-      const topic = topics[i];
-      const research = await researchTopic(topic).catch(() => null);
-      const items = feed.filter((f) => (f.title || "").toLowerCase().includes(topic.split(" ")[0].toLowerCase())).slice(0, 5);
-      const grounding = (items.length || research)
-        ? `\nReal feed items: ${JSON.stringify(items.map((x) => ({ src: x.source, title: x.title, url: x.url })))}\nResearch: ${JSON.stringify(research || {}).slice(0, 2500)}`
-        : "";
-      const { j } = await ai("feedstory-generate", "Create a content idea (heading + brief only). Ground it in the real feed items + research when provided; cite source urls in proof.", `Demand topic: ${topic}\nCohort: ${JSON.stringify(hunger).slice(0, 1500)}\nPick a 1-up from ${JSON.stringify(oneups)}, framework from ${JSON.stringify(frames)}, register from ${JSON.stringify(regs)}.${grounding}`);
-      const srcRefs = [...items.map((x) => ({ title: x.title, url: x.url, source: x.source })), ...((research?.refs) || [])].slice(0, 6);
-      const s = j || {
-        heading: `${topic}: the ${["truth","playbook","numbers"][i % 3]} no one tells you`,
-        summary: `A ${regs[i % regs.length] || "sharp"} take on ${topic.toLowerCase()} for this cohort.`,
-        topic_guide: { take: `Reframe ${topic.toLowerCase()} around what this cohort actually feels.`, beats: ["Open with the tension", "One insider data point", "A concrete do-this-now"], proof: ["a benchmark stat", "a short anecdote"] },
-        why_now: "Trending across Reddit + YouTube for India GCC talent this month.", why_relevant: `Directly answers what the cohort cares about (${(hunger.cares_about || [])[0] || topic}).`,
-        why_cohort: `This cohort (${co.nl_query || co.name}) over-indexes on ${(hunger.motivations || ["growth"])[0]}.`,
-        one_up: oneups[i % oneups.length], emotional_framework: frames[i % frames.length], emotional_register: regs[i % regs.length],
-      };
-      const r = await wq(`insert into wh_feed_story(cohort_id,demand_topic,one_up,emotional_framework,emotional_register,heading,topic_guide,summary,why_now,why_relevant,why_cohort,source_refs,status)
-        values($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12::jsonb,'draft') returning id`,
-        [id, topic, s.one_up, s.emotional_framework, s.emotional_register, s.heading, JSON.stringify(s.topic_guide || {}), s.summary, s.why_now, s.why_relevant, s.why_cohort, JSON.stringify(srcRefs)]);
-      made.push(r.rows?.[0]?.id);
+    for (const t of topicRows) {
+      const research = await researchTopic(t.name).catch(() => null);
+      const items = feed.filter((f) => (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase())).slice(0, 5);
+      const velocity = Math.min(1, 0.4 + items.length * 0.1);
+      const strategic = Math.min(1, (Number(t.strategic_weight) || 1) / 1.5);
+      const franchiseHist = hist[t.franchise] || 0;
+      for (let a = 0; a < 3; a++) {                       // 3 ideas / topic → ~18 total
+        const grounding = (items.length || research) ? `\nReal feed: ${JSON.stringify(items.map((x) => ({ src: x.source, title: x.title, url: x.url })))}\nResearch: ${JSON.stringify(research || {}).slice(0, 2000)}` : "";
+        const contra = a === 1 || t.name === "Keywords and resume";
+        const { j } = await ai("feedstory-generate", `Create ONE content idea (heading + topic guide brief only — NOT finished copy) for Talent500's '${t.franchise}' franchise. Angle: ${ANGLES[a]}. ${contra ? "This is a CONTRADICTION idea — push against a popular but wrong belief; state the belief. " : ""}Ground it in the real feed + research when given; evidence must be specific.`, `Demand topic: ${t.name} (underlying question: ${t.question})\nFranchise: ${t.franchise} · format: ${t.format_home}\nCohort: ${JSON.stringify(hunger).slice(0, 1200)}\nPick 1-up from ${JSON.stringify(oneups)}, register from ${JSON.stringify(regs)}.${grounding}`);
+        const srcRefs = [...items.map((x) => ({ title: x.title, url: x.url, source: x.source })), ...((research?.refs) || [])].slice(0, 6);
+        const s = j || {
+          heading: `${t.name}: the ${["truth", "myth everyone repeats", "numbers"][a]} no one tells you`,
+          summary: `A ${regs[a % regs.length] || "steady"} take on ${t.name.toLowerCase()} — ${t.franchise}.`,
+          topic_guide: { take: `Reframe "${t.question}" around what this cohort actually feels.`, beats: ["Open with the tension", "One insider data point", "A concrete do-this-now"], proof: ["a benchmark stat", "a real comment/thread"] },
+          why_now: items.length ? `${items.length} fresh items on this across YouTube/Reddit this month.` : "Recurring demand across India GCC talent this month.",
+          why_relevant: `Answers "${t.question}" directly.`, why_cohort: `This cohort (${co.nl_query || co.name}) over-indexes on ${(hunger.motivations || ["growth"])[0]}.`,
+          evidence: items.length ? `Grounded in ${items.length} live items` : "demand signal from cohort chips",
+          one_up: oneups[a % oneups.length], emotional_framework: "", emotional_register: regs[a % regs.length],
+          contradiction: contra, contradiction_of: contra ? "popular ATS/resume advice that's factually wrong" : null,
+          platform: t.format_home,
+        };
+        const gap = GAP[t.name] ?? 0.6;
+        const score = Math.round((0.35 * gap + 0.25 * velocity + 0.20 * strategic + 0.20 * franchiseHist) * 1000) / 1000;
+        const breakdown = { gap, velocity, strategic, historical: Math.round(franchiseHist * 100) / 100 };
+        const r = await wq(`insert into wh_feed_story(cohort_id,demand_topic,franchise,platform,one_up,emotional_register,heading,topic_guide,summary,why_now,why_relevant,why_cohort,evidence,contradiction,contradiction_of,source_refs,score,score_breakdown,status)
+          values($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18::jsonb,'draft') returning id`,
+          [id, t.name, t.franchise, s.platform || t.format_home, s.one_up, s.emotional_register, s.heading, JSON.stringify(s.topic_guide || {}), s.summary, s.why_now, s.why_relevant, s.why_cohort, s.evidence || "", !!s.contradiction, s.contradiction_of || null, JSON.stringify(srcRefs), score, JSON.stringify(breakdown)]);
+        made.push(r.rows?.[0]?.id);
+      }
     }
     res.json({ ok: true, made: made.length });
   });
 
-  app.get("/api/wh/feedstories/:cohortId", async (req, res) => res.json({ stories: (await wq(`select * from wh_feed_story where cohort_id=$1 and status<>'deleted' order by id desc`, [Number(req.params.cohortId)])).rows }));
+  app.get("/api/wh/feedstories/:cohortId", async (req, res) => {
+    const fr = req.query.franchise; const args = [Number(req.params.cohortId)];
+    let sql = `select * from wh_feed_story where cohort_id=$1 and status<>'deleted'`;
+    if (fr && fr !== "all") { sql += ` and franchise=$2`; args.push(fr); }
+    sql += ` order by score desc nulls last, id desc`;   // ranked
+    res.json({ stories: (await wq(sql, args)).rows });
+  });
 
   // which sources are live (enabled + keyed) → the journey shows real vs mock
   app.get("/api/wh/feed/status", (_req, res) => {
@@ -236,13 +257,17 @@ export function mountWhisperer(app, slug) {
     res.json({ ok: true, collected: items.length, sources: [...new Set(items.map((i) => i.source))] });
   });
 
+  // Review CRUD — Used / Rejected / Saved (+ rejection reason) + edit + delete.
+  // The feedback drives ranking (historical acceptance per franchise).
   app.post("/api/wh/feedstory/:id/action", async (req, res) => {
     const id = Number(req.params.id), a = req.body?.action;
-    if (a === "approve") await wq(`update wh_feed_story set status='approved' where id=$1`, [id]);
-    else if (a === "bank") await wq(`update wh_feed_story set status='banked' where id=$1`, [id]);
-    else if (a === "delete") await wq(`update wh_feed_story set status='deleted' where id=$1`, [id]);
+    if (a === "used") await wq(`update wh_feed_story set feedback='used', status='approved' where id=$1`, [id]);
+    else if (a === "rejected") await wq(`update wh_feed_story set feedback='rejected', reject_reason=$2 where id=$1`, [id, req.body?.reason || null]);
+    else if (a === "saved") await wq(`update wh_feed_story set feedback='saved', status='banked' where id=$1`, [id]);
+    else if (a === "clear") await wq(`update wh_feed_story set feedback=null, reject_reason=null, status='draft' where id=$1`, [id]);
     else if (a === "select") await wq(`update wh_feed_story set selected = not selected where id=$1`, [id]);
-    else if (a === "edit") await wq(`update wh_feed_story set heading=coalesce($2,heading), summary=coalesce($3,summary) where id=$1`, [id, req.body?.heading ?? null, req.body?.summary ?? null]);
+    else if (a === "delete") await wq(`update wh_feed_story set status='deleted' where id=$1`, [id]);
+    else if (a === "edit") await wq(`update wh_feed_story set heading=coalesce($2,heading), summary=coalesce($3,summary), topic_guide=coalesce($4::jsonb,topic_guide) where id=$1`, [id, req.body?.heading ?? null, req.body?.summary ?? null, req.body?.topic_guide ? JSON.stringify(req.body.topic_guide) : null]);
     res.json({ ok: true });
   });
 
@@ -256,4 +281,22 @@ export function mountWhisperer(app, slug) {
     await wq(`insert into ${t}(name, definition${src}) values($1,$2${srcv}) on conflict(name) do update set definition=excluded.definition`, [name, definition || ""]);
     res.json({ ok: true });
   });
+
+  // demand topics with franchise routing (for the initial journey + settings)
+  app.get("/api/wh/topics", async (_req, res) => res.json({ topics: (await wq(`select name, question, franchise, format_home, strategic_weight, notes, active from wh_demand_topic order by id`)).rows }));
+
+  // 1Up franchises (routing targets) — config, editable
+  app.get("/api/wh/franchises", async (_req, res) => res.json({ franchises: (await wq(`select * from wh_franchise order by id`)).rows }));
+  app.post("/api/wh/franchise", async (req, res) => {
+    const { name, stage, format_home, active } = req.body || {}; if (!name) return res.status(400).json({ error: "name required" });
+    await wq(`insert into wh_franchise(name,stage,format_home,active) values($1,$2,$3,coalesce($4,true)) on conflict(name) do update set stage=coalesce(excluded.stage,wh_franchise.stage), format_home=coalesce(excluded.format_home,wh_franchise.format_home), active=coalesce(excluded.active,wh_franchise.active)`, [name, stage || null, format_home || null, active]);
+    res.json({ ok: true });
+  });
+  // set a topic's franchise routing
+  app.post("/api/wh/topic/route", async (req, res) => { await wq(`update wh_demand_topic set franchise=$2, format_home=coalesce($3,format_home) where name=$1`, [req.body?.topic, req.body?.franchise, req.body?.format_home || null]); res.json({ ok: true }); });
+
+  // SEO research workspace — a 2nd write source (paste keyword/GSC/competitor/trend research)
+  app.get("/api/wh/seo", async (_req, res) => res.json({ inputs: (await wq(`select id, kind, content, created_at from wh_seo_input order by id desc limit 50`)).rows }));
+  app.post("/api/wh/seo", async (req, res) => { const { kind, content } = req.body || {}; if (!content) return res.status(400).json({ error: "content required" }); await wq(`insert into wh_seo_input(kind, content) values($1,$2)`, [kind || "keywords", content]); res.json({ ok: true }); });
+  app.post("/api/wh/seo/:id/delete", async (req, res) => { await wq(`delete from wh_seo_input where id=$1`, [Number(req.params.id)]); res.json({ ok: true }); });
 }
