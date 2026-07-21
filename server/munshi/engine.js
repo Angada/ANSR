@@ -175,11 +175,12 @@ export async function getChipGroups(client) {
 // intake produces chips (parseBoxes falls back to stubAnalysis). Real uploads
 // via /api/upload → registerCorpusDoc supersede this.
 export async function seedStubCorpus(client) {
-  if ((await store.listCorpus(client)).length) return { seeded: false };
+  if ((await store.getChips(client)).length) return { seeded: false };   // already has chips
   const docId = "sow-stub";
   try {
     await putExtract(client, docId, `# ${client} — SOW (stub)\nPlaceholder contract. Upload a real SOW to replace.`);
-    await registerCorpusDoc(client, { doc_id: docId, role: "primary_sow", title: "SOW (stub)" });
+    const corpus = await store.listCorpus(client);
+    if (!corpus.find((c) => c.doc_id === docId)) await registerCorpusDoc(client, { doc_id: docId, role: "primary_sow", title: "SOW (stub)" });
     return { seeded: true };
   } catch { return { seeded: false }; }
 }
