@@ -37,6 +37,11 @@ Object.assign(RULE_DEFAULTS, {
     collection: { weights: { gap: 0.35, velocity: 0.25, strategic: 0.20, historical: 0.20 },
       gap_map: { "Keywords and resume": 0.9, "Salary negotiation": 0.85, "Using AI to get better jobs": 0.82, "Landing your dream job": 0.7, "Skills to get a new job": 0.6, "Which coding tool to use": 0.6, "Emerging": 0.75 } },
     prompt: "Composite rank = Σ(weight × signal). Signals: gap (demand ÷ supply quality), velocity (views ÷ days), strategic (topic weight), historical (Used acceptance per franchise).", model: "", enabled: true },
+  // ---- guardrails (audience · language · region — prepended to every idea prompt) ----
+  guardrails: { app: "RayDar", category: "guardrails", pipeline: "feedstory-generate",
+    collection: { language: "English", region: "India", locale: "en-IN", audience: "job seekers · GCC / tech talent", brand: "Talent500", currency: "INR" },
+    prompt: "Write for India-English job seekers (GCC / tech talent), Indian context — use INR where money is mentioned. Brand: Talent500. Output is a heading + topic-guide brief for a writer, never finished copy. Keep it on-brand, credible and specific.",
+    model: "", enabled: true },
 });
 const mergeRule = (id, r) => { const d = RULE_DEFAULTS[id] || {}; return { ...d, ...(r || {}), collection: { ...(d.collection || {}), ...((r || {}).collection || {}) } }; };
 async function getRule(id) { try { const r = (await q(`select rule from wh_business_rule where name=$1`, [id])).rows?.[0]?.rule; return mergeRule(id, r); } catch { return mergeRule(id, null); } }
@@ -379,6 +384,8 @@ export function mountWhisperer(app, slug) {
     const hunger = batch.hunger || {}; const cohortId = batch.cohort_id;
     // scoring weights + gap map from the editable business rule
     const sc = (await getRule("scoring")).collection || {};
+    const guard = await getRule("guardrails");                  // audience · language · region (editable)
+    const guardPrompt = guard.enabled === false ? "" : (guard.prompt || "");
     const W = sc.weights || { gap: 0.35, velocity: 0.25, strategic: 0.20, historical: 0.20 };
     const GAPMAP = sc.gap_map || {};
     // the approved 6 demand topics + franchise routing (skip Emerging for generation)
@@ -405,7 +412,7 @@ export function mountWhisperer(app, slug) {
       for (let a = 0; a < 3; a++) {                       // 3 ideas / topic → ~18 total
         const grounding = (items.length || research) ? `\nReal feed: ${JSON.stringify(items.map((x) => ({ src: x.source, title: x.title, url: x.url, tags: x.tags })))}\nResearch: ${JSON.stringify(research || {}).slice(0, 2000)}` : "";
         const contra = a === 1;
-        const { j } = await ai("feedstory-generate", `Create ONE content idea (heading + topic guide brief only — NOT finished copy) for Talent500's '${t.franchise}' franchise. Angle: ${ANGLES[a]}. ${contra ? "This is a CONTRADICTION idea — push against a popular but wrong belief; state the belief. " : ""}Ground it in the real feed + research when given; evidence must be specific.`, `Demand topic: ${t.name} (underlying question: ${t.question})\nFranchise: ${t.franchise} · format: ${t.format_home}\nCohort: ${JSON.stringify(hunger).slice(0, 1200)}\nPick 1-up from ${JSON.stringify(oneups)}, register from ${JSON.stringify(regs)}.${grounding}`);
+        const { j } = await ai("feedstory-generate", `${guardPrompt ? guardPrompt + "\n\n" : ""}Create ONE content idea (heading + topic guide brief only — NOT finished copy) for the '${t.franchise}' franchise. Angle: ${ANGLES[a]}. ${contra ? "This is a CONTRADICTION idea — push against a popular but wrong belief; state the belief. " : ""}Ground it in the real feed + research when given; evidence must be specific.`, `Demand topic: ${t.name} (underlying question: ${t.question})\nFranchise: ${t.franchise} · format: ${t.format_home}\nCohort: ${JSON.stringify(hunger).slice(0, 1200)}\nPick 1-up from ${JSON.stringify(oneups)}, register from ${JSON.stringify(regs)}.${grounding}`);
         // LLM-only — no dummy fallback. If the model didn't return a usable idea, skip it.
         if (!j || !j.heading) continue;
         const s = j;

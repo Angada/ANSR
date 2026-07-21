@@ -31,8 +31,8 @@ async function renderRules() {
   const apps = ["All", ...new Set(Object.values(RULES).map((r) => r.app || "Other"))];
   const modelOpts = `<option value="">Default (pipeline model)</option>` + Object.entries(cfg.providers).flatMap(([id, p]) => (p.models || []).map((m) => `<option value="${id}::${m}">${p.label} · ${m}</option>`)).join("");
   const shown = Object.entries(RULES).filter(([, r]) => RULE_APP === "All" || (r.app || "Other") === RULE_APP);
-  const CAT_LABEL = { journey: "Journey steps — the Hunger routes", integration: "Integrations — external APIs (query + prompt + gate)", scoring: "Scoring — composite rank weights + gap map" };
-  const CAT_ORDER = ["journey", "integration", "scoring"];
+  const CAT_LABEL = { guardrails: "Guardrails — audience · language · region (prepended to every idea)", journey: "Journey steps — the Hunger routes", integration: "Integrations — external APIs (query + prompt + gate)", scoring: "Scoring — composite rank weights + gap map" };
+  const CAT_ORDER = ["guardrails", "journey", "integration", "scoring"];
   const byCat = {}; for (const e of shown) (byCat[e[1].category || "other"] ||= []).push(e);
   const ruleCard = ([id, r]) => `
     <section class="pipe" data-rule="${id}">

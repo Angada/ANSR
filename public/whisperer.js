@@ -16,6 +16,7 @@ let STAGE = 1;          // 1 hunger · 2 sweeping · 3 ideas
 let VIEW = "sweep";     // sweep | batches | library
 let FRANCHISES = [];
 let EDIT_CONCEPTS = false;
+let GUARD = null;       // guardrails (audience · language · region) from business rules
 
 // ---- journey rail (horizontal) ---------------------------------------------
 const STATIONS = [
@@ -56,6 +57,7 @@ async function init() {
   renderSubnav(); rail(); renderBatchPick();
   ALL_TOPICS = (await (await fetch("/api/wh/topics")).json()).topics || [];
   FRANCHISES = ((await (await fetch("/api/wh/franchises")).json()).franchises) || [];
+  try { GUARD = (((await (await fetch("/api/wh/rules")).json()).rules || {}).guardrails || {}).collection || {}; } catch { GUARD = {}; }
   renderHunger();
   renderIdeas(null);
 }
@@ -263,6 +265,37 @@ function ideaCard(s, i, franchises, opts = {}) {
 }
 window.toggleCard = (id) => { document.getElementById(`card-${id}`)?.classList.toggle("open"); };
 
+// Trend Spotting report — sits above the article titles; aggregates the sweep:
+// which trends, which audience, what's being discussed, signals, sources.
+function trendReport(stories) {
+  if (!stories || !stories.length) return "";
+  const topics = {}, regs = {}, fr = {}, gaps = {}, srcs = new Set(); let contra = 0, vsum = 0, gsum = 0, live = false;
+  for (const s of stories) {
+    topics[s.demand_topic] = (topics[s.demand_topic] || 0) + 1;
+    if (s.emotional_register) regs[s.emotional_register] = (regs[s.emotional_register] || 0) + 1;
+    fr[s.franchise] = (fr[s.franchise] || 0) + 1;
+    if (s.gap_type) gaps[s.gap_type] = (gaps[s.gap_type] || 0) + 1;
+    const b = s.score_breakdown || {}; vsum += Number(b.velocity) || 0; gsum += Number(b.gap) || 0; if (b.live) live = true;
+    (b.sources || []).forEach((x) => srcs.add(x));
+    if (s.contradiction) contra++;
+  }
+  const n = stories.length;
+  const aud = GUARD ? [GUARD.region, GUARD.language, GUARD.audience].filter(Boolean).join(" · ") : "—";
+  const regList = Object.entries(regs).sort((a, b) => b[1] - a[1]).map(([r, c]) => `${esc(r)} <b>${c}</b>`).join(" · ") || "—";
+  const topFr = Object.entries(fr).sort((a, b) => b[1] - a[1])[0];
+  const cell = (k, v) => `<div><div class="rk">${k}</div><div class="rv">${v}</div></div>`;
+  return `<div class="report">
+    <div class="report-h">${ic("target", 15)} Trend Spotting report <span class="report-b">${esc(BATCH?.name || "batch")} · ${n} ideas</span></div>
+    <div class="report-grid">
+      ${cell("Audience", esc(aud) + (BATCH && BATCH.cohortId ? "" : " <span style='color:var(--dim2)'>· no cohort (nil)</span>"))}
+      ${cell(`Trends · ${Object.keys(topics).length} concepts`, Object.keys(topics).map((t) => esc(t)).join(" · "))}
+      ${cell("What's being discussed", regList)}
+      ${cell("Signals", `avg gap <b>${(gsum / n).toFixed(2)}</b> · velocity <b>${(vsum / n).toFixed(2)}</b> · ${live ? "live feed" : "config"} · gap types ${Object.entries(gaps).map(([g, c]) => `${esc(g)}(${c})`).join(" ") || "—"}`)}
+      ${cell("Routed to", `${topFr ? esc(topFr[0]) + " leads · " + Object.keys(fr).length + " franchises" : "—"} · ${contra} contradiction${contra === 1 ? "" : "s"}`)}
+      ${cell("Sources", srcs.size ? [...srcs].map((x) => `<span class="src">${esc(x)}</span>`).join("") : `<span class="src src-llm">LLM only</span>`)}
+    </div></div>`;
+}
+
 function renderIdeas(stories, franchises) {
   const host = $("#stageIdeas");
   if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each a heading + brief routed to a 1Up franchise, ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
@@ -273,7 +306,7 @@ function renderIdeas(stories, franchises) {
       <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${stories.length} ideas · ranked</span>
     </div>`;
   host.innerHTML = `<p class="intro"><b>IDEAS</b> — ranked by composite signal. Click a story to expand its reasoning; then mark Used, Save, Reject, Edit, or tick <b>build</b>.</p>` +
-    filter + (stories.length ? `<div class="grid">${stories.map((s, i) => ideaCard(s, i, franchises)).join("")}</div>` : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`);
+    trendReport(stories) + filter + (stories.length ? `<div class="grid">${stories.map((s, i) => ideaCard(s, i, franchises)).join("")}</div>` : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`);
 }
 window.setFR = (v) => { FR = v; loadIdeas(); };
 function refreshCurrent() { if (VIEW === "library") loadLibrary(); else loadIdeas(); }
