@@ -711,12 +711,13 @@ window.askMissing = (item) => {
 };
 
 // ---- Rule chips (Munshi) — atomic clause-referenced rules, confirm/amend ----
+async function mintIntake(client){ return (await fetch('/api/mint/corpus/intake',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({client})})).json(); }
 async function renderChips() {
   const host = $("#chips"); if (!host) return;
   const client = $("#client")?.value; if (!client || client === "__new__") return;
   let { chips } = await (await fetch(`/api/mint/chips/${encodeURIComponent(client)}`)).json();
   let total = (chips || []).reduce((n, g) => n + g.chips.length, 0);
-  if (!total) { const r = await (await fetch(`/api/mint/munshi/parse/${encodeURIComponent(client)}`, { method: "POST" })).json(); chips = r.chips || []; total = chips.reduce((n, g) => n + g.chips.length, 0); }
+  if (!total) { await mintIntake(client); ({ chips } = await (await fetch(`/api/mint/chips/${encodeURIComponent(client)}`)).json()); total = (chips || []).reduce((n, g) => n + g.chips.length, 0); }
   const confirmed = (chips || []).reduce((n, g) => n + g.chips.filter((c) => c.status === "confirmed").length, 0);
   const badge = (typeof ic === "function" ? ic : () => "");
   const chip = (c) => `<div class="mchip ${c.status === "confirmed" ? "ok" : ""}">
@@ -735,11 +736,11 @@ async function renderChips() {
 }
 window.reparseCorpus = async () => {
   const client = $("#client").value; const m = $("#chipMsg"); if (m) m.textContent = "parsing…";
-  const r = await (await fetch(`/api/mint/munshi/parse/${encodeURIComponent(client)}`, { method: "POST" })).json();
-  if (m) m.textContent = `re-parsed ${r.parsed} · kept ${r.confirmed_kept} confirmed`;
+  const r = await (await fetch(`/api/mint/corpus/reparse`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client }) })).json();
+  if (m) m.textContent = r.totals ? `re-parsed · +${r.totals.inserted} ~${r.totals.updated} · kept ${r.totals.preserved}` : "re-parsed";
   renderChips();
 };
-window.confirmChip = async (id) => { await fetch(`/api/mint/chip/${id}/confirm`, { method: "POST" }); renderChips(); };
+window.confirmChip = async (id) => { await fetch(`/api/mint/chip/${id}/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value }) }); renderChips(); };
 
 // ---- Mint tabs: Contract Reconciler · Analysis · Rule book ------------------
 window.mTab = (t) => {
@@ -752,7 +753,7 @@ async function renderRulebook() {
   const host = $("#rulebook"); if (!host) return;
   const client = $("#client")?.value; if (!client || client === "__new__") return;
   let { chips } = await (await fetch(`/api/mint/chips/${encodeURIComponent(client)}`)).json();
-  if (!chips || !chips.length) { const r = await (await fetch(`/api/mint/munshi/parse/${encodeURIComponent(client)}`, { method: "POST" })).json(); chips = r.chips || []; }
+  if (!chips || !chips.length) { await mintIntake(client); ({ chips } = await (await fetch(`/api/mint/chips/${encodeURIComponent(client)}`)).json()); }
   const order = ["billing_rules", "commercial_terms", "payment_terms", "company", "legal", "caveats", "flags"];
   chips = (chips || []).slice().sort((a, b) => order.indexOf(a.box_type) - order.indexOf(b.box_type));
   const total = chips.reduce((n, g) => n + g.chips.length, 0);
@@ -764,6 +765,6 @@ async function renderRulebook() {
       ${g.chips.map((c) => `<tr><td style="font-family:ui-monospace,monospace">${esc(c.key)}</td><td style="font-family:ui-monospace,monospace;font-size:11px;max-width:320px">${esc(JSON.stringify(c.value))}</td><td>${esc(c.clause_ref || "")}</td><td><span class="chip ${c.status === "confirmed" ? "chip--approved" : "chip--draft"}">${esc(c.status)}</span></td></tr>`).join("")}
       </tbody></table></div>`).join("");
 }
-window.amendChip = (id, cur) => appPrompt("Amend rule chip", "Value (JSON)", async (v) => { if (!v) return; await fetch(`/api/mint/chip/${id}/amend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value: v }) }); renderChips(); }, { value: cur });
+window.amendChip = (id, cur) => appPrompt("Amend rule chip", "Value (JSON)", async (v) => { if (!v) return; await fetch(`/api/mint/chip/${id}/amend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, value: v }) }); renderChips(); }, { value: cur });
 
 init();
