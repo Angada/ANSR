@@ -21,6 +21,23 @@ const RULE_DEFAULTS = {
   serper:     { app: "RayDar", pipeline: "feedstory-generate", collection: { gl: "in", hl: "en" }, prompt: "Use for grounding + validation; cite links.", model: "", enabled: true },
   perplexity: { app: "RayDar", pipeline: "feedstory-generate", collection: { model: "sonar", max_tokens: 500 }, prompt: "Research + validate with citations; India English context.", model: "", enabled: true },
 };
+// tag the above as integrations, add the rest of the catalog + journey + scoring rules
+for (const k of Object.keys(RULE_DEFAULTS)) RULE_DEFAULTS[k].category = "integration";
+Object.assign(RULE_DEFAULTS, {
+  exa:       { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { numResults: 5, useAutoprompt: true }, prompt: "Neural search for validation — pull the most relevant sources + cite URLs.", model: "", enabled: false },
+  brave:     { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { count: 5, country: "in", search_lang: "en" }, prompt: "Web search for grounding + validation; cite links.", model: "", enabled: false },
+  factcheck: { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { languageCode: "en" }, prompt: "Check claims against published fact-checks; flag anything contradicted — never assert independently.", model: "", enabled: false },
+  wikidata:  { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { limit: 3 }, prompt: "Ground entities and definitions against Wikipedia / Wikidata.", model: "", enabled: false },
+  // ---- journey steps (the Hunger routes) ----
+  trend_spotting: { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { topics: 6, include_emerging: true }, prompt: "From the chosen demand topics, frame the cohort's hunger — what they search, watch and complain about — and return the demand topics to sweep.", model: "", enabled: true },
+  seo_inputs:     { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { max_inputs: 50 }, prompt: "Parse pasted SEO research (keywords / GSC / competitor gaps) → demand signals mapped to the 6 topics; extract the highest-intent queries.", model: "", enabled: true },
+  talentmind:     { app: "RayDar", category: "journey", pipeline: "cohort-nl-query", collection: { tenure_max_years: 2, job_seekers_only: true }, prompt: "Job seekers only, under 2 years tenure per company. Parse each corpus into TalentMind chips, cohort them, read their hunger.", model: "", enabled: true },
+  // ---- scoring (composite rank weights + gap map) ----
+  scoring: { app: "RayDar", category: "scoring", pipeline: "raydar-rank",
+    collection: { weights: { gap: 0.35, velocity: 0.25, strategic: 0.20, historical: 0.20 },
+      gap_map: { "Keywords and resume": 0.9, "Salary negotiation": 0.85, "Using AI to get better jobs": 0.82, "Landing your dream job": 0.7, "Skills to get a new job": 0.6, "Which coding tool to use": 0.6, "Emerging": 0.75 } },
+    prompt: "Composite rank = Σ(weight × signal). Signals: gap (demand ÷ supply quality), velocity (views ÷ days), strategic (topic weight), historical (Used acceptance per franchise).", model: "", enabled: true },
+});
 const mergeRule = (id, r) => { const d = RULE_DEFAULTS[id] || {}; return { ...d, ...(r || {}), collection: { ...(d.collection || {}), ...((r || {}).collection || {}) } }; };
 async function getRule(id) { try { const r = (await q(`select rule from wh_business_rule where name=$1`, [id])).rows?.[0]?.rule; return mergeRule(id, r); } catch { return mergeRule(id, null); } }
 
@@ -60,6 +77,31 @@ async function collectFeed(topics) {
   const seen = new Set(); const uniq = out.filter((x) => x.url && !seen.has(x.url) && seen.add(x.url));
   for (const it of uniq) await q(`insert into wh_feed_item(source,external_id,title,url,body) values($1,$2,$3,$4,$5) on conflict do nothing`, [it.source, it.external_id || null, it.title || "", it.url, it.body || ""]).catch(() => {});
   return uniq;
+}
+
+// ---- Classify (Stage 2): tag each source's items with THAT integration's -----
+// business-rule prompt + model + gate. This is how every collected call is
+// channelled through the editable prompts. No-op in mock mode (empty feed).
+async function classifyFeed(items) {
+  const bySrc = {};
+  for (const it of (items || [])) (bySrc[it.source] ||= []).push(it);
+  for (const [src, arr] of Object.entries(bySrc)) {
+    const rule = await getRule(src);
+    if (rule.enabled === false || !arr.length) continue;              // gate
+    const [prov, mdl] = (rule.model || "").includes("::") ? rule.model.split("::") : [undefined, undefined];
+    try {
+      const payload = JSON.stringify(arr.map((x, i) => ({ i, title: x.title, body: (x.body || "").slice(0, 300) }))).slice(0, 6000);
+      const out = await runPipeline("raydar-classify", {
+        system: `${rule.prompt}\nReturn STRICT JSON {"items":[{"i":<index>,"topic":"1..6|Emerging","franchise":"...","registers":{"FOMO":0-1,"Anxiety":0-1,"Optimism":0-1,"Ambition":0-1},"question":"..."}]}.`,
+        user: payload, provider: prov, model: mdl, maxTokens: 1500,
+      });
+      if (out.mode === "ai" && out.text) {
+        const tags = jsonFrom(out.text);
+        for (const t of (Array.isArray(tags?.items) ? tags.items : [])) if (arr[t.i]) arr[t.i].tags = t;
+      }
+    } catch { /* best-effort; generation still runs on raw items */ }
+  }
+  return items;
 }
 
 // ---- Research / validation (Tavily → Serper → Perplexity, whichever enabled) -
@@ -182,15 +224,24 @@ export function mountWhisperer(app, slug) {
   app.post("/api/wh/batch", async (req, res) => {
     const { name, trend_topics, talentmind_cohort_id, seo } = req.body || {};
     const nm = name || `Batch ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+    const routes = { trend: !!(trend_topics || []).length, seo: !!seo, talentmind: !!talentmind_cohort_id };
+    let cohortId = null, hunger = null, topics = [], source = "trend";
     if (talentmind_cohort_id) {                          // reuse the simulation cohort (has its hunger)
-      await wq(`update wh_cohort set name=$2 where id=$1`, [talentmind_cohort_id, nm]).catch(() => {});
-      return res.json({ ok: true, id: talentmind_cohort_id, name: nm });
+      cohortId = Number(talentmind_cohort_id); source = "talentmind";
+      const co = (await wq(`select * from wh_cohort where id=$1`, [cohortId])).rows?.[0];
+      hunger = co?.hunger_story || {}; topics = hunger.demand_topics || [];
+      await wq(`update wh_cohort set name=$2 where id=$1`, [cohortId, nm]).catch(() => {});
+    } else {
+      topics = (trend_topics || []).length ? trend_topics : (await wq(`select name from wh_demand_topic where active and name<>'Emerging' order by id`)).rows.map((r) => r.name);
+      source = routes.trend && routes.seo ? "mixed" : routes.seo ? "seo" : "trend";
+      hunger = { who: `Batch seeded from ${[routes.trend ? "Trend Spotting" : "", routes.seo ? "SEO inputs" : ""].filter(Boolean).join(" + ") || "all topics"}.`, demand_topics: topics, cares_about: topics.slice(0, 4), motivations: ["growth"], routes };
     }
-    const topics = (trend_topics || []).length ? trend_topics : (await wq(`select name from wh_demand_topic where active and name<>'Emerging' order by id`)).rows.map((r) => r.name);
-    const hunger = { who: `Batch seeded from ${[(trend_topics || []).length ? "Trend Spotting" : "", seo ? "SEO inputs" : ""].filter(Boolean).join(" + ") || "all topics"}.`, demand_topics: topics, cares_about: topics.slice(0, 4), motivations: ["growth"], routes: { trend: !!(trend_topics || []).length, seo: !!seo } };
-    const r = await wq(`insert into wh_cohort(name,nl_query,filter_def,member_ids,hunger_story) values($1,'',$2::jsonb,'{}',$3::jsonb) returning id`, [nm, JSON.stringify({ batch: true }), JSON.stringify(hunger)]);
-    res.json({ ok: true, id: r.rows?.[0]?.id, name: nm });
+    const b = await wq(`insert into wh_batch(name,source,routes,demand_topics,cohort_id,hunger,status) values($1,$2,$3::jsonb,$4,$5,$6::jsonb,'draft') returning id`,
+      [nm, source, JSON.stringify(routes), topics, cohortId, JSON.stringify(hunger)]);
+    res.json({ ok: true, id: b.rows?.[0]?.id, name: nm });
   });
+  // list saved batches (history)
+  app.get("/api/wh/batches", async (_req, res) => res.json({ batches: (await wq(`select id,name,source,routes,demand_topics,status,story_count,created_at,swept_at from wh_batch order by id desc`)).rows }));
 
   // ---- Hunger (Hunt Outcome) ------------------------------------------------
   app.post("/api/wh/hunger/:cohortId", async (req, res) => {
@@ -213,20 +264,22 @@ export function mountWhisperer(app, slug) {
 
   app.post("/api/wh/hunger/:cohortId/save", async (req, res) => { await wq(`update wh_cohort set hunger_story=$2::jsonb where id=$1`, [Number(req.params.cohortId), JSON.stringify(req.body?.hunger || {})]); res.json({ ok: true }); });
 
-  // ---- Feed Stories (heading + topic guide; classified + justified) --------
-  // gap proxy per topic (demand ÷ quality-of-supply) — the brief's core signal
-  const GAP = { "Keywords and resume": 0.9, "Salary negotiation": 0.85, "Using AI to get better jobs": 0.82, "Landing your dream job": 0.7, "Skills to get a new job": 0.6, "Which coding tool to use": 0.6, "Emerging": 0.75 };
+  // ---- Feed Stories (Stage 3 gap → 4 ideate → 5 rank) ----------------------
   const ANGLES = ["core", "contrarian", "insider-data"];
 
-  app.post("/api/wh/feedstories/:cohortId", async (req, res) => {
-    const id = Number(req.params.cohortId);
-    const co = (await wq(`select * from wh_cohort where id=$1`, [id])).rows?.[0];
-    if (!co) return res.status(404).json({ error: "cohort not found" });
-    const hunger = co.hunger_story || {};
+  app.post("/api/wh/feedstories/:batchId", async (req, res) => {
+    const bid = Number(req.params.batchId);
+    const batch = (await wq(`select * from wh_batch where id=$1`, [bid])).rows?.[0];
+    if (!batch) return res.status(404).json({ error: "batch not found" });
+    const hunger = batch.hunger || {}; const cohortId = batch.cohort_id;
+    // scoring weights + gap map from the editable business rule
+    const sc = (await getRule("scoring")).collection || {};
+    const W = sc.weights || { gap: 0.35, velocity: 0.25, strategic: 0.20, historical: 0.20 };
+    const GAPMAP = sc.gap_map || {};
     // the approved 6 demand topics + franchise routing (skip Emerging for generation)
     let topicRows = (await wq(`select name, franchise, format_home, strategic_weight, question from wh_demand_topic where active and name<>'Emerging' order by id`)).rows;
-    // restrict to the batch's chosen demand topics (Trend Spotting / TalentMind) when set
-    const chosen = hunger.demand_topics || [];
+    // restrict to the batch's chosen demand topics when set
+    const chosen = (batch.demand_topics && batch.demand_topics.length) ? batch.demand_topics : (hunger.demand_topics || []);
     if (chosen.length) { const sel = topicRows.filter((t) => chosen.includes(t.name)); if (sel.length) topicRows = sel; }
     const regs = (await wq(`select name from wh_emotional_register where active`)).rows.map((r) => r.name);
     const oneups = ["Contrarian take", "Insider data", "Do-this-now"];
@@ -234,6 +287,7 @@ export function mountWhisperer(app, slug) {
     const hist = {}; for (const r of (await wq(`select franchise, count(*) filter(where feedback='used') u, count(*) filter(where feedback is not null) t from wh_feed_story group by franchise`)).rows) hist[r.franchise] = Number(r.t) ? Number(r.u) / Number(r.t) : 0;
 
     const feed = await collectFeed(topicRows.map((t) => t.name)).catch(() => []);
+    await classifyFeed(feed).catch(() => {});            // Stage 2 — channel through each source's rule prompt
     const made = [];
     for (const t of topicRows) {
       const research = await researchTopic(t.name).catch(() => null);
@@ -241,8 +295,9 @@ export function mountWhisperer(app, slug) {
       const velocity = Math.min(1, 0.4 + items.length * 0.1);
       const strategic = Math.min(1, (Number(t.strategic_weight) || 1) / 1.5);
       const franchiseHist = hist[t.franchise] || 0;
+      const gap = GAPMAP[t.name] ?? 0.6;
       for (let a = 0; a < 3; a++) {                       // 3 ideas / topic → ~18 total
-        const grounding = (items.length || research) ? `\nReal feed: ${JSON.stringify(items.map((x) => ({ src: x.source, title: x.title, url: x.url })))}\nResearch: ${JSON.stringify(research || {}).slice(0, 2000)}` : "";
+        const grounding = (items.length || research) ? `\nReal feed: ${JSON.stringify(items.map((x) => ({ src: x.source, title: x.title, url: x.url, tags: x.tags })))}\nResearch: ${JSON.stringify(research || {}).slice(0, 2000)}` : "";
         const contra = a === 1 || t.name === "Keywords and resume";
         const { j } = await ai("feedstory-generate", `Create ONE content idea (heading + topic guide brief only — NOT finished copy) for Talent500's '${t.franchise}' franchise. Angle: ${ANGLES[a]}. ${contra ? "This is a CONTRADICTION idea — push against a popular but wrong belief; state the belief. " : ""}Ground it in the real feed + research when given; evidence must be specific.`, `Demand topic: ${t.name} (underlying question: ${t.question})\nFranchise: ${t.franchise} · format: ${t.format_home}\nCohort: ${JSON.stringify(hunger).slice(0, 1200)}\nPick 1-up from ${JSON.stringify(oneups)}, register from ${JSON.stringify(regs)}.${grounding}`);
         const srcRefs = [...items.map((x) => ({ title: x.title, url: x.url, source: x.source })), ...((research?.refs) || [])].slice(0, 6);
@@ -251,29 +306,40 @@ export function mountWhisperer(app, slug) {
           summary: `A ${regs[a % regs.length] || "steady"} take on ${t.name.toLowerCase()} — ${t.franchise}.`,
           topic_guide: { take: `Reframe "${t.question}" around what this cohort actually feels.`, beats: ["Open with the tension", "One insider data point", "A concrete do-this-now"], proof: ["a benchmark stat", "a real comment/thread"] },
           why_now: items.length ? `${items.length} fresh items on this across YouTube/Reddit this month.` : "Recurring demand across India GCC talent this month.",
-          why_relevant: `Answers "${t.question}" directly.`, why_cohort: `This cohort (${co.nl_query || co.name}) over-indexes on ${(hunger.motivations || ["growth"])[0]}.`,
+          why_relevant: `Answers "${t.question}" directly.`, why_cohort: `This cohort (${batch.name}) over-indexes on ${(hunger.motivations || ["growth"])[0]}.`,
           evidence: items.length ? `Grounded in ${items.length} live items` : "demand signal from cohort chips",
           one_up: oneups[a % oneups.length], emotional_framework: "", emotional_register: regs[a % regs.length],
           contradiction: contra, contradiction_of: contra ? "popular ATS/resume advice that's factually wrong" : null,
           platform: t.format_home,
         };
-        const gap = GAP[t.name] ?? 0.6;
-        const score = Math.round((0.35 * gap + 0.25 * velocity + 0.20 * strategic + 0.20 * franchiseHist) * 1000) / 1000;
-        const breakdown = { gap, velocity, strategic, historical: Math.round(franchiseHist * 100) / 100 };
-        const r = await wq(`insert into wh_feed_story(cohort_id,demand_topic,franchise,platform,one_up,emotional_register,heading,topic_guide,summary,why_now,why_relevant,why_cohort,evidence,contradiction,contradiction_of,source_refs,score,score_breakdown,status)
-          values($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16::jsonb,$17,$18::jsonb,'draft') returning id`,
-          [id, t.name, t.franchise, s.platform || t.format_home, s.one_up, s.emotional_register, s.heading, JSON.stringify(s.topic_guide || {}), s.summary, s.why_now, s.why_relevant, s.why_cohort, s.evidence || "", !!s.contradiction, s.contradiction_of || null, JSON.stringify(srcRefs), score, JSON.stringify(breakdown)]);
+        const score = Math.round((W.gap * gap + W.velocity * velocity + W.strategic * strategic + W.historical * franchiseHist) * 1000) / 1000;
+        const breakdown = { gap, velocity, strategic, historical: Math.round(franchiseHist * 100) / 100, weights: W };
+        const gapType = s.contradiction ? "wrong" : velocity >= 0.8 ? "emerging" : gap >= 0.8 ? "unanswered" : items.length <= 1 ? "thin" : "stale";
+        const r = await wq(`insert into wh_feed_story(batch_id,cohort_id,demand_topic,franchise,platform,one_up,emotional_register,heading,topic_guide,summary,why_now,why_relevant,why_cohort,evidence,contradiction,contradiction_of,source_refs,score,score_breakdown,angle,gap_type,in_library,status)
+          values($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19::jsonb,$20,$21,true,'draft') returning id`,
+          [bid, cohortId, t.name, t.franchise, s.platform || t.format_home, s.one_up, s.emotional_register, s.heading, JSON.stringify(s.topic_guide || {}), s.summary, s.why_now, s.why_relevant, s.why_cohort, s.evidence || "", !!s.contradiction, s.contradiction_of || null, JSON.stringify(srcRefs), score, JSON.stringify(breakdown), ANGLES[a], gapType]);
         made.push(r.rows?.[0]?.id);
       }
     }
+    await wq(`update wh_batch set story_count=$2, status='swept', swept_at=now() where id=$1`, [bid, made.length]);
     res.json({ ok: true, made: made.length });
   });
 
-  app.get("/api/wh/feedstories/:cohortId", async (req, res) => {
-    const fr = req.query.franchise; const args = [Number(req.params.cohortId)];
-    let sql = `select * from wh_feed_story where cohort_id=$1 and status<>'deleted'`;
+  app.get("/api/wh/feedstories/:batchId", async (req, res) => {
+    const fr = req.query.franchise; const args = [Number(req.params.batchId)];
+    let sql = `select * from wh_feed_story where batch_id=$1 and status<>'deleted'`;
     if (fr && fr !== "all") { sql += ` and franchise=$2`; args.push(fr); }
     sql += ` order by score desc nulls last, id desc`;   // ranked
+    res.json({ stories: (await wq(sql, args)).rows });
+  });
+
+  // ---- Library: every generated story across all batches -------------------
+  app.get("/api/wh/library", async (req, res) => {
+    const { franchise, feedback, batch } = req.query; const args = []; const w = ["s.status<>'deleted'", "s.in_library"];
+    if (franchise && franchise !== "all") { args.push(franchise); w.push(`s.franchise=$${args.length}`); }
+    if (feedback && feedback !== "all") { args.push(feedback); w.push(`s.feedback=$${args.length}`); }
+    if (batch) { args.push(Number(batch)); w.push(`s.batch_id=$${args.length}`); }
+    const sql = `select s.*, b.name as batch_name from wh_feed_story s left join wh_batch b on b.id=s.batch_id where ${w.join(" and ")} order by s.score desc nulls last, s.id desc limit 300`;
     res.json({ stories: (await wq(sql, args)).rows });
   });
 

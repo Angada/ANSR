@@ -13,6 +13,8 @@ let ALL_TOPICS = [];    // the 6 (+ Emerging)
 let TM = null;          // TalentMind sim: { cohortId, members, hunger, name }
 let BATCH = null, FR = "all";
 let STAGE = 1;          // 1 hunger · 2 sweeping · 3 ideas
+let VIEW = "sweep";     // sweep | batches | library
+let FRANCHISES = [];
 
 // ---- journey rail (horizontal) ---------------------------------------------
 const STATIONS = [
@@ -35,9 +37,24 @@ function rail() {
 window.toHunger = () => { STAGE = 1; $("#track").classList.remove("at-ideas"); rail(); };
 window.toIdeas = () => { STAGE = 3; $("#track").classList.add("at-ideas"); rail(); };
 
+// ---- sub-nav: New Sweep / Batches / Library --------------------------------
+function renderSubnav() {
+  $("#subnav").innerHTML = [["sweep", "New Sweep"], ["batches", "Batches"], ["library", "Library"]]
+    .map(([k, l]) => `<button class="${VIEW === k ? "on" : ""}" onclick="setView('${k}')">${l}</button>`).join("");
+}
+window.setView = (v) => {
+  VIEW = v; renderSubnav();
+  $("#view-sweep").hidden = v !== "sweep";
+  $("#view-batches").hidden = v !== "batches";
+  $("#view-library").hidden = v !== "library";
+  if (v === "batches") renderBatches();
+  if (v === "library") loadLibrary();
+};
+
 async function init() {
-  rail();
+  renderSubnav(); rail();
   ALL_TOPICS = (await (await fetch("/api/wh/topics")).json()).topics || [];
+  FRANCHISES = ((await (await fetch("/api/wh/franchises")).json()).franchises) || [];
   renderHunger();
   renderIdeas(null);
 }
@@ -150,24 +167,22 @@ async function loadIdeas() {
   rail();
 }
 const FR_TAG = ["tag-grn", "tag-cyan", "tag-amber", "tag-mag"];
-function renderIdeas(stories, franchises) {
-  const host = $("#stageIdeas");
-  if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each a heading + brief routed to a 1Up franchise, ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
-  const frIndex = (name) => Math.max(0, (franchises || []).findIndex((f) => f.name === name));
-  const filter = `<div class="ideas-head">
-      <span class="chip tag-grn" style="cursor:default">▣ ${esc(BATCH?.name || "batch")}</span>
-      <span class="chip" style="border:none;background:none;padding:0">franchise</span>
-      <select onchange="setFR(this.value)"><option value="all" ${FR === "all" ? "selected" : ""}>all</option>${(franchises || []).map((f) => `<option ${FR === f.name ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
-      <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${stories.length} ideas · ranked</span>
-    </div>`;
-  const cards = stories.map((s, i) => {
-    const g = s.topic_guide || {}, fb = s.feedback, brd = s.score_breakdown || {};
-    const tag = FR_TAG[frIndex(s.franchise) % FR_TAG.length];
-    return `<article class="card ${fb || ""}">
+const frIndexIn = (fr, name) => Math.max(0, (fr || []).findIndex((f) => f.name === name));
+
+// shared expandable story card — click to reveal the "reason why" (used by Ideas + Library)
+function ideaCard(s, i, franchises, opts = {}) {
+  const g = s.topic_guide || {}, fb = s.feedback, brd = s.score_breakdown || {};
+  const tag = FR_TAG[frIndexIn(franchises, s.franchise) % FR_TAG.length];
+  const w = brd.weights || {};
+  const bar = (label, v) => `<div class="sbar"><span>${label}</span><span class="track2"><span class="fill2" style="width:${Math.round((Number(v) || 0) * 100)}%"></span></span><span>${(Number(v) || 0).toFixed(2)}</span></div>`;
+  return `<article class="card ${fb || ""}" id="card-${s.id}">
+    <div class="cardhead" onclick="toggleCard(${s.id})">
       <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
         <span class="rank">#${i + 1}<span class="pct">${(Number(s.score) * 100).toFixed(0)}</span></span>
+        ${s.gap_type ? `<span class="chip tag-cyan" style="cursor:default">${esc(s.gap_type)}</span>` : ""}
         ${s.contradiction ? `<span class="chip flag" title="pushes against ${esc(s.contradiction_of || "popular belief")}">⚡ contradiction</span>` : ""}
         ${fb ? `<span class="chip ${fb === "used" ? "tag-grn" : fb === "saved" ? "tag-amber" : "tag-mag"}" style="cursor:default">${esc(fb)}</span>` : ""}
+        ${opts.showBatch && s.batch_name ? `<span class="chip" style="cursor:default;margin-left:auto">▣ ${esc(s.batch_name)}</span>` : ""}
       </div>
       <h4>${esc(s.heading)}</h4>
       <div class="chips">
@@ -177,15 +192,20 @@ function renderIdeas(stories, franchises) {
         ${s.emotional_register ? `<span class="chip">${esc(s.emotional_register)}</span>` : ""}
       </div>
       <p class="sum">${esc(s.summary)}</p>
-      <div class="guide">
-        <div class="g-l">Topic guide</div>
-        <div style="font-size:12.5px;color:var(--dim)">${esc(g.take || "")}</div>
-        ${(g.beats || []).length ? `<ul>${(g.beats || []).map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}
-        ${s.evidence ? `<div style="font-size:12px;color:var(--dim);margin-top:8px"><span class="g-l" style="display:inline">evidence</span> ${esc(s.evidence)}</div>` : ""}
-        ${s.why_now ? `<div style="font-size:12px;color:var(--dim);margin-top:6px"><span class="g-l" style="display:inline">why now</span> ${esc(s.why_now)}</div>` : ""}
-      </div>
-      <div class="score">score = gap <b>${brd.gap ?? "?"}</b> · velocity <b>${brd.velocity ?? "?"}</b> · strategic <b>${brd.strategic ?? "?"}</b> · historical <b>${brd.historical ?? 0}</b></div>
-      ${s.source_refs?.length ? `<div class="chips" style="margin-top:10px">${s.source_refs.slice(0, 4).map((r) => `<a class="chip" href="${esc(r.url)}" target="_blank" rel="noopener">↗ ${esc(r.source || "src")}</a>`).join("")}</div>` : ""}
+      <div class="expand">▾ why this ranks — click to expand</div>
+    </div>
+    <div class="reason">
+      <div class="g-l">Topic guide</div>
+      <div style="font-size:12.5px;color:var(--dim)">${esc(g.take || "")}</div>
+      ${(g.beats || []).length ? `<ul style="margin:6px 0 0;padding-left:16px;font-size:12.5px;color:var(--dim);line-height:1.5">${(g.beats || []).map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}
+      <div class="why"><b>Why now:</b> ${esc(s.why_now || "—")}</div>
+      ${s.why_relevant ? `<div class="why"><b>Why relevant:</b> ${esc(s.why_relevant)}</div>` : ""}
+      ${s.why_cohort ? `<div class="why"><b>Why this cohort:</b> ${esc(s.why_cohort)}</div>` : ""}
+      <div class="why"><b>Evidence:</b> ${esc(s.evidence || "—")}</div>
+      ${s.contradiction ? `<div class="why"><b>Contradicts:</b> ${esc(s.contradiction_of || "popular belief")}</div>` : ""}
+      <div class="g-l" style="margin-top:12px">Score breakdown${w.gap ? ` · weights ${w.gap}·${w.velocity}·${w.strategic}·${w.historical}` : ""}</div>
+      ${bar("gap", brd.gap)}${bar("velocity", brd.velocity)}${bar("strategic", brd.strategic)}${bar("historical", brd.historical)}
+      ${s.source_refs?.length ? `<div class="g-l" style="margin-top:12px">Sources</div><div class="chips">${s.source_refs.slice(0, 6).map((r) => `<a class="chip" href="${esc(r.url)}" target="_blank" rel="noopener">↗ ${esc(r.source || "src")}</a>`).join("")}</div>` : ""}
       <div class="acts">
         <button class="btn small" onclick="idea(${s.id},'used')">✓ Used</button>
         <button class="btn small" onclick="idea(${s.id},'saved')">🏦 Save</button>
@@ -194,15 +214,60 @@ function renderIdeas(stories, franchises) {
         <label class="build"><input type="checkbox" ${s.selected ? "checked" : ""} onchange="idea(${s.id},'select')"> build</label>
       </div>
       ${s.reject_reason ? `<div style="font-family:var(--mono);font-size:10.5px;color:var(--red);margin-top:8px">rejected: ${esc(s.reject_reason)}</div>` : ""}
-    </article>`;
-  }).join("");
-  host.innerHTML = `<p class="intro"><b>IDEAS</b> — ranked by composite signal. Review each: mark Used, Save to the vault, Reject with a reason, Edit the heading, or tick <b>build</b>.</p>` +
-    filter + (stories.length ? `<div class="grid">${cards}</div>` : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`);
+    </div>
+  </article>`;
+}
+window.toggleCard = (id) => { document.getElementById(`card-${id}`)?.classList.toggle("open"); };
+
+function renderIdeas(stories, franchises) {
+  const host = $("#stageIdeas");
+  if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each a heading + brief routed to a 1Up franchise, ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
+  const filter = `<div class="ideas-head">
+      <span class="chip tag-grn" style="cursor:default">▣ ${esc(BATCH?.name || "batch")}</span>
+      <span class="chip" style="border:none;background:none;padding:0">franchise</span>
+      <select onchange="setFR(this.value)"><option value="all" ${FR === "all" ? "selected" : ""}>all</option>${(franchises || []).map((f) => `<option ${FR === f.name ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
+      <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${stories.length} ideas · ranked</span>
+    </div>`;
+  host.innerHTML = `<p class="intro"><b>IDEAS</b> — ranked by composite signal. Click a story to expand its reasoning; then mark Used, Save, Reject, Edit, or tick <b>build</b>.</p>` +
+    filter + (stories.length ? `<div class="grid">${stories.map((s, i) => ideaCard(s, i, franchises)).join("")}</div>` : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`);
 }
 window.setFR = (v) => { FR = v; loadIdeas(); };
-window.idea = async (id, action) => { await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) }); loadIdeas(); };
-window.rejectIdea = (id) => rdPrompt("Reject idea", "Reason — off-brand · not interesting · already covered · wrong timing", "not interesting", async (reason) => { await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "rejected", reason }) }); loadIdeas(); });
-window.editIdea = (id, heading) => rdPrompt("Edit heading", "", heading, async (h) => { if (!h) return; await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "edit", heading: h }) }); loadIdeas(); });
+function refreshCurrent() { if (VIEW === "library") loadLibrary(); else loadIdeas(); }
+window.idea = async (id, action) => { await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) }); refreshCurrent(); };
+window.rejectIdea = (id) => rdPrompt("Reject idea", "Reason — off-brand · not interesting · already covered · wrong timing", "not interesting", async (reason) => { await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "rejected", reason }) }); refreshCurrent(); });
+window.editIdea = (id, heading) => rdPrompt("Edit heading", "", heading, async (h) => { if (!h) return; await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "edit", heading: h }) }); refreshCurrent(); });
+
+// ---- Batches view ----------------------------------------------------------
+async function renderBatches() {
+  const { batches } = await (await fetch("/api/wh/batches")).json();
+  $("#view-batches").innerHTML = `<p class="intro"><b>BATCHES</b> — every sweep you've run, newest first. Open one to revisit its ranked ideas.</p>` +
+    (batches.length ? batches.map((b) => `<div class="batch-row" onclick="openBatch(${b.id},'${esc(b.name).replace(/'/g, "\\'")}')">
+      <span class="bn">${esc(b.name)}</span>
+      <span class="bm">${esc(b.source)}</span>
+      <span class="bm">${b.story_count || 0} ideas</span>
+      <span class="chip ${b.status === "swept" ? "tag-grn" : ""}" style="cursor:default">${esc(b.status)}</span>
+      <span class="bm">${b.created_at ? new Date(b.created_at).toLocaleString() : ""}</span>
+    </div>`).join("") : `<div class="empty">// no batches yet — run a sweep //</div>`);
+}
+window.openBatch = async (id, name) => { BATCH = { id, name }; FR = "all"; setView("sweep"); await loadIdeas(); toIdeas(); };
+
+// ---- Library view ----------------------------------------------------------
+let LIB_FR = "all", LIB_FB = "all";
+async function loadLibrary() {
+  const qs = new URLSearchParams(); if (LIB_FR !== "all") qs.set("franchise", LIB_FR); if (LIB_FB !== "all") qs.set("feedback", LIB_FB);
+  const { stories } = await (await fetch(`/api/wh/library?${qs}`)).json();
+  const filters = `<div class="lib-filters">
+      <span class="chip" style="border:none;background:none;padding:0">franchise</span>
+      <select onchange="setLibFR(this.value)"><option value="all">all</option>${FRANCHISES.map((f) => `<option ${LIB_FR === f.name ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
+      <span class="chip" style="border:none;background:none;padding:0">status</span>
+      <select onchange="setLibFB(this.value)">${["all", "used", "saved", "rejected"].map((x) => `<option ${LIB_FB === x ? "selected" : ""}>${x}</option>`).join("")}</select>
+      <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${stories.length} stories</span>
+    </div>`;
+  $("#view-library").innerHTML = `<p class="intro"><b>LIBRARY</b> — every idea ever generated, across all batches. Click a story to expand the reasoning.</p>` +
+    filters + (stories.length ? `<div class="grid">${stories.map((s, i) => ideaCard(s, i, FRANCHISES, { showBatch: true })).join("")}</div>` : `<div class="empty">// nothing here //</div>`);
+}
+window.setLibFR = (v) => { LIB_FR = v; loadLibrary(); };
+window.setLibFB = (v) => { LIB_FB = v; loadLibrary(); };
 
 // ---- radar sweep meter ------------------------------------------------------
 async function meter(steps, hostId, doneMsg) {

@@ -31,13 +31,10 @@ async function renderRules() {
   const apps = ["All", ...new Set(Object.values(RULES).map((r) => r.app || "Other"))];
   const modelOpts = `<option value="">Default (pipeline model)</option>` + Object.entries(cfg.providers).flatMap(([id, p]) => (p.models || []).map((m) => `<option value="${id}::${m}">${p.label} · ${m}</option>`)).join("");
   const shown = Object.entries(RULES).filter(([, r]) => RULE_APP === "All" || (r.app || "Other") === RULE_APP);
-  host.innerHTML = `<p class="lbl" style="color:var(--ansr-gray)">Business rules per app → how it queries each external API, the AI prompt that processes it, its model (default pipeline model or a custom one), and the gate. All config — no deploy needed.</p>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 12px">
-      <label class="lbl">App</label>
-      <select id="ruleApp" onchange="setRuleApp(this.value)" style="max-width:200px">${apps.map((a) => `<option ${a === RULE_APP ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
-      <span class="lbl">${shown.length} rule${shown.length === 1 ? "" : "s"}</span>
-    </div>` +
-    shown.map(([id, r]) => `
+  const CAT_LABEL = { journey: "Journey steps — the Hunger routes", integration: "Integrations — external APIs (query + prompt + gate)", scoring: "Scoring — composite rank weights + gap map" };
+  const CAT_ORDER = ["journey", "integration", "scoring"];
+  const byCat = {}; for (const e of shown) (byCat[e[1].category || "other"] ||= []).push(e);
+  const ruleCard = ([id, r]) => `
     <section class="pipe" data-rule="${id}">
       <div class="pipe-head" onclick="this.parentElement.classList.toggle('open')">
         <b>${id}</b>
@@ -48,9 +45,9 @@ async function renderRules() {
         <span class="caret">⌄</span>
       </div>
       <div class="pipe-body">
-        <label class="lbl">Collection rules (how we query it)</label>
-        <textarea id="rc-${id}" rows="4" style="font-family:ui-monospace,monospace;font-size:12px">${esc(JSON.stringify(r.collection || {}, null, 2))}</textarea>
-        <label class="lbl" style="margin-top:8px">Processing prompt</label>
+        <label class="lbl">${r.category === "scoring" ? "Weights + gap map (JSON — drives the rank)" : "Query / collection rules (how we call it)"}</label>
+        <textarea id="rc-${id}" rows="${r.category === "scoring" ? 9 : 4}" style="font-family:ui-monospace,monospace;font-size:12px">${esc(JSON.stringify(r.collection || {}, null, 2))}</textarea>
+        <label class="lbl" style="margin-top:8px">Processing prompt${r.category === "integration" ? " (classify — every call to this API runs through it)" : ""}</label>
         <textarea id="rp-${id}" rows="3">${esc(r.prompt || "")}</textarea>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
           <div style="flex:1;min-width:200px"><label class="lbl">Model</label><select id="rm-${id}">${modelOpts.replace(`value="${r.model || ""}"`, `value="${r.model || ""}" selected`)}</select></div>
@@ -59,7 +56,16 @@ async function renderRules() {
           <span id="rmsg-${id}" class="lbl"></span>
         </div>
       </div>
-    </section>`).join("");
+    </section>`;
+  host.innerHTML = `<p class="lbl" style="color:var(--ansr-gray)">Every journey step, external API and the scoring model — its query params, the AI prompt each call runs through, its model and gate. All config, no deploy. All RayDar calls are channelled through these.</p>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 12px">
+      <label class="lbl">App</label>
+      <select id="ruleApp" onchange="setRuleApp(this.value)" style="max-width:200px">${apps.map((a) => `<option ${a === RULE_APP ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
+      <span class="lbl">${shown.length} rule${shown.length === 1 ? "" : "s"}</span>
+    </div>` +
+    CAT_ORDER.filter((c) => byCat[c]).map((c) =>
+      `<div class="grp" style="color:var(--ansr-navy);font-weight:600;margin:18px 0 8px">${esc(CAT_LABEL[c] || c)} <span class="lbl" style="font-weight:400">· ${byCat[c].length}</span></div>` +
+      byCat[c].map(ruleCard).join("")).join("");
 }
 window.setRuleApp = (a) => { RULE_APP = a; renderRules(); };
 window.saveRule = async (id) => {
