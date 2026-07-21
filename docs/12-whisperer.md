@@ -46,7 +46,14 @@ AI reads the cohort's ClientMind chips → a **Hunger Story**: who this cohort i
 - **Justification** — *why now · why relevant · why relevant to this cohort*, each showing **which Demand Topic, which 1-Up, which Emotional Framework, which Emotional Register** — combining **scientific reasoning + creative storytelling**.
 
 ### 5 · Feed Review interface
-Each story displays: Demand Topic · 1-Up · Emotional Framework · Register · Summary · Why now · Why relevant · Why-relevant-to-cohort. Actions per story: **Approve · Bank · Delete · Edit · Save**. **Multi-select** stories to develop into full content. A separate **SEO tab** (Journey 3 workspace).
+Each story displays: Demand Topic · 1-Up · Emotional Framework · Register · Summary · Why now · Why relevant · Why-relevant-to-cohort. Actions per story: **Approve · Bank · Delete · Edit · Save**. **Multi-select** stories to develop further. A separate **SEO tab** (Journey 3 workspace).
+
+### 5a · The final output = a heading + a topic guide (NOT finished content)
+**Deliberately not fully automated.** Fully auto-writing the final piece is painful and low-quality — it removes the craft. So Whisperer's end result per approved idea stops at:
+- a **heading** (the angle/title), and
+- a **topic guide** — a short brief: the take, the key points/beats to cover, the 1-Up and emotional register to hit, the source signals (why-now/why-trending), and suggested proof/links.
+
+The content team writes from the guide. Whisperer proposes and briefs; it does **not** ship finished copy. (Same principle as Mint: the engine explains and prepares; a human commits.)
 
 ### 6 · Second starting point (Feed-led)
 Not hunger-led but **feed-led / trend-spotting first** — start from detected trends, then map back to Demand Topics / cohorts.
