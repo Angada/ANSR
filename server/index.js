@@ -9,7 +9,7 @@ import { dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractFile, toMarkdown } from "./extract.js";
 import { q } from "./db/client.js";
-import { loadConfig, saveConfig, publicConfig, encryptKey, getApiKey, initConfig } from "./store.js";
+import { loadConfig, saveConfig, publicConfig, encryptKey, getApiKey, initConfig, publicIntegrations, setIntegration, getIntegrationKey } from "./store.js";
 import { putOriginal, putExtract, getExtract, listExtracts, usingBucket } from "./storage.js";
 import { stubRun, stubOps, stubContracts, stubContract, stubRuns, stubAnalysis, stubInvoice } from "./stub.js";
 import Anthropic from "@anthropic-ai/sdk";
@@ -601,6 +601,30 @@ app.post("/api/providers/:provider", (req, res) => {
   if (req.body?.apiKey) cfg.providers[req.params.provider].apiKey = encryptKey(req.body.apiKey);
   saveConfig(cfg);
   res.json({ ok: true });
+});
+
+// ---- RayDar integrations (key-based: YouTube, Reddit, Perplexity, Tavily, Serper…) ----
+app.get("/api/integrations", (_req, res) => res.json({ integrations: publicIntegrations() }));
+app.post("/api/integrations/:id", (req, res) => {
+  const r = setIntegration(req.params.id, { apiKey: req.body?.apiKey, enabled: req.body?.enabled });
+  if (!r) return res.status(404).json({ error: "unknown integration" });
+  q(`insert into audit_log(actor,action,object_type,object_id,detail) values('admin','integration.set','integration',$1,$2::jsonb)`,
+    [req.params.id, JSON.stringify({ enabled: r.enabled, hasKey: r.hasKey })]).catch(() => {});
+  res.json({ ok: true, integration: r });
+});
+// best-effort connectivity test for a few providers (else: key-present check)
+app.post("/api/integrations/:id/test", async (req, res) => {
+  const id = req.params.id, key = getIntegrationKey(id), t0 = Date.now();
+  const done = (ok, detail) => res.json({ ok, detail, ms: Date.now() - t0 });
+  if (id === "wikidata") return done(true, "public — no key");
+  if (!key) return done(false, "no key saved");
+  try {
+    if (id === "tavily") { const r = await fetch("https://api.tavily.com/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ api_key: key, query: "test", max_results: 1 }) }); return done(r.ok, r.ok ? "connected" : `HTTP ${r.status}`); }
+    if (id === "serper") { const r = await fetch("https://google.serper.dev/search", { method: "POST", headers: { "X-API-KEY": key, "content-type": "application/json" }, body: JSON.stringify({ q: "test" }) }); return done(r.ok, r.ok ? "connected" : `HTTP ${r.status}`); }
+    if (id === "perplexity") { const r = await fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" }, body: JSON.stringify({ model: "sonar", messages: [{ role: "user", content: "hi" }], max_tokens: 1 }) }); return done(r.ok || r.status === 400, r.ok ? "connected" : `key accepted (HTTP ${r.status})`); }
+    if (id === "youtube") { const r = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=test&maxResults=1&key=${encodeURIComponent(key)}`); return done(r.ok, r.ok ? "connected" : `HTTP ${r.status}`); }
+    return done(true, "key saved (no live test for this provider)");
+  } catch (e) { return done(false, String(e.message || e).slice(0, 120)); }
 });
 
 // Whisperer routes (demand↔supply content intelligence — Journey 1, mock-first)

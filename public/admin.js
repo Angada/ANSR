@@ -10,43 +10,57 @@ async function load() {
   renderIntegrations(); renderVault(); renderAccounts(); wireTabs();
 }
 
-// ---- RayDar admin: Integrations · Vault · Accounts (folded into this page) ----
-// Google + third-party connectors. Wire-ready placeholders — the live OAuth port
-// from TKB-Admin lands once a Google OAuth client (id/secret) + scopes are set.
-const INTEGRATIONS = [
-  { group: "Google", items: [
-    ["Gmail", "read + send mail, thread context for MissQ", "✉️"],
-    ["Calendar", "book / move / cancel meetings", "📅"],
-    ["Drive", "pull docs into the vault", "🗂️"],
-    ["Sheets", "MIS export + import", "📊"],
-    ["Contacts", "sync people into accounts", "👥"],
-    ["Google SSO", "sign in with a workspace domain", "🔐"],
-  ] },
-  { group: "Messaging & sources", items: [
-    ["Slack", "notifications + MissQ commands", "💬"],
-    ["WhatsApp", "client comms", "🟢"],
-    ["Talent500", "candidate pool for Whisperer / ClientMind", "🎯"],
-    ["YouTube", "feed collection (Whisperer supply)", "▶️"],
-    ["Reddit", "feed collection (Whisperer supply)", "👽"],
-  ] },
-];
-function renderIntegrations() {
+// ---- RayDar admin: Integrations (key-based) + Vault + Accounts ---------------
+// Real connectable integrations for the Whisperer supply / research / validation
+// side (YouTube, Reddit, Perplexity, Tavily, Serper…). Google stays OAuth (soon).
+let INTG = null;
+async function renderIntegrations() {
   const host = document.getElementById("integrations"); if (!host) return;
-  host.innerHTML = INTEGRATIONS.map((g) => `
-    <div class="band">
-      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 8px">${g.group}</h3>
-      <div class="agents" style="grid-template-columns:1fr 1fr;gap:10px">
-        ${g.items.map(([name, desc, ic]) => `
-          <div class="agent coming">
-            <div class="badge">${ic}</div>
-            <div style="flex:1"><div class="nm"><b>${name}</b><span class="chip chip--draft" style="margin-left:auto">coming soon</span></div>
-              <p class="blurb">${desc}</p></div>
-            <button class="btn btn--ghost" disabled style="align-self:center">Connect</button>
-          </div>`).join("")}
+  INTG = (await (await fetch("/api/integrations")).json()).integrations || {};
+  const byCat = {};
+  for (const it of Object.values(INTG)) (byCat[it.category] ||= []).push(it);
+  const card = (it) => `
+    <div class="pipe" data-intg="${it.id}">
+      <div class="pipe-head" onclick="this.parentElement.classList.toggle('open')">
+        <b>${it.icon || "🔌"} ${esc(it.label)}</b>
+        <span class="chip ${it.hasKey ? "chip--approved" : "chip--draft"}" style="margin-left:auto">${it.auth === "none" ? "public" : it.hasKey ? "key " + esc(it.keyHint) : "no key"}</span>
+        <span class="chip ${it.enabled ? "chip--approved" : "chip--draft"}">${it.enabled ? "on" : "off"}</span>
+        <span class="caret">⌄</span>
       </div>
+      <div class="pipe-body">
+        <div class="lbl" style="margin-bottom:6px">${esc(it.hint || "")}</div>
+        ${it.auth === "none" ? `<div class="lbl">No key needed.</div>` : `
+          <input type="password" id="ik-${it.id}" placeholder="${it.auth === "pair" ? "client_id:client_secret" : "paste API key"} — stored encrypted">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
+            <button class="btn" onclick="saveIntg('${it.id}')">Save key</button>
+            <button class="btn btn--ghost" onclick="testIntg('${it.id}')">Test</button>
+            <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="ie-${it.id}" ${it.enabled ? "checked" : ""} onchange="toggleIntg('${it.id}')" style="width:auto;min-height:auto"> Enabled</label>
+            <span id="it-${it.id}" class="lbl"></span>
+          </div>`}
+      </div>
+    </div>`;
+  host.innerHTML = Object.entries(byCat).map(([cat, items]) => `
+    <div class="band">
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 8px">${esc(cat)}</h3>
+      ${items.map(card).join("")}
     </div>`).join("") + `
-    <p class="lbl" style="color:var(--ansr-gray)">Ports from the TKB-Admin integration panels (Google OAuth + connectors). Needs a Google OAuth client (id/secret) in the Vault + a scope decision before wiring live.</p>`;
+    <div class="band grad-soft"><h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 6px">Google (OAuth) <span class="chip chip--draft">coming soon</span></h3>
+      <p class="lbl" style="color:var(--ansr-gray)">Gmail · Calendar · Drive · Sheets · SSO need a Google OAuth client (id/secret + redirect) — different flow from the API-key integrations above. Wire once the OAuth client is set.</p></div>`;
 }
+window.saveIntg = async (id) => {
+  const apiKey = document.getElementById(`ik-${id}`)?.value; if (!apiKey) return;
+  await fetch(`/api/integrations/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apiKey }) });
+  renderIntegrations();
+};
+window.toggleIntg = async (id) => {
+  const enabled = document.getElementById(`ie-${id}`)?.checked;
+  await fetch(`/api/integrations/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled }) });
+};
+window.testIntg = async (id) => {
+  const el = document.getElementById(`it-${id}`); if (el) el.textContent = "testing…";
+  const r = await (await fetch(`/api/integrations/${id}/test`, { method: "POST" })).json();
+  if (el) el.innerHTML = r.ok ? `<span style="color:var(--ansr-teal)">✓ ${esc(r.detail)}${r.ms ? " · " + r.ms + "ms" : ""}</span>` : `<span style="color:var(--ansr-orange-deep)">✗ ${esc(r.detail)}</span>`;
+};
 function renderVault() {
   const host = document.getElementById("vault"); if (!host) return;
   host.innerHTML = `

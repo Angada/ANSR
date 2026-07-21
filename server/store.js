@@ -124,6 +124,29 @@ const DEFAULT_CONFIG = {
       provider: "anthropic", model: "claude-opus-4-8", skills: ["whisperer"], enabled: true,
       prompt: "Produce a content idea as STRICT JSON {\"heading\":\"...\",\"summary\":\"...\",\"topic_guide\":{\"take\":\"...\",\"beats\":[\"...\"],\"proof\":[\"...\"]},\"why_now\":\"...\",\"why_relevant\":\"...\",\"why_cohort\":\"...\",\"one_up\":\"...\",\"emotional_framework\":\"...\",\"emotional_register\":\"...\"}. The output is a heading + brief for a writer — do NOT write the finished piece. Be scientific AND creative in the justifications." },
   },
+  // API-key integrations (RayDar). Feed/supply, research, validation. Google
+  // stays OAuth (separate). Keys stored AES-encrypted alongside provider keys.
+  integrations: {},
+};
+
+// Catalog of key-based integrations (code-defined, like provider model lists).
+// auth: "key" (single secret) | "pair" (id:secret, e.g. Reddit). test: a light
+// endpoint to validate the key (best-effort).
+export const INTEGRATION_CATALOG = {
+  // Feed / supply
+  youtube:    { label: "YouTube Data API", category: "Feed & supply", auth: "key", hint: "Google Cloud API key (YouTube Data API v3)", icon: "▶️" },
+  reddit:     { label: "Reddit", category: "Feed & supply", auth: "pair", hint: "app client_id:client_secret", icon: "👽" },
+  newsapi:    { label: "News (NewsAPI / GNews)", category: "Feed & supply", auth: "key", hint: "NewsAPI.org or GNews key", icon: "📰" },
+  serpapi:    { label: "SerpApi (Trends/News)", category: "Feed & supply", auth: "key", hint: "Google Trends + news via SerpApi", icon: "📈" },
+  // Research / search
+  perplexity: { label: "Perplexity", category: "Research & search", auth: "key", hint: "pplx-… API key", icon: "🔎" },
+  tavily:     { label: "Tavily", category: "Research & search", auth: "key", hint: "tvly-… search API key", icon: "🧭" },
+  serper:     { label: "Serper", category: "Research & search", auth: "key", hint: "Google SERP API key", icon: "🔍" },
+  exa:        { label: "Exa", category: "Research & search", auth: "key", hint: "neural search key", icon: "✴️" },
+  brave:      { label: "Brave Search", category: "Research & search", auth: "key", hint: "Brave Search API key", icon: "🦁" },
+  // Validation / fact
+  factcheck:  { label: "Google Fact Check", category: "Validation", auth: "key", hint: "Fact Check Tools API key", icon: "✅" },
+  wikidata:   { label: "Wikidata / Wikipedia", category: "Validation", auth: "none", hint: "public — no key needed", icon: "📚" },
 };
 
 function ensure() {
@@ -146,7 +169,7 @@ function mergeDefaults(cfg) {
     // from DEFAULT so registry edits propagate over a saved config.
     pipelines[id] = { ...d, ...p, name: d.name ?? p.name, description: d.description ?? p.description, skills: d.skills ?? p.skills, kind: d.kind ?? p.kind };
   }
-  return { ...DEFAULT_CONFIG, ...cfg, providers, pipelines };
+  return { ...DEFAULT_CONFIG, ...cfg, providers, pipelines, integrations: { ...(cfg.integrations || {}) } };
 }
 
 function readFile() {
@@ -215,4 +238,25 @@ export function getPipeline(id) { return loadConfig().pipelines[id]; }
 export function getApiKey(provider) {
   const env = { anthropic: process.env.ANTHROPIC_API_KEY, openai: process.env.OPENAI_API_KEY };
   return decryptKey(loadConfig().providers[provider]?.apiKey || "") || env[provider] || "";
+}
+
+// ---- RayDar key-based integrations ------------------------------------------
+export function publicIntegrations() {
+  const saved = loadConfig().integrations || {};
+  const out = {};
+  for (const [id, meta] of Object.entries(INTEGRATION_CATALOG)) {
+    const s = saved[id] || {};
+    const plain = decryptKey(s.apiKey || "");
+    out[id] = { ...meta, id, hasKey: meta.auth === "none" || Boolean(plain), keyHint: plain ? `…${plain.slice(-4)}` : "", enabled: meta.auth === "none" ? true : !!s.enabled };
+  }
+  return out;
+}
+export function getIntegrationKey(id) { return decryptKey(loadConfig().integrations?.[id]?.apiKey || ""); }
+export function setIntegration(id, { apiKey, enabled } = {}) {
+  if (!INTEGRATION_CATALOG[id]) return null;
+  const cfg = loadConfig();
+  const cur = cfg.integrations?.[id] || {};
+  cfg.integrations = { ...(cfg.integrations || {}), [id]: { ...cur, ...(apiKey !== undefined ? { apiKey: apiKey ? encryptKey(apiKey) : "" } : {}), ...(enabled !== undefined ? { enabled: !!enabled } : {}) } };
+  saveConfig(cfg);
+  return publicIntegrations()[id];
 }
