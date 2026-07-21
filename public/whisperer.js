@@ -209,7 +209,9 @@ const FR_TAG = ["tag-grn", "tag-cyan", "tag-amber", "tag-mag"];
 const frIndexIn = (fr, name) => Math.max(0, (fr || []).findIndex((f) => f.name === name));
 
 // shared expandable story card — click to reveal the "reason why" (used by Ideas + Library)
+const _STORIES = {};
 function ideaCard(s, i, franchises, opts = {}) {
+  _STORIES[s.id] = s;
   const g = s.topic_guide || {}, fb = s.feedback, brd = s.score_breakdown || {};
   const tag = FR_TAG[frIndexIn(franchises, s.franchise) % FR_TAG.length];
   const w = brd.weights || {};
@@ -218,6 +220,7 @@ function ideaCard(s, i, franchises, opts = {}) {
     <div class="cardhead" onclick="toggleCard(${s.id})">
       <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
         <span class="rank">#${i + 1}<span class="pct">${(Number(s.score) * 100).toFixed(0)}</span></span>
+        <span class="exp" title="Explainable AI — why this was suggested" onclick="event.stopPropagation();explainIdea(${s.id})">e</span>
         ${s.gap_type ? `<span class="chip tag-cyan" style="cursor:default">${esc(s.gap_type)}</span>` : ""}
         ${s.contradiction ? `<span class="chip flag" title="pushes against ${esc(s.contradiction_of || "popular belief")}">${ic("bolt")} contradiction</span>` : ""}
         ${fb ? `<span class="chip ${fb === "used" ? "tag-grn" : fb === "saved" ? "tag-amber" : "tag-mag"}" style="cursor:default">${esc(fb)}</span>` : ""}
@@ -324,6 +327,37 @@ async function meter(steps, hostId, doneMsg) {
 }
 
 // ---- own modal helpers (replaces q.js) -------------------------------------
+// ---- Explainable AI — the (e) popup: why this idea was suggested -----------
+window.explainIdea = (id) => {
+  const s = _STORIES[id]; if (!s) return;
+  const b = s.score_breakdown || {}, w = b.weights || { gap: .35, velocity: .25, strategic: .20, historical: .20 };
+  const pct = (Number(s.score) * 100).toFixed(0);
+  const contrib = (label, v, wt) => {
+    const val = Number(v) || 0, part = val * (Number(wt) || 0);
+    return `<div class="sbar"><span>${label} ×${wt}</span><span class="track2"><span class="fill2" style="width:${Math.round(part / (Number(s.score) || 1) * 100)}%"></span></span><span>${part.toFixed(3)}</span></div>`;
+  };
+  const cohort = s.why_cohort && String(s.why_cohort).trim()
+    ? esc(s.why_cohort)
+    : `<span style="color:var(--dim2)">nil · coming soon — run a TalentMind cohort to ground this to real job seekers</span>`;
+  const signal = b.live ? `<b style="color:var(--grn)">live feed</b>` : `<b style="color:var(--dim2)">config fallback</b> (add YouTube/Reddit keys for live signal)`;
+  const ov = document.createElement("div"); ov.className = "ov";
+  ov.innerHTML = `<div class="box" style="width:min(520px,100%)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span class="exp" style="cursor:default">e</span><h3 style="margin:0">Why this was suggested</h3></div>
+    <p style="font-size:12.5px;color:var(--dim);margin:0 0 10px">"${esc(s.heading)}"</p>
+    <div class="g-l">Composite score = ${pct} · gap ${w.gap} + velocity ${w.velocity} + strategic ${w.strategic} + historical ${w.historical}</div>
+    ${contrib("gap", b.gap, w.gap)}${contrib("velocity", b.velocity, w.velocity)}${contrib("strategic", b.strategic, w.strategic)}${contrib("historical", b.historical, w.historical)}
+    <div class="why" style="margin-top:10px"><b>Signal:</b> ${signal} · demand ${b.demand ?? 0} questions · supply ${b.supply ?? 0} items · gap type <b>${esc(s.gap_type || "—")}</b></div>
+    <div class="why"><b>Why now:</b> ${esc(s.why_now || "—")}</div>
+    <div class="why"><b>Why relevant:</b> ${esc(s.why_relevant || "—")}</div>
+    <div class="why"><b>Cohort fit:</b> ${cohort}</div>
+    ${s.contradiction ? `<div class="why"><b>Contradiction:</b> pushes against ${esc(s.contradiction_of || "popular belief")}</div>` : ""}
+    <div class="why" style="color:var(--dim2);font-size:11px;margin-top:8px">Routed to <b>${esc(s.franchise)}</b> · register ${esc(s.emotional_register || "—")} · generated through the gated RayDar pipelines.</div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-ok>Close</button></div></div>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.querySelector("[data-ok]").onclick = close; ov.onclick = (e) => { if (e.target === ov) close(); };
+};
+
 function rdAlert(title, msg) {
   const ov = document.createElement("div"); ov.className = "ov";
   ov.innerHTML = `<div class="box"><h3>${esc(title)}</h3><p>${esc(msg)}</p><div class="row" style="justify-content:flex-end"><button class="btn" data-ok>OK</button></div></div>`;

@@ -411,6 +411,8 @@ export function mountWhisperer(app, slug) {
           contradiction: contra, contradiction_of: contra ? "popular ATS/resume advice that's factually wrong" : null,
           platform: t.format_home,
         };
+        // No TalentMind cohort on this batch → don't fabricate a cohort reason (nil).
+        if (!cohortId) s.why_cohort = null;
         // Contradiction & Evidence — validate this idea against the research (real when keyed)
         const val = await validateIdea(s, research).catch(() => null);
         if (val) {
