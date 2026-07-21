@@ -25,6 +25,7 @@ First product on it: **Mint · AR Contract Reconciler**. The engine underneath i
 | 10 | [AI pipelines](10-ai-pipelines.md) | The pipeline registry — gates, skills & model selector (Mint + Atlas groups). |
 | 11 | [Contract Compiler](11-contract-compiler.md) | The N-dimensional rule model + coverage validation — and the **method** that built it (reusable on ESPL). |
 | 12 | [Whisperer](12-whisperer.md) | Plan — demand↔supply content intelligence (ClientMind chips · cohorts · Hunger · Feed Stories); new hub agent, mock-first. |
+| 13 | [Munshi-for-Mint](13-munshi-for-mint.md) | **BANKED / not built** — upgrade Mint's parser with the Munshi method (corpus parse · atomic rule-chips · re-parse on change). |
 
 ---
 
