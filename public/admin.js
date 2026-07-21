@@ -2,13 +2,25 @@
 // Connectors row (all providers) → pipelines grouped by product → each AI gate
 // with provider/model dropdowns + enable + editable prompt.
 const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
 let CFG = null;
 
 async function load() {
   CFG = await (await fetch("/api/config")).json();
-  renderAiWriteup(); renderConnectors(); renderProducts();
+  renderAiWriteup(); renderDefaultAll(); renderProducts();
   renderIntegrations(); renderRules(); renderVault(); renderAccounts(); wireTabs();
 }
+// default provider·model applied to every skill
+function renderDefaultAll() {
+  const sel = document.getElementById("defAll"); if (!sel || !CFG) return;
+  sel.innerHTML = Object.entries(CFG.providers).flatMap(([id, p]) => (p.models || []).map((m) => `<option value="${id}::${m}">${esc(p.label)} · ${m}</option>`)).join("");
+}
+window.applyAllDefault = async () => {
+  const [provider, model] = (document.getElementById("defAll").value || "").split("::");
+  const r = await (await fetch("/api/pipelines/default", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider, model }) })).json();
+  document.getElementById("defMsg").textContent = `applied to ${r.applied ?? 0} skills ✓`;
+  CFG = await (await fetch("/api/config")).json(); renderProducts();
+};
 
 // ---- Business Rules: per-integration collection rules + prompt + model gate ---
 async function renderRules() {
@@ -99,15 +111,34 @@ window.testIntg = async (id) => {
   const r = await (await fetch(`/api/integrations/${id}/test`, { method: "POST" })).json();
   if (el) el.innerHTML = r.ok ? `<span style="color:var(--ansr-teal)">✓ ${esc(r.detail)}${r.ms ? " · " + r.ms + "ms" : ""}</span>` : `<span style="color:var(--ansr-orange-deep)">✗ ${esc(r.detail)}</span>`;
 };
+// Vault — BYOK AI provider keys (AES-256-GCM encrypted, never displayed).
 function renderVault() {
-  const host = document.getElementById("vault"); if (!host) return;
+  const host = document.getElementById("vault"); if (!host || !CFG) return;
+  const rows = Object.entries(CFG.providers || {}).map(([id, p]) => `
+    <div style="display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--ansr-border);flex-wrap:wrap">
+      <div style="flex:1;min-width:150px"><b style="color:var(--ansr-navy)">${esc(p.label || id)}</b>
+        ${p.hasKey ? `<span class="chip chip--approved">connected ${esc(p.keyHint || "")}</span>` : `<span class="chip chip--draft">not set</span>`}
+        <span class="lbl" style="display:block;font-size:11px;color:var(--ansr-gray-mid)">${(p.models || []).length} models</span></div>
+      <input type="password" id="vk-${id}" placeholder="paste API key" style="max-width:260px">
+      <button class="btn btn--ghost" onclick="vaultSave('${id}')">Save</button>
+      <button class="btn btn--ghost" onclick="vaultTest('${id}')">Test</button>
+      <span id="vt-${id}" class="lbl"></span>
+    </div>`).join("");
   host.innerHTML = `
     <div class="band">
-      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 6px">Document Vault <span class="chip chip--draft">coming soon</span></h3>
-      <p class="lbl" style="color:var(--ansr-gray)">The hybrid store — originals (T1) · markdown extracts (T2) · facts in Postgres (T3), served via the doc×api switch. Holds account docs, integration exports and encrypted provider/OAuth keys, with provenance back to source.</p>
-      <div class="chips" style="margin-top:8px">${["originals", "md extracts", "provider keys (encrypted)", "OAuth tokens", "audit trail"].map((s) => `<span class="chip">${s}</span>`).join("")}</div>
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 4px">Vault · BYOK AI keys</h3>
+      <p class="lbl" style="color:var(--ansr-gray);margin:0 0 8px">AES-256-GCM encrypted at rest — only a ····last-4 hint is ever shown; the key never leaves the server.</p>
+      ${rows}
+      <p class="lbl" style="color:var(--ansr-gray);margin-top:10px">⊟ Keys route every AI skill (see <b>AI Skills</b>). Integration keys (YouTube/Reddit/Tavily…) live in <b>Integrations</b>.</p>
+    </div>
+    <div class="band grad-soft">
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 4px">Document Vault <span class="chip chip--draft">hybrid store</span></h3>
+      <p class="lbl" style="color:var(--ansr-gray)">Originals (T1) · markdown extracts (T2) · facts in Postgres (T3), served via the doc×api switch — every number traces back to source.</p>
+      <div class="chips" style="margin-top:8px">${["originals", "md extracts", "facts (Postgres)", "encrypted keys", "audit trail"].map((s) => `<span class="chip">${s}</span>`).join("")}</div>
     </div>`;
 }
+window.vaultSave = async (id) => { const apiKey = document.getElementById(`vk-${id}`)?.value; if (!apiKey) return; await fetch(`/api/providers/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apiKey }) }); CFG = await (await fetch("/api/config")).json(); renderVault(); renderProducts(); };
+window.vaultTest = async (id) => { const el = document.getElementById(`vt-${id}`); if (el) el.textContent = "…"; const r = await (await fetch(`/api/providers/${id}/test`, { method: "POST" })).json(); if (el) el.innerHTML = r.ok ? `<span style="color:var(--ansr-teal)">✓ ${esc(r.detail || "")}</span>` : `<span style="color:var(--ansr-orange-deep)">✗ ${esc(r.detail || "")}</span>`; };
 function renderAccounts() {
   const host = document.getElementById("accounts"); if (!host) return;
   host.innerHTML = `
@@ -183,65 +214,57 @@ window.makeDefault = async (id) => {
 };
 
 // ---- pipelines grouped by product ----
+// AI Skills — grouped by product; each skill a card with capability · routing ·
+// prompt · gate (TKB "AI Skills" design). Every pipeline behind the app appears.
+const CAP_COLOR = { deterministic: "#8a8a8a", llm: "#c0392b", hybrid: "#0a7d78" };
 function renderProducts() {
   const groups = {};
   for (const p of Object.values(CFG.pipelines)) (groups[p.product || "Other"] ||= []).push(p);
-  $("#products").innerHTML = Object.entries(groups).map(([prod, pipes]) => `
-    <details class="band grad-soft" open style="padding:0">
-      <summary style="list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:14px 16px;min-height:44px">
-        <span class="chip chip--role">${prod}</span>
-        <span class="lbl" style="color:var(--ansr-gray)">${pipes.length} pipelines</span>
-        <span class="caret" style="margin-left:auto;color:var(--ansr-gray-mid)">⌄</span>
-      </summary>
-      <div style="padding:0 16px 14px">${pipes.map(pipeHtml).join("")}</div>
-    </details>`).join("");
+  $("#products").innerHTML = Object.entries(groups).map(([prod, pipes]) =>
+    `<div class="grp" style="color:var(--ansr-navy);font-weight:600;font-size:14px;margin:20px 0 6px">${esc(prod)} <span class="lbl" style="font-weight:400">· ${pipes.length} skills</span></div>` +
+    pipes.map(skillCard).join("")).join("");
 }
-
-function pipeHtml(p) {
+function skillCard(p) {
   const det = p.kind === "deterministic";
-  const provLabel = CFG.providers[p.provider]?.label || "—";
-  const provOpts = Object.entries(CFG.providers).map(([id, pr]) => `<option value="${id}" ${p.provider === id ? "selected" : ""}>${pr.label}</option>`).join("");
-  const models = (CFG.providers[p.provider]?.models) || [];
-  const modelOpts = models.map((m) => `<option value="${m}" ${p.model === m ? "selected" : ""}>${m}</option>`).join("");
-  return `
-  <section class="pipe" data-id="${p.id}">
-    <div class="pipe-head" onclick="this.parentElement.classList.toggle('open')">
-      <b>${p.name}</b>
-      <span class="chip ${det ? "chip--draft" : "chip--approved"}">${p.kind}</span>
-      ${det ? "" : `<span class="chip">${provLabel} · ${p.model || "—"}</span>`}
-      <span class="chip ${p.enabled ? "chip--approved" : "chip--draft"}" style="margin-left:auto">${p.enabled ? "gate on" : "off"}</span>
-      <span class="caret">⌄</span>
+  const prov = CFG.providers[p.provider] || {};
+  const cap = CAP_COLOR[p.kind] || "#888";
+  const provOpts = Object.entries(CFG.providers).map(([id, pr]) => `<option value="${id}" ${p.provider === id ? "selected" : ""}>${esc(pr.label)}${pr.hasKey ? "" : " · no key"}</option>`).join("");
+  const modelOpts = (prov.models || []).map((m) => `<option ${p.model === m ? "selected" : ""}>${m}</option>`).join("");
+  const resolved = det ? "deterministic — no model call"
+    : (prov.hasKey ? `now → <b>${esc(prov.label)} · ${esc(p.model || "—")}</b>` : `<span style="color:var(--ansr-orange-deep)">no key for ${esc(prov.label || "provider")} — add it in Vault</span>`);
+  return `<div class="band" data-skl="${p.id}" style="margin-bottom:8px;padding:14px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">
+        <b style="color:var(--ansr-navy)">${esc(p.name)}</b>
+        <span class="chip" title="capability" style="background:${cap}1a;color:${cap}">${esc(p.kind)}</span>
+        <span class="chip ${p.enabled ? "chip--approved" : "chip--draft"}">${p.enabled ? "gate on" : "off"}</span>
+        <div class="lbl" style="margin-top:2px">${esc(p.description || "")}</div>
+        <div class="lbl" style="margin-top:2px">${resolved}</div>
+      </div>
+      ${det ? "" : `
+        <select class="sk-prov" style="max-width:160px" onchange="skSync('${p.id}')">${provOpts}</select>
+        <select class="sk-model" style="max-width:180px">${modelOpts}</select>
+        <a class="lbl sk-pe" style="cursor:pointer;font-weight:600;color:var(--ansr-orange)" onclick="skPrompt('${p.id}')">prompt ▾</a>`}
     </div>
-    <div class="pipe-body">
-      <div class="lbl" style="margin-bottom:6px">${p.description}</div>
-      <div class="chips" style="margin-bottom:10px">${(p.skills || []).map((s) => `<span class="chip">${s}</span>`).join("")}</div>
-      ${det ? `<div class="lbl">Deterministic — no model call.</div>` : `
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <div style="flex:1;min-width:130px"><label class="lbl">Provider</label>
-            <select id="prov-${p.id}" onchange="syncModels('${p.id}')">${provOpts}</select></div>
-          <div style="flex:1;min-width:130px"><label class="lbl">Model</label>
-            <select id="model-${p.id}">${modelOpts}</select></div>
-        </div>
-        <details class="section" style="margin:10px 0 0"><summary>Edit prompt</summary>
-          <div class="body"><textarea id="prompt-${p.id}" rows="4">${(p.prompt || "").replace(/</g, "&lt;")}</textarea></div></details>`}
-      <label style="display:flex;align-items:center;gap:8px;margin-top:10px"><input type="checkbox" id="en-${p.id}" ${p.enabled ? "checked" : ""} style="width:auto;min-height:auto"> Gate enabled</label>
-      <button class="btn" style="margin-top:10px" onclick="savePipeline('${p.id}', ${det})">Save</button>
-      <span id="msg-${p.id}" class="lbl" style="margin-left:8px"></span>
+    <div style="margin-top:8px;display:flex;gap:5px;flex-wrap:wrap;align-items:center">${(p.skills || []).map((s, i) => `${i ? '<span style="color:var(--ansr-gray-mid)">→</span>' : ""}<span class="chip" style="font-size:11px">${esc(s)}</span>`).join("")}</div>
+    ${det ? "" : `<div class="sk-pwrap" id="pw-${p.id}" style="display:none;margin-top:8px"><textarea id="prompt-${p.id}" rows="3" placeholder="System prompt (blank = built-in default)">${(p.prompt || "").replace(/</g, "&lt;")}</textarea></div>`}
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+      <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="en-${p.id}" ${p.enabled ? "checked" : ""} style="width:auto;min-height:auto"> Gate enabled</label>
+      <button class="btn" style="margin-left:auto" onclick="savePipeline('${p.id}', ${det})">Save</button>
+      <span id="msg-${p.id}" class="lbl"></span>
     </div>
-  </section>`;
+  </div>`;
 }
-
-window.syncModels = (id) => {
-  const prov = $(`#prov-${id}`).value;
-  $(`#model-${id}`).innerHTML = ((CFG.providers[prov]?.models) || []).map((m) => `<option value="${m}">${m}</option>`).join("");
-};
+window.skSync = (id) => { const card = document.querySelector(`[data-skl="${id}"]`); const prov = card.querySelector(".sk-prov").value; card.querySelector(".sk-model").innerHTML = ((CFG.providers[prov]?.models) || []).map((m) => `<option>${m}</option>`).join(""); };
+window.skPrompt = (id) => { const w = document.getElementById(`pw-${id}`); w.style.display = w.style.display === "none" ? "block" : "none"; };
 
 window.savePipeline = async (id, det) => {
-  const body = { enabled: $(`#en-${id}`).checked };
-  if (!det) { body.provider = $(`#prov-${id}`).value; body.model = $(`#model-${id}`).value; body.prompt = $(`#prompt-${id}`)?.value ?? ""; }
+  const card = document.querySelector(`[data-skl="${id}"]`);
+  const body = { enabled: document.getElementById(`en-${id}`).checked };
+  if (!det) { body.provider = card.querySelector(".sk-prov").value; body.model = card.querySelector(".sk-model").value; body.prompt = document.getElementById(`prompt-${id}`)?.value ?? ""; }
   const r = await fetch(`/api/pipelines/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  $(`#msg-${id}`).textContent = r.ok ? "saved ✓" : "error";
-  CFG = await (await fetch("/api/config")).json();
+  document.getElementById(`msg-${id}`).textContent = r.ok ? "saved ✓" : "error";
+  CFG = await (await fetch("/api/config")).json(); renderProducts();
 };
 
 function wireTabs() {
