@@ -156,7 +156,7 @@ function renderAccounts() {
   host.innerHTML = `
     <div class="band">
       <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 6px">Accounts &amp; roles <span class="chip chip--draft">coming soon</span></h3>
-      <p class="lbl" style="color:var(--ansr-gray)">Accounts + teams + roles — each account carries its own integration connections, vault and MissQ context. Ports from the TKB-Admin users/RBAC.</p>
+      <p class="lbl" style="color:var(--ansr-gray)">Accounts + teams + roles — each account carries its own integration connections, vault and AI context. Ports from the TKB-Admin users/RBAC.</p>
     </div>`;
 }
 
@@ -166,7 +166,7 @@ async function renderAiWriteup() {
   const n = pipelines.length, llm = pipelines.filter((p) => p.kind !== "deterministic").length;
   $("#aiwrite").innerHTML = `
     <div class="band grad-accent">
-      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 4px">✨ All the AI in Q&amp;ANSR</h3>
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 4px">All the AI in Q&amp;ANSR</h3>
       <p class="lbl" style="color:var(--ansr-gray);font-size:13px;margin:0">${n} pipelines (${llm} model-backed, ${n - llm} deterministic). Every model call runs through a registered, gated pipeline — deterministic steps never call a model, and raw user text never reaches a provider outside an enabled <code>llm/hybrid</code> pipeline. Switch provider, model, prompt and skills per pipeline below.</p>
     </div>`;
 }

@@ -19,7 +19,7 @@ export function stubOps() {
     A("Ember", "Forecast", "Projects future billing from the hiring pipeline, with explainable drivers.", "", "coming"),
     A("Sentinel", "Anomaly Watch", "Spots outlier CTC, headcount jumps, and duplicate placements before approval.", "", "coming"),
     A("Trace", "Audit Vault", "Every document, extract, and number — provenance back to the original.", "", "coming"),
-    A("Admin", "AI · Integrations · Vault · Accounts", "Manage MissQ AI + provider keys, Google & third-party integrations, the document vault, and accounts — the RayDar admin.", "/admin.html", "live"),
+    A("Admin", "AI · Integrations · Vault · Accounts", "Manage AI skills + provider keys, Google & third-party integrations, the document vault, and accounts — the control room.", "/admin.html", "live"),
   ];
 }
 

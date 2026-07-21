@@ -11,22 +11,24 @@
 <body>
   <div id="appbar"></div>
   <div class="wrap">
-    <div class="hero" style="padding:20px 18px 16px">
-      <div class="eyebrow">▸ SYS · ADMIN</div>
-      <h1 style="font-size:23px;margin:6px 0 0">MissQ · control room</h1>
-      <p style="font-family:var(--c-mono);font-size:11.5px;letter-spacing:.03em;color:var(--c-dim2);margin:8px 0 0">&gt; AI skills &amp; pipelines · integrations · business rules · vault · accounts</p>
+    <div class="hero" style="padding:18px">
+      <div class="eyebrow">Admin</div>
+      <div style="display:flex;align-items:center;gap:13px;flex-wrap:wrap;margin-top:6px">
+        <img src="/brand/assets/logos/QAnsr-logo.png" alt="Q&ANSR" style="height:30px;width:auto">
+        <h1 style="margin:0">Control room</h1>
+      </div>
     </div>
     <div class="tabs" role="tablist">
-      <button class="tab active" data-tab="ai" role="tab" aria-selected="true">✨ MissQ · AI &amp; Pipelines</button>
+      <button class="tab active" data-tab="vault" role="tab" aria-selected="true">Vault</button>
+      <button class="tab" data-tab="ai" role="tab" aria-selected="false">AI &amp; Pipelines</button>
       <button class="tab" data-tab="integrations" role="tab" aria-selected="false">Integrations</button>
       <button class="tab" data-tab="rules" role="tab" aria-selected="false">Business Rules</button>
-      <button class="tab" data-tab="vault" role="tab" aria-selected="false">Vault</button>
       <button class="tab" data-tab="users" role="tab" aria-selected="false">Accounts</button>
     </div>
 
-    <div id="pane-ai" class="pane">
+    <div id="pane-ai" class="pane" hidden>
       <div class="band grad-teal">
-        <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 4px">AI Skills ✨</h3>
+        <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 4px">AI Skills</h3>
         <p class="lbl" style="color:var(--ansr-gray);font-size:13px;margin:0">Every AI skill behind the app → its gate (capability · provider · model · prompt). Routed through your BYOK keys in the <b>Vault</b> — nothing hardcoded. Raw user text never reaches a model outside an enabled pipeline.</p>
       </div>
       <div id="aiwrite"></div>
@@ -40,7 +42,7 @@
     </div>
     <div id="pane-integrations" class="pane" hidden><div id="integrations"></div></div>
     <div id="pane-rules" class="pane" hidden><div id="rules"></div></div>
-    <div id="pane-vault" class="pane" hidden><div id="vault"></div></div>
+    <div id="pane-vault" class="pane"><div id="vault"></div></div>
     <div id="pane-users" class="pane" hidden><div id="accounts"></div></div>
   </div>
   <script src="/q.js"></script>

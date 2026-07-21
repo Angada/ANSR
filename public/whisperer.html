@@ -184,19 +184,15 @@
   </style>
 </head>
 <body>
+  <div id="appbar"></div>
   <div class="radar-bg"></div>
   <div class="shell">
-    <div class="top">
-      <div class="brand">
-        <span class="ping"></span>
-        <div>
-          <h1 class="word">RAY<b>DAR</b></h1>
-          <div class="kicker">Talent Trend Radar</div>
-        </div>
+    <div class="brand" style="margin-bottom:12px">
+      <span class="ping"></span>
+      <div>
+        <h1 class="word">RAY<b>DAR</b></h1>
+        <div class="kicker">Talent Trend Radar</div>
       </div>
-      <span class="spacer"></span>
-      <a class="navlink" href="/">◂ Hub</a>
-      <a class="navlink" href="/admin.html">Admin ▸</a>
     </div>
 
     <div class="rail" id="rail"></div>
@@ -210,6 +206,8 @@
 
     <div class="foot">RAYDAR // demand ↔ supply // routed to 1UP franchises</div>
   </div>
+  <script src="/q.js"></script>
+  <script>qHeader("raydar");</script>
   <script src="/whisperer.js"></script>
 </body>
 </html>

@@ -17,8 +17,21 @@
   --c-txt:#141414; --c-dim:#54504A; --c-dim2:#7A7266;
   /* darken the shared app.css greys too, so inline var(--ansr-*) text darkens everywhere */
   --ansr-text:#141414; --ansr-gray:#54504A; --ansr-gray-mid:#6E665A; --ansr-navy:#001C24;
+  /* compact, formal B2B type scale (app.css base is an oversized 18px) */
+  --ansr-fs-base:14.5px; --ansr-fs-small:13px;
 }
 body{color:var(--c-txt)}
+
+/* ---- compact type scale — align sizes across all pages ---- */
+html,body{font-size:14.5px}
+body{line-height:1.5}
+h1{font-size:22px;line-height:1.2} h2{font-size:18px;line-height:1.25}
+h3{font-size:15.5px;line-height:1.3} h4{font-size:14px}
+.hero h1{font-size:20px !important}
+.band h3,.grp{font-size:15px !important}
+.tab{font-size:13.5px}
+.lbl{font-size:12px}
+p{font-size:13.5px}
 
 /* technical grid canvas */
 body{
