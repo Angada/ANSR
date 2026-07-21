@@ -1,64 +1,89 @@
-// RayDar (Talent Trend Radar). Journey: Step 1 HUNGER = pick/combine 3 routes
-// (Trend Spotting chips · SEO paste · TalentMind simulation) → Process → Step 2
-// ranked, franchise-routed Ideas. Labels: Talent = job seeker; TalentMind = the
-// parsed profile+chips. AI runs through gated pipelines with a mock fallback.
+// RayDar — Talent Trend Radar. Standalone (no app.css / no q.js).
+// Journey moves LEFT → RIGHT: [01 Hunger] → 02 Sweep(process) → [03 Ideas].
+// Step 1 HUNGER = pick/combine 3 routes (Trend Spotting chips · SEO paste ·
+// TalentMind sim) → Process → Step 3 ranked, franchise-routed Ideas.
+// Talent = job seeker; TalentMind = parsed profile+chips. AI via gated
+// pipelines with mock fallback. All endpoints preserved from the prior build.
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
-const STEPS = ["Hunger", "Ideas"];
-let ROUTES = { trend: false, seo: false, talentmind: false };
-let TOPICS = [];          // selected trend-spotting demand topics
-let ALL_TOPICS = [];      // the 6 (+Emerging)
-let TM = null;            // TalentMind simulation: { cohortId, hunger }
-let BATCH = null, FR = "all";
 
-function step(done, active = -1) {
-  $("#stepper").innerHTML = STEPS.map((s, i) => {
-    let cls = "node"; if (i < done) cls += " done"; if (i === active) cls += " active";
-    return `<div class="${cls}"><div class="dot">${i < done ? "&#10003;" : i + 1}</div><div class="lbl">${s}</div></div>`;
+let ROUTES = { trend: false, seo: false, talentmind: false };
+let TOPICS = [];        // selected trend-spotting demand topics (names)
+let ALL_TOPICS = [];    // the 6 (+ Emerging)
+let TM = null;          // TalentMind sim: { cohortId, members, hunger, name }
+let BATCH = null, FR = "all";
+let STAGE = 1;          // 1 hunger · 2 sweeping · 3 ideas
+
+// ---- journey rail (horizontal) ---------------------------------------------
+const STATIONS = [
+  { t: "Hunger", s: "demand in" },
+  { t: "Sweep", s: "collect · classify · rank" },
+  { t: "Ideas", s: "routed to 1Up" },
+];
+function rail() {
+  $("#rail").innerHTML = STATIONS.map((n, i) => {
+    const idx = i + 1;
+    const cls = "stn" + (idx === STAGE ? " on" : "") + (idx < STAGE ? " done" : "");
+    const goto = idx === 1 ? `onclick="toHunger()"` : idx === 3 && BATCH ? `onclick="toIdeas()"` : "";
+    const node = `<div class="${cls}" ${goto}>
+      <div class="no">${idx < STAGE ? "✓" : String(idx).padStart(2, "0")}</div>
+      <div class="meta"><span class="t">${n.t}</span><span class="s">${n.s}</span></div></div>`;
+    const link = i < STATIONS.length - 1 ? `<div class="link ${idx < STAGE ? "lit" : ""}"></div>` : "";
+    return node + link;
   }).join("");
 }
+window.toHunger = () => { STAGE = 1; $("#track").classList.remove("at-ideas"); rail(); };
+window.toIdeas = () => { STAGE = 3; $("#track").classList.add("at-ideas"); rail(); };
+
 async function init() {
-  step(0, 0);
+  rail();
   ALL_TOPICS = (await (await fetch("/api/wh/topics")).json()).topics || [];
-  renderHunger(); renderIdeas(null);
+  renderHunger();
+  renderIdeas(null);
 }
 
-// ---- Step 1 · HUNGER (3 routes, combinable) --------------------------------
+// ---- STAGE 01 · HUNGER (3 combinable routes) -------------------------------
 async function renderHunger() {
   const seo = (await (await fetch("/api/wh/seo")).json()).inputs || [];
   const trendChips = ALL_TOPICS.filter((t) => t.name !== "Emerging").map((t) =>
-    `<span class="ai-chip ${TOPICS.includes(t.name) ? "sel" : ""}" onclick="toggleTopic('${esc(t.name)}')" title="${esc(t.franchise)}">${TOPICS.includes(t.name) ? "✓ " : ""}${esc(t.name)}</span>`).join(" ");
-  $("#hunger").innerHTML = `
-    <p class="lbl" style="color:var(--ansr-gray)">Tick one or more routes, then Process. Demand can come from what's trending, from SEO research, or from the talent themselves.</p>
+    `<span class="chip pick ${TOPICS.includes(t.name) ? "on" : ""}" onclick="toggleTopic('${esc(t.name).replace(/'/g, "\\'")}')" title="→ ${esc(t.franchise)}">${TOPICS.includes(t.name) ? "✓ " : ""}${esc(t.name)}</span>`).join("");
+  const seoChips = seo.length
+    ? seo.map((s) => `<span class="chip">${esc(s.kind)} · ${esc((s.content || "").slice(0, 20))}…<a class="x" onclick="delSeo(${s.id});return false" href="#">✕</a></span>`).join("")
+    : `<span class="chip" style="border-style:dashed">no research pasted</span>`;
 
-    <div class="band" style="border-color:${ROUTES.trend ? "var(--ansr-orange)" : "var(--ansr-border)"}">
-      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" ${ROUTES.trend ? "checked" : ""} onchange="route('trend')" style="width:auto;min-height:auto">
-        <b style="color:var(--ansr-navy)">Trend Spotting</b><span class="lbl">— pick demand topics (the 6 domains)</span></label>
-      <div class="ai-chips" style="margin-top:8px">${trendChips}</div>
-    </div>
+  $("#stageHunger").innerHTML = `
+    <p class="intro"><b>HUNGER</b> — where does demand come from? Arm one or more feeds, then run the sweep. Demand can come from what's <b>trending</b>, from your <b>SEO</b> research, or from the <b>talent</b> themselves.</p>
+    <div class="routes">
 
-    <div class="band" style="border-color:${ROUTES.seo ? "var(--ansr-orange)" : "var(--ansr-border)"}">
-      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" ${ROUTES.seo ? "checked" : ""} onchange="route('seo')" style="width:auto;min-height:auto">
-        <b style="color:var(--ansr-navy)">SEO Inputs</b><span class="lbl">— paste keyword / GSC / competitor / trend research</span></label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:8px">
-        <div style="flex:1;min-width:240px"><textarea id="seoText" rows="2" placeholder="paste raw research…"></textarea></div>
-        <button class="btn" onclick="addSeo()">Add</button>
+      <div class="mod ${ROUTES.trend ? "sel" : ""}">
+        <span class="idx">Feed 01</span>
+        <h3><span class="tick" onclick="route('trend')">✓</span> Trend Spotting</h3>
+        <p class="desc">Pick the demand topics — the six domains job seekers hunger for. Each routes to a 1Up franchise.</p>
+        <div class="chips">${trendChips}</div>
       </div>
-      <div style="margin-top:8px">${seo.map((s) => `<span class="chip">${esc(s.kind)} · ${esc((s.content || "").slice(0, 22))}… <a href="#" onclick="delSeo(${s.id});return false" style="color:#b3261e">✕</a></span>`).join(" ") || `<span class="lbl">nothing pasted yet</span>`}</div>
-    </div>
 
-    <div class="band grad-soft" style="opacity:${TM ? "1" : ".85"}">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <b style="color:var(--ansr-navy)">TalentMind</b>
-        <span class="chip chip--draft">coming soon · needs T500 integration + parsing AI</span>
-        ${TM ? `<span class="chip chip--approved">simulation active</span>` : `<button class="btn btn--ghost" onclick="talentmindSim()" style="margin-left:auto">▶ Click for simulation</button>`}
+      <div class="mod ${ROUTES.seo ? "sel" : ""}">
+        <span class="idx">Feed 02</span>
+        <h3><span class="tick" onclick="route('seo')">✓</span> SEO Inputs</h3>
+        <p class="desc">Paste raw research — keyword lists, GSC queries, competitor gaps, trend exports.</p>
+        <textarea id="seoText" rows="3" placeholder="paste raw research…"></textarea>
+        <div class="row" style="margin-top:8px"><button class="btn small" onclick="addSeo()">+ Add</button></div>
+        <div class="chips" style="margin-top:10px">${seoChips}</div>
       </div>
-      <p class="lbl" style="color:var(--ansr-gray);margin:6px 0 0">Demand seeded from the talent themselves — parse each job seeker's corpus into TalentMind chips, cohort them, and read their hunger.</p>
-      <div id="tmSim"></div>
+
+      <div class="mod soon ${TM ? "sel" : ""}">
+        <span class="idx">Feed 03</span>
+        <h3>TalentMind ${TM ? `<span class="chip tag-grn" style="cursor:default">sim active</span>` : `<span class="badge-soon">soon · needs T500 + parse AI</span>`}</h3>
+        <p class="desc">Demand seeded from the talent themselves — parse each job seeker's corpus into chips, cohort them, read their hunger.</p>
+        ${TM ? "" : `<button class="btn small" onclick="talentmindSim()">▶ Run simulation</button>`}
+        <div id="tmSim"></div>
+      </div>
+
     </div>
 
-    <div class="recal-wrap"><button class="btn-recal dirty" onclick="onProcess()">✨ Process → ranked Ideas</button></div>
+    <div class="process"><button class="sweep-btn" onclick="onProcess()">◎ Run the sweep</button></div>
     <div id="procMeter"></div>`;
+  rail();
 }
 window.route = (k) => { ROUTES[k] = !ROUTES[k]; renderHunger(); };
 window.toggleTopic = (name) => { ROUTES.trend = true; TOPICS = TOPICS.includes(name) ? TOPICS.filter((t) => t !== name) : [...TOPICS, name]; renderHunger(); };
@@ -68,33 +93,32 @@ window.delSeo = async (id) => { await fetch(`/api/wh/seo/${id}/delete`, { method
 // TalentMind simulation — synthetic data path (prefilled filters + NLP prompt)
 window.talentmindSim = async () => {
   ROUTES.talentmind = true;
-  $("#tmSim").innerHTML = `<div id="tmMeter" style="margin-top:8px"></div>`;
+  $("#tmSim").innerHTML = `<div id="tmMeter" style="margin-top:12px"></div>`;
   await meter(["Loading synthetic Talent500 pool", "Prefilling filters + NLP query", "Parsing corpora → TalentMind chips", "Reading cohort hunger"], "tmMeter", "");
   await fetch("/api/wh/seed", { method: "POST" });
   await fetch("/api/wh/clientmind/refresh-all", { method: "POST" });
-  // prefill: job seekers who stayed < 2 years in each company
   const co = await (await fetch("/api/wh/cohort", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "TalentMind sim", domain: "any", nl_query: "job seekers who have stayed less than 2 years in each company" }) })).json();
   const hg = await (await fetch(`/api/wh/hunger/${co.id}`, { method: "POST" })).json();
   TM = { cohortId: co.id, members: co.members, hunger: hg.hunger };
+  renderHunger();
   renderTMWriteup();
 };
 function renderTMWriteup() {
   const h = TM.hunger || {};
   const chips = (h.cares_about || []).concat(h.motivations || []);
-  $("#tmSim").innerHTML = `
-    <div class="band" style="margin-top:10px">
-      <div class="lbl" style="color:var(--ansr-navy);font-weight:500">Prefilled cohort · ${TM.members} talent · NLP: "stayed &lt; 2 years in each company"</div>
-      <label class="lbl" style="margin-top:8px">TalentMind write-up (edit freely)</label>
-      <textarea id="tmWho" rows="3">${esc(h.who || "")}</textarea>
-      <label class="lbl" style="margin-top:8px">Chips — add / remove / edit</label>
-      <div id="tmChips" class="chips" style="margin:4px 0">${chips.map((c, i) => `<span class="chip">${esc(c)} <a href="#" onclick="rmChip(${i});return false" style="color:#b3261e">✕</a></span>`).join(" ")}</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap"><input id="tmNewChip" placeholder="add a chip" style="flex:1;min-width:140px"><button class="btn btn--ghost" onclick="addChip()">+ chip</button></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px">
-        <div><label class="lbl">Batch name (timestamp default)</label><input id="tmBatch" value="${esc("Batch " + new Date().toLocaleString())}" style="min-width:220px"></div>
-        <button class="btn" onclick="saveTM()">Save batch</button><span id="tmMsg" class="lbl"></span>
-      </div>
-    </div>`;
   window._tmChips = chips;
+  $("#tmSim").innerHTML = `
+    <div style="border-top:1px solid var(--line); margin-top:12px; padding-top:12px">
+      <div class="chip tag-cyan" style="cursor:default">${TM.members} talent · "stayed &lt; 2 yrs / company"</div>
+      <label class="fld">TalentMind write-up</label>
+      <textarea id="tmWho" rows="3">${esc(h.who || "")}</textarea>
+      <label class="fld">Chips — add / remove</label>
+      <div class="chips" style="margin:4px 0 8px">${chips.map((c, i) => `<span class="chip">${esc(c)}<a class="x" onclick="rmChip(${i});return false" href="#">✕</a></span>`).join("")}</div>
+      <div class="row"><input id="tmNewChip" placeholder="add a chip" style="flex:1;min-width:120px"><button class="btn small" onclick="addChip()">+ chip</button></div>
+      <label class="fld">Batch name</label>
+      <div class="row"><input id="tmBatch" value="${esc("Batch " + new Date().toLocaleString())}" style="flex:1;min-width:160px"><button class="btn small" onclick="saveTM()">Save</button></div>
+      <div id="tmMsg" class="chip" style="border:none;background:none;padding:6px 0;color:var(--grn)"></div>
+    </div>`;
 }
 window.addChip = () => { const v = $("#tmNewChip").value.trim(); if (!v) return; window._tmChips.push(v); syncChips(); };
 window.rmChip = (i) => { window._tmChips.splice(i, 1); syncChips(); };
@@ -102,80 +126,115 @@ function syncChips() { TM.hunger.cares_about = window._tmChips; TM.hunger.motiva
 window.saveTM = async () => {
   TM.hunger.who = $("#tmWho").value; TM.name = $("#tmBatch").value;
   await fetch(`/api/wh/hunger/${TM.cohortId}/save`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hunger: TM.hunger }) });
-  $("#tmMsg").innerHTML = `<span style="color:var(--ansr-teal)">✓ batch saved — now Process</span>`;
+  $("#tmMsg").textContent = "✓ batch saved — now run the sweep";
 };
 
-// ---- Process → Ideas -------------------------------------------------------
+// ---- STAGE 02 · SWEEP → Ideas ----------------------------------------------
 window.onProcess = async () => {
-  if (!ROUTES.trend && !ROUTES.seo && !ROUTES.talentmind) { appAlert("Pick a route", "Tick Trend Spotting, SEO, or run the TalentMind simulation first."); return; }
-  step(1, 1);
-  $("#stories").innerHTML = `<div id="fs2"></div>`;
-  const bodyBatch = TM ? { talentmind_cohort_id: TM.cohortId, name: TM.name } : { trend_topics: ROUTES.trend ? TOPICS : [], seo: ROUTES.seo };
-  const b = await (await fetch("/api/wh/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(bodyBatch) })).json();
+  if (!ROUTES.trend && !ROUTES.seo && !ROUTES.talentmind) { rdAlert("Arm a feed", "Tick Trend Spotting, add SEO inputs, or run the TalentMind simulation first."); return; }
+  STAGE = 2; rail();
+  const body = TM ? { talentmind_cohort_id: TM.cohortId, name: TM.name } : { trend_topics: ROUTES.trend ? TOPICS : [], seo: ROUTES.seo };
+  const b = await (await fetch("/api/wh/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
   BATCH = { id: b.id, name: b.name };
-  await meter(["Collecting feed (YouTube · Reddit)", "Classifying + routing to 1Up franchises", "Gap analysis + velocity", "Writing headings + briefs", "Ranking"], "fs2", "✓ Ideas ranked");
+  await meter(["Collecting feed · YouTube + Reddit", "Classifying → topic · franchise · registers", "Gap analysis + velocity", "Writing headings + briefs", "Composite ranking"], "procMeter", "◎ Signal locked");
   await fetch(`/api/wh/feedstories/${BATCH.id}`, { method: "POST" });
-  step(2);
   await loadIdeas();
-  document.querySelector("#flow .flowstep")?.classList.add("folded");
+  STAGE = 3; toIdeas();
 };
 
-// ---- Step 2 · Ideas (ranked, franchise-routed, review CRUD) ----------------
+// ---- STAGE 03 · Ideas (ranked, franchise-routed, review CRUD) --------------
 async function loadIdeas() {
   const { stories } = await (await fetch(`/api/wh/feedstories/${BATCH.id}?franchise=${encodeURIComponent(FR)}`)).json();
   const { franchises } = await (await fetch("/api/wh/franchises")).json();
   renderIdeas(stories, franchises);
+  rail();
 }
+const FR_TAG = ["tag-grn", "tag-cyan", "tag-amber", "tag-mag"];
 function renderIdeas(stories, franchises) {
-  if (!stories) { $("#stories").innerHTML = `<p class="lbl" style="color:var(--ansr-gray)">Complete Hunger + Process to see ranked ideas.</p>`; return; }
-  const filter = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-    <span class="chip chip--role">${esc(BATCH?.name || "batch")}</span>
-    <span class="lbl">Franchise</span><select id="frSel" onchange="setFR(this.value)"><option value="all" ${FR === "all" ? "selected" : ""}>all</option>${(franchises || []).map((f) => `<option ${FR === f.name ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
-    <span class="lbl">${stories.length} ideas · ranked by score</span></div>`;
+  const host = $("#stageIdeas");
+  if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each a heading + brief routed to a 1Up franchise, ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
+  const frIndex = (name) => Math.max(0, (franchises || []).findIndex((f) => f.name === name));
+  const filter = `<div class="ideas-head">
+      <span class="chip tag-grn" style="cursor:default">▣ ${esc(BATCH?.name || "batch")}</span>
+      <span class="chip" style="border:none;background:none;padding:0">franchise</span>
+      <select onchange="setFR(this.value)"><option value="all" ${FR === "all" ? "selected" : ""}>all</option>${(franchises || []).map((f) => `<option ${FR === f.name ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
+      <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${stories.length} ideas · ranked</span>
+    </div>`;
   const cards = stories.map((s, i) => {
     const g = s.topic_guide || {}, fb = s.feedback, brd = s.score_breakdown || {};
-    return `<div class="band" style="margin-top:10px;border-color:${fb === "used" ? "var(--ansr-teal)" : fb === "saved" ? "var(--ansr-orange)" : fb === "rejected" ? "#d6402a" : "var(--ansr-border)"}">
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <span class="chip chip--role">#${i + 1} · ${(Number(s.score) * 100).toFixed(0)}</span>
-        <b style="color:var(--ansr-navy);font-size:15px;flex:1">${esc(s.heading)}</b>
-        ${s.contradiction ? `<span class="chip chip--flag" title="pushes against ${esc(s.contradiction_of || "popular belief")}">⚡ contradiction</span>` : ""}
-        ${fb ? `<span class="chip ${fb === "used" ? "chip--approved" : "chip--draft"}">${fb}</span>` : ""}
+    const tag = FR_TAG[frIndex(s.franchise) % FR_TAG.length];
+    return `<article class="card ${fb || ""}">
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <span class="rank">#${i + 1}<span class="pct">${(Number(s.score) * 100).toFixed(0)}</span></span>
+        ${s.contradiction ? `<span class="chip flag" title="pushes against ${esc(s.contradiction_of || "popular belief")}">⚡ contradiction</span>` : ""}
+        ${fb ? `<span class="chip ${fb === "used" ? "tag-grn" : fb === "saved" ? "tag-amber" : "tag-mag"}" style="cursor:default">${esc(fb)}</span>` : ""}
       </div>
-      <div class="chips" style="margin:8px 0"><span class="chip chip--approved">🎯 ${esc(s.franchise)}</span><span class="chip">📌 ${esc(s.demand_topic)}</span><span class="chip">📺 ${esc(s.platform || "")}</span><span class="chip">${esc(s.emotional_register)}</span></div>
-      <p style="margin:6px 0;font-size:14px">${esc(s.summary)}</p>
-      <div class="lbl" style="color:var(--ansr-navy);font-weight:500">Topic guide</div><div class="lbl">Take: ${esc(g.take || "")}</div>
-      ${(g.beats || []).length ? `<ul class="findings sm">${(g.beats || []).map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}
-      <div class="lbl"><b style="color:var(--ansr-navy)">Evidence:</b> ${esc(s.evidence || "")}</div>
-      <div class="lbl"><b style="color:var(--ansr-navy)">Why now:</b> ${esc(s.why_now)}</div>
-      <div class="lbl" style="color:var(--ansr-gray-mid);margin-top:4px">score = gap ${brd.gap ?? "?"} · velocity ${brd.velocity ?? "?"} · strategic ${brd.strategic ?? "?"} · historical ${brd.historical ?? 0}</div>
-      ${s.source_refs?.length ? `<div class="chips" style="margin-top:6px">${s.source_refs.slice(0, 4).map((r) => `<a class="chip" href="${esc(r.url)}" target="_blank">${esc(r.source || "src")}</a>`).join("")}</div>` : ""}
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-        <button class="btn" onclick="idea(${s.id},'used')" style="border-color:var(--ansr-teal);color:var(--ansr-teal)">✓ Used</button>
-        <button class="btn btn--ghost" onclick="idea(${s.id},'saved')">🏦 Saved</button>
-        <button class="btn btn--ghost" onclick="rejectIdea(${s.id})" style="border-color:#b3261e;color:#b3261e">✕ Rejected</button>
-        <button class="btn btn--ghost" onclick="editIdea(${s.id},'${esc(s.heading).replace(/'/g, "\\'")}')">✎ Edit</button>
-        <label style="display:flex;align-items:center;gap:6px;margin-left:auto"><input type="checkbox" ${s.selected ? "checked" : ""} onchange="idea(${s.id},'select')" style="width:auto;min-height:auto"> build</label>
-      </div>${s.reject_reason ? `<div class="lbl" style="color:#b3261e;margin-top:4px">rejected: ${esc(s.reject_reason)}</div>` : ""}
-    </div>`;
+      <h4>${esc(s.heading)}</h4>
+      <div class="chips">
+        <span class="chip ${tag}">🎯 ${esc(s.franchise)}</span>
+        <span class="chip">📌 ${esc(s.demand_topic)}</span>
+        ${s.platform ? `<span class="chip">📺 ${esc(s.platform)}</span>` : ""}
+        ${s.emotional_register ? `<span class="chip">${esc(s.emotional_register)}</span>` : ""}
+      </div>
+      <p class="sum">${esc(s.summary)}</p>
+      <div class="guide">
+        <div class="g-l">Topic guide</div>
+        <div style="font-size:12.5px;color:var(--dim)">${esc(g.take || "")}</div>
+        ${(g.beats || []).length ? `<ul>${(g.beats || []).map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}
+        ${s.evidence ? `<div style="font-size:12px;color:var(--dim);margin-top:8px"><span class="g-l" style="display:inline">evidence</span> ${esc(s.evidence)}</div>` : ""}
+        ${s.why_now ? `<div style="font-size:12px;color:var(--dim);margin-top:6px"><span class="g-l" style="display:inline">why now</span> ${esc(s.why_now)}</div>` : ""}
+      </div>
+      <div class="score">score = gap <b>${brd.gap ?? "?"}</b> · velocity <b>${brd.velocity ?? "?"}</b> · strategic <b>${brd.strategic ?? "?"}</b> · historical <b>${brd.historical ?? 0}</b></div>
+      ${s.source_refs?.length ? `<div class="chips" style="margin-top:10px">${s.source_refs.slice(0, 4).map((r) => `<a class="chip" href="${esc(r.url)}" target="_blank" rel="noopener">↗ ${esc(r.source || "src")}</a>`).join("")}</div>` : ""}
+      <div class="acts">
+        <button class="btn small" onclick="idea(${s.id},'used')">✓ Used</button>
+        <button class="btn small" onclick="idea(${s.id},'saved')">🏦 Save</button>
+        <button class="btn small" onclick="rejectIdea(${s.id})">✕ Reject</button>
+        <button class="btn small" onclick="editIdea(${s.id},'${esc(s.heading).replace(/'/g, "\\'")}')">✎ Edit</button>
+        <label class="build"><input type="checkbox" ${s.selected ? "checked" : ""} onchange="idea(${s.id},'select')"> build</label>
+      </div>
+      ${s.reject_reason ? `<div style="font-family:var(--mono);font-size:10.5px;color:var(--red);margin-top:8px">rejected: ${esc(s.reject_reason)}</div>` : ""}
+    </article>`;
   }).join("");
-  $("#stories").innerHTML = filter + (stories.length ? cards : `<p class="lbl">No ideas${FR !== "all" ? " for " + esc(FR) : ""} yet.</p>`);
+  host.innerHTML = `<p class="intro"><b>IDEAS</b> — ranked by composite signal. Review each: mark Used, Save to the vault, Reject with a reason, Edit the heading, or tick <b>build</b>.</p>` +
+    filter + (stories.length ? `<div class="grid">${cards}</div>` : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`);
 }
 window.setFR = (v) => { FR = v; loadIdeas(); };
 window.idea = async (id, action) => { await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) }); loadIdeas(); };
-window.rejectIdea = (id) => { appPrompt("Reject idea", "Reason (off-brand / not interesting / already covered / wrong timing)", async (reason) => { await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "rejected", reason }) }); loadIdeas(); }, { placeholder: "not interesting" }); };
-window.editIdea = (id, heading) => { appPrompt("Edit heading", "", async (h) => { if (!h) return; await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "edit", heading: h }) }); loadIdeas(); }, { value: heading }); };
+window.rejectIdea = (id) => rdPrompt("Reject idea", "Reason — off-brand · not interesting · already covered · wrong timing", "not interesting", async (reason) => { await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "rejected", reason }) }); loadIdeas(); });
+window.editIdea = (id, heading) => rdPrompt("Edit heading", "", heading, async (h) => { if (!h) return; await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "edit", heading: h }) }); loadIdeas(); });
 
-// shared progress meter
+// ---- radar sweep meter ------------------------------------------------------
 async function meter(steps, hostId, doneMsg) {
   const host = document.getElementById(hostId); if (!host) return;
-  host.innerHTML = `<div class="meter"><div class="meter-bar"><div class="meter-fill" id="mf-${hostId}"></div></div><div class="meter-now" id="mn-${hostId}"></div><div class="meter-list" id="ml-${hostId}"></div></div>`;
+  host.innerHTML = `<div class="meter"><div class="bar"><div class="fill" id="mf-${hostId}"></div></div><div class="now" id="mn-${hostId}"></div><div id="ml-${hostId}"></div></div>`;
   const fill = $(`#mf-${hostId}`), now = $(`#mn-${hostId}`), list = $(`#ml-${hostId}`);
   for (let i = 0; i < steps.length; i++) {
-    now.textContent = steps[i]; fill.style.width = Math.round(((i + 1) / steps.length) * 100) + "%";
-    list.insertAdjacentHTML("beforeend", `<div class="ms" id="ms-${hostId}-${i}">${esc(steps[i])}…</div>`);
+    now.textContent = "◎ " + steps[i]; fill.style.width = Math.round(((i + 1) / steps.length) * 100) + "%";
+    list.insertAdjacentHTML("beforeend", `<div class="ms" id="ms-${hostId}-${i}">· ${esc(steps[i])}…</div>`);
     await new Promise((r) => setTimeout(r, 480));
     const el = $(`#ms-${hostId}-${i}`); el.className = "ms done"; el.textContent = "✓ " + steps[i];
   }
-  if (doneMsg) now.innerHTML = `<span style="color:var(--ansr-teal)">${doneMsg}</span>`;
+  if (doneMsg) now.textContent = doneMsg;
 }
+
+// ---- own modal helpers (replaces q.js) -------------------------------------
+function rdAlert(title, msg) {
+  const ov = document.createElement("div"); ov.className = "ov";
+  ov.innerHTML = `<div class="box"><h3>${esc(title)}</h3><p>${esc(msg)}</p><div class="row" style="justify-content:flex-end"><button class="btn" data-ok>OK</button></div></div>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.querySelector("[data-ok]").onclick = close; ov.onclick = (e) => { if (e.target === ov) close(); };
+}
+function rdPrompt(title, label, value, onOk) {
+  const ov = document.createElement("div"); ov.className = "ov";
+  ov.innerHTML = `<div class="box"><h3>${esc(title)}</h3>${label ? `<p>${esc(label)}</p>` : ""}<input id="rdp" value="${esc(value || "")}"><div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-x>Cancel</button><button class="btn" data-ok style="border-color:var(--grn-dim);color:var(--grn)">OK</button></div></div>`;
+  document.body.appendChild(ov);
+  const inp = ov.querySelector("#rdp"); inp.focus(); inp.select();
+  const close = () => ov.remove();
+  ov.querySelector("[data-x]").onclick = close; ov.onclick = (e) => { if (e.target === ov) close(); };
+  ov.querySelector("[data-ok]").onclick = () => { const v = inp.value; close(); onOk(v); };
+  inp.onkeydown = (e) => { if (e.key === "Enter") ov.querySelector("[data-ok]").click(); if (e.key === "Escape") close(); };
+}
+
 init();
