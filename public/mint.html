@@ -17,82 +17,101 @@
       <p style="font-family:var(--c-mono);font-size:11.5px;letter-spacing:.03em;color:var(--c-dim2);margin:8px 0 0">&gt; rebuild every invoice from the contract's own rules · each number clause-backed &amp; replayable</p>
     </div>
 
-    <div class="band grad-soft">
-      <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
-        <div style="flex:1;min-width:150px"><label class="lbl">Client</label><select id="client"></select></div>
-        <div style="flex:1;min-width:150px"><label class="lbl">Version</label><select id="run"></select></div>
-        <button class="btn-ai" id="gen"><span class="tw" data-ic="spark"></span>Generate Contract Analysis</button>
-        <button class="btn btn--ghost" id="viewOutcomes"><span data-ic="chart" style="margin-right:5px"></span>View past outcomes</button>
-        <button class="btn btn--ghost" id="purge" style="border-color:#b3261e;color:#b3261e">Purge runs</button>
-      </div>
-      <div id="newRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid var(--ansr-border);padding-top:10px">
-        <label class="lbl" style="margin:0;color:var(--ansr-navy);font-weight:500">New client:</label>
-        <input id="ncName" placeholder="client / company name" style="flex:1;min-width:150px">
-        <input id="ncNotes" placeholder="notes (optional)" style="flex:1;min-width:130px">
-        <button class="btn" id="ncCreate">Create</button>
-        <button class="btn btn--ghost" id="ncCancel">Cancel</button>
-        <span id="ncMsg" class="lbl"></span>
-      </div>
-      <div id="sowRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid var(--ansr-border);padding-top:10px">
-        <label class="lbl" style="margin:0;color:var(--ansr-navy);font-weight:500">Upload SOW / Contract:</label>
-        <input type="file" id="sowFile" accept=".pdf,.docx,.doc,.txt,.md" style="flex:1;min-width:160px">
-        <button class="btn btn--ghost" id="sowBtn"><span data-ic="upload" style="margin-right:5px"></span>Add</button>
-        <span id="sowMsg" class="lbl"></span>
-      </div>
-      <div id="stepwrap" style="margin-top:14px;display:none"><div class="stepper" id="stepper"></div></div>
+    <div class="tabs" role="tablist" style="margin-top:14px">
+      <button class="tab active" data-mtab="reconciler" onclick="mTab('reconciler')">Contract Reconciler</button>
+      <button class="tab" data-mtab="analysis" onclick="mTab('analysis')">Analysis</button>
+      <button class="tab" data-mtab="rulebook" onclick="mTab('rulebook')">Rule book</button>
     </div>
 
-    <div class="flow" id="flow">
-      <section class="flowstep" data-n="1">
-        <div class="flow-rail"><span class="flow-num">1</span></div>
-        <div class="flow-body">
-          <button class="flow-title" type="button" onclick="toggleStep(this)">Contract / SOW</button>
-          <div class="flow-content" id="result"></div>
+    <!-- ===== TAB 1 · Contract Reconciler (the Munshi flow) ===== -->
+    <div id="mpane-reconciler" class="mpane">
+      <div class="band grad-soft">
+        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+          <div style="flex:1;min-width:150px"><label class="lbl">Client</label><select id="client"></select></div>
+          <div style="flex:1;min-width:150px"><label class="lbl">Version</label><select id="run"></select></div>
+          <button class="btn-ai" id="gen"><span class="tw" data-ic="spark"></span>Generate Contract Analysis</button>
+          <button class="btn btn--ghost" id="viewOutcomes"><span data-ic="chart" style="margin-right:5px"></span>View past outcomes</button>
+          <button class="btn btn--ghost" id="purge" style="border-color:#b3261e;color:#b3261e">Purge runs</button>
         </div>
-      </section>
-
-      <section class="flowstep" data-n="2">
-        <div class="flow-rail"><span class="flow-num">2</span></div>
-        <div class="flow-body">
-          <button class="flow-title" type="button" onclick="toggleStep(this)">Analysis boxes</button>
-          <div class="flow-content" id="boxes"></div>
+        <div id="newRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid var(--ansr-border);padding-top:10px">
+          <label class="lbl" style="margin:0;color:var(--ansr-navy);font-weight:500">New client:</label>
+          <input id="ncName" placeholder="client / company name" style="flex:1;min-width:150px">
+          <input id="ncNotes" placeholder="notes (optional)" style="flex:1;min-width:130px">
+          <button class="btn" id="ncCreate">Create</button>
+          <button class="btn btn--ghost" id="ncCancel">Cancel</button>
+          <span id="ncMsg" class="lbl"></span>
         </div>
-      </section>
-
-      <section class="flowstep" data-n="3">
-        <div class="flow-rail"><span class="flow-num">3</span></div>
-        <div class="flow-body">
-          <button class="flow-title" type="button" onclick="toggleStep(this)">Contract readiness</button>
-          <div class="flow-content" id="ready"></div>
+        <div id="sowRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid var(--ansr-border);padding-top:10px">
+          <label class="lbl" style="margin:0;color:var(--ansr-navy);font-weight:500">Upload SOW / Contract:</label>
+          <input type="file" id="sowFile" accept=".pdf,.docx,.doc,.txt,.md" style="flex:1;min-width:160px">
+          <button class="btn btn--ghost" id="sowBtn"><span data-ic="upload" style="margin-right:5px"></span>Add</button>
+          <span id="sowMsg" class="lbl"></span>
         </div>
-      </section>
+        <div id="stepwrap" style="margin-top:14px;display:none"><div class="stepper" id="stepper"></div></div>
+      </div>
 
-      <section class="flowstep" data-n="4">
-        <div class="flow-rail"><span class="flow-num">4</span></div>
-        <div class="flow-body">
-          <button class="flow-title" type="button" onclick="toggleStep(this)">Working sheet</button>
-          <div class="flow-content">
-            <p class="lbl" style="color:var(--ansr-gray);font-size:13px;margin:0 0 10px">Upload the employee working sheet (max 25 MB). We map columns, flag issues to fix, then save to the database. The sheet can change month to month — re-upload anytime.</p>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-              <input type="file" id="rfile" accept=".xlsx,.xls,.xlsm,.csv" style="flex:1;min-width:160px">
-              <button class="btn" id="rmap">Upload &amp; map</button>
-            </div>
-            <div id="rout"></div>
+      <div class="flow" id="flow">
+        <section class="flowstep" data-n="1">
+          <div class="flow-rail"><span class="flow-num">1</span></div>
+          <div class="flow-body">
+            <button class="flow-title" type="button" onclick="toggleStep(this)">Contract / SOW</button>
+            <div class="flow-content" id="result"></div>
           </div>
-        </div>
-      </section>
+        </section>
+        <section class="flowstep" data-n="5">
+          <div class="flow-rail"><span class="flow-num">2</span></div>
+          <div class="flow-body">
+            <button class="flow-title" type="button" onclick="toggleStep(this)">Rule chips · Munshi</button>
+            <div class="flow-content" id="chips"></div>
+          </div>
+        </section>
+      </div>
 
-      <section class="flowstep" data-n="5">
-        <div class="flow-rail"><span class="flow-num">5</span></div>
-        <div class="flow-body">
-          <button class="flow-title" type="button" onclick="toggleStep(this)">Rule chips · Munshi</button>
-          <div class="flow-content" id="chips"></div>
-        </div>
-      </section>
+      <div style="display:flex;justify-content:center;margin:22px 0 6px">
+        <button class="sweep-btn" id="mProcess" style="font-family:var(--c-sans);font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:13px;color:#fff;border:none;border-radius:999px;padding:15px 34px;cursor:pointer;background:linear-gradient(90deg,var(--c-orgbr,#FF5400),var(--c-org,#CE4502));box-shadow:0 10px 30px -12px rgba(206,69,2,.6)">Process → Analysis</button>
+      </div>
     </div>
 
-    <div id="validate"></div>
-    <div id="outcome"></div>
+    <!-- ===== TAB 2 · Analysis ===== -->
+    <div id="mpane-analysis" class="mpane" hidden>
+      <div class="flow">
+        <section class="flowstep" data-n="2">
+          <div class="flow-rail"><span class="flow-num">1</span></div>
+          <div class="flow-body">
+            <button class="flow-title" type="button" onclick="toggleStep(this)">Analysis boxes</button>
+            <div class="flow-content" id="boxes"></div>
+          </div>
+        </section>
+        <section class="flowstep" data-n="3">
+          <div class="flow-rail"><span class="flow-num">2</span></div>
+          <div class="flow-body">
+            <button class="flow-title" type="button" onclick="toggleStep(this)">Contract readiness</button>
+            <div class="flow-content" id="ready"></div>
+          </div>
+        </section>
+        <section class="flowstep" data-n="4">
+          <div class="flow-rail"><span class="flow-num">3</span></div>
+          <div class="flow-body">
+            <button class="flow-title" type="button" onclick="toggleStep(this)">Working sheet</button>
+            <div class="flow-content">
+              <p class="lbl" style="color:var(--ansr-gray);font-size:13px;margin:0 0 10px">Upload the employee working sheet (max 25 MB). We map columns, flag issues to fix, then save to the database. The sheet can change month to month — re-upload anytime.</p>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                <input type="file" id="rfile" accept=".xlsx,.xls,.xlsm,.csv" style="flex:1;min-width:160px">
+                <button class="btn" id="rmap">Upload &amp; map</button>
+              </div>
+              <div id="rout"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div id="validate"></div>
+      <div id="outcome"></div>
+    </div>
+
+    <!-- ===== TAB 3 · Rule book (what Munshi captured) ===== -->
+    <div id="mpane-rulebook" class="mpane" hidden>
+      <div id="rulebook"></div>
+    </div>
   </div>
   <script src="/q.js"></script>
   <script>qHeader("mint");</script>

@@ -19,6 +19,7 @@ async function init() {
   $("#gen").addEventListener("click", generate);
   renderChips();
   $("#client").addEventListener("change", () => setTimeout(renderChips, 0));
+  $("#mProcess")?.addEventListener("click", async () => { if (!DATA) await generate(); mTab("analysis"); });
   $("#purge").addEventListener("click", purge);
   $("#viewOutcomes").addEventListener("click", () => {
     const c = $("#client").value, r = $("#run").value;
@@ -739,6 +740,30 @@ window.reparseCorpus = async () => {
   renderChips();
 };
 window.confirmChip = async (id) => { await fetch(`/api/mint/chip/${id}/confirm`, { method: "POST" }); renderChips(); };
+
+// ---- Mint tabs: Contract Reconciler · Analysis · Rule book ------------------
+window.mTab = (t) => {
+  document.querySelectorAll(".tab[data-mtab]").forEach((b) => { const on = b.dataset.mtab === t; b.classList.toggle("active", on); b.setAttribute("aria-selected", on ? "true" : "false"); });
+  document.querySelectorAll(".mpane").forEach((p) => (p.hidden = p.id !== `mpane-${t}`));
+  if (t === "rulebook") renderRulebook();
+};
+// Rule book — the executable rule-chips Munshi captured (calc runs from these)
+async function renderRulebook() {
+  const host = $("#rulebook"); if (!host) return;
+  const client = $("#client")?.value; if (!client || client === "__new__") return;
+  let { chips } = await (await fetch(`/api/mint/chips/${encodeURIComponent(client)}`)).json();
+  if (!chips || !chips.length) { const r = await (await fetch(`/api/mint/munshi/parse/${encodeURIComponent(client)}`, { method: "POST" })).json(); chips = r.chips || []; }
+  const order = ["billing_rules", "commercial_terms", "payment_terms", "company", "legal", "caveats", "flags"];
+  chips = (chips || []).slice().sort((a, b) => order.indexOf(a.box_type) - order.indexOf(b.box_type));
+  const total = chips.reduce((n, g) => n + g.chips.length, 0);
+  const confirmed = chips.reduce((n, g) => n + g.chips.filter((c) => c.status === "confirmed").length, 0);
+  host.innerHTML = `<div class="band grad-soft"><h3 style="margin:0 0 4px;color:var(--ansr-navy)">Rule book — what Munshi captured</h3>
+      <p class="lbl" style="margin:0">${total} atomic rule-chips · ${confirmed} confirmed. The calc engine runs from <b>these</b> — every number traces to its clause. Confirm a chip to lock it against re-parse.</p></div>` +
+    chips.map((g) => `<div class="grp" style="margin:16px 0 6px;font-weight:600;color:var(--ansr-navy);text-transform:capitalize">${esc(g.box_type.replace(/_/g, " "))} <span class="lbl" style="font-weight:400">· ${g.chips.length}</span></div>
+      <div class="scroll-x"><table class="grid"><thead><tr><th>rule</th><th>value</th><th>clause</th><th>status</th></tr></thead><tbody>
+      ${g.chips.map((c) => `<tr><td style="font-family:ui-monospace,monospace">${esc(c.key)}</td><td style="font-family:ui-monospace,monospace;font-size:11px;max-width:320px">${esc(JSON.stringify(c.value))}</td><td>${esc(c.clause_ref || "")}</td><td><span class="chip ${c.status === "confirmed" ? "chip--approved" : "chip--draft"}">${esc(c.status)}</span></td></tr>`).join("")}
+      </tbody></table></div>`).join("");
+}
 window.amendChip = (id, cur) => appPrompt("Amend rule chip", "Value (JSON)", async (v) => { if (!v) return; await fetch(`/api/mint/chip/${id}/amend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value: v }) }); renderChips(); }, { value: cur });
 
 init();
