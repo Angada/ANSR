@@ -3,21 +3,111 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>The Q&ANSR Universe</title>
+  <title>Q&ANSR CORE</title>
   <link rel="icon" type="image/png" href="/favicon.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="/app.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+  /* ===== Q&ANSR CORE — super-CPU console. Standalone, radar palette. ======= */
+  :root{
+    --bg:#05080e; --panel:rgba(15,23,37,.72); --panel2:rgba(11,18,30,.9);
+    --line:rgba(122,162,204,.16); --line2:rgba(122,162,204,.30);
+    --grn:#3ff0a6; --grn-dim:#1f8f66; --cyan:#41e0ff; --amber:#ffb454; --mag:#ff5fa2; --red:#ff5a52;
+    --txt:#e7f0fa; --dim:#8fa3bd; --dim2:#5f7189;
+    --mono:'Space Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:'Space Grotesk',system-ui,-apple-system,Segoe UI,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{font-family:var(--sans);color:var(--txt);background:var(--bg);min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+
+  /* CRT: scanlines + faint grid + vignette + slow radar glow */
+  .crt{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(1100px 700px at 82% -8%, rgba(63,240,166,.10), transparent 60%),
+      radial-gradient(900px 700px at 8% 108%, rgba(65,224,255,.08), transparent 55%),
+      linear-gradient(rgba(122,162,204,.05) 1px, transparent 1px) 0 0/100% 46px,
+      linear-gradient(90deg, rgba(122,162,204,.045) 1px, transparent 1px) 0 0/46px 100%;}
+  .crt::before{content:"";position:absolute;inset:0;
+    background:repeating-linear-gradient(180deg, rgba(0,0,0,0) 0 2px, rgba(0,0,0,.16) 2px 3px);
+    mix-blend-mode:multiply;opacity:.5}
+  .crt::after{content:"";position:absolute;inset:0;box-shadow:inset 0 0 220px 40px rgba(0,0,0,.7)}
+
+  .console{position:relative;z-index:1;max-width:1200px;margin:0 auto;padding:26px 20px 90px}
+
+  /* boot / hero */
+  .boot{border:1px solid var(--line);border-radius:16px;background:var(--panel);backdrop-filter:blur(8px);
+    padding:26px 26px 22px;position:relative;overflow:hidden}
+  .boot::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--grn),var(--cyan))}
+  .boot__log{font-family:var(--mono);font-size:11px;line-height:1.9;color:var(--dim2);letter-spacing:.03em;margin-bottom:14px}
+  .boot__log b{color:var(--grn)} .boot__log i{color:var(--cyan);font-style:normal}
+  .boot__title{font-family:var(--mono);font-weight:700;letter-spacing:.16em;font-size:clamp(30px,6vw,58px);margin:0;line-height:1}
+  .boot__title span{color:var(--grn)}
+  .cur{display:inline-block;width:.6ch;height:1em;background:var(--grn);margin-left:.15em;vertical-align:-.08em;animation:blink 1.05s steps(1) infinite;box-shadow:0 0 12px var(--grn)}
+  @keyframes blink{50%{opacity:0}}
+  .boot__sub{font-size:14.5px;color:var(--dim);max-width:74ch;margin:14px 0 0;line-height:1.6}
+  .boot__sub b{color:var(--txt)}
+
+  .hud{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px;font-family:var(--mono);font-size:10.5px;letter-spacing:.12em}
+  .hud .stat{display:flex;align-items:center;gap:8px;border:1px solid var(--line2);border-radius:999px;padding:7px 13px;background:rgba(6,10,18,.5)}
+  .hud .stat .k{color:var(--dim2)} .hud .stat .v{color:var(--cyan)}
+  .hud .stat.ok .v{color:var(--grn)}
+  .hud .dot{width:7px;height:7px;border-radius:50%;background:var(--grn);box-shadow:0 0 8px var(--grn)}
+
+  /* bays header */
+  .bay-head{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--dim2);margin:34px 4px 14px;display:flex;align-items:center;gap:12px}
+  .bay-head::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line2),transparent)}
+
+  /* module bays grid */
+  .bays{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+  .bay{position:relative;display:flex;flex-direction:column;text-decoration:none;color:inherit;
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;backdrop-filter:blur(8px);
+    transition:.2s;overflow:hidden}
+  .bay::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,var(--dim2),transparent);opacity:.4}
+  .bay.live{cursor:pointer}
+  .bay.live:hover{border-color:var(--grn-dim);transform:translateY(-3px);box-shadow:0 22px 50px -28px rgba(63,240,166,.6)}
+  .bay.live:hover::before{background:linear-gradient(90deg,transparent,var(--grn),var(--cyan),transparent);opacity:1}
+  .bay.soon{opacity:.62}
+  .bay__top{display:flex;align-items:center;justify-content:space-between;font-family:var(--mono);font-size:10px;letter-spacing:.14em}
+  .bay__id{color:var(--dim2)}
+  .bay__led{display:flex;align-items:center;gap:6px;color:var(--grn)}
+  .bay__led .l{width:7px;height:7px;border-radius:50%;background:var(--grn);box-shadow:0 0 8px var(--grn)}
+  .bay__led.standby{color:var(--amber)} .bay__led.standby .l{background:var(--amber);box-shadow:0 0 8px var(--amber);animation:blink 1.6s steps(1) infinite}
+  .bay__name{font-family:var(--mono);font-weight:700;font-size:22px;letter-spacing:.1em;margin:12px 0 2px}
+  .bay.live .bay__name{color:var(--txt)}
+  .bay__role{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--cyan);margin-bottom:10px}
+  .bay.soon .bay__role{color:var(--dim2)}
+  .bay__blurb{font-size:12.5px;color:var(--dim);line-height:1.55;margin:0;flex:1}
+  .bay__go{font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--grn);margin-top:16px;
+    display:flex;align-items:center;gap:8px;transition:.16s}
+  .bay.live:hover .bay__go{gap:14px}
+  .bay__go.off{color:var(--dim2)}
+
+  .foot{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim2);text-align:center;margin-top:50px}
+  </style>
 </head>
 <body>
   <div id="appbar"></div>
-  <div class="wrap">
-    <div class="hero">
-      <div class="eyebrow">The Q&amp; Universe · your armoury of super agents</div>
-      <h1>Welcome to Q&amp;</h1>
-      <p>The central intelligence layer for ANSR operations — one explainable source of truth across contracts, data and calculations. Each agent reads your documents and rules, does the work, and shows its evidence. Pick one to begin.</p>
-    </div>
-    <div id="agents" class="agents"></div>
-  </div>
+  <div class="crt"></div>
+  <main class="console">
+    <section class="boot">
+      <div class="boot__log">
+        <div>&gt; <b>Q&amp;ANSR</b> mainframe · booting core services …</div>
+        <div>&gt; contract engine <i>OK</i> · vault <i>OK</i> · pipelines <i>OK</i> · missq <i>OK</i></div>
+        <div>&gt; all agents mounted · awaiting operator <span class="cur"></span></div>
+      </div>
+      <h1 class="boot__title">Q&amp;<span>ANSR</span> CORE</h1>
+      <p class="boot__sub">The central intelligence layer for ANSR operations — one explainable source of truth across contracts, data and calculations. Each agent reads your documents and rules, does the work, and <b>shows its evidence</b>. Select a module to engage.</p>
+      <div class="hud" id="hud"></div>
+    </section>
+
+    <div class="bay-head">Agent bays — select a module to engage</div>
+    <div id="agents" class="bays"></div>
+
+    <div class="foot">Q&amp;ANSR // one source of truth // every number traces to source</div>
+  </main>
   <script src="/q.js"></script>
   <script>qHeader("home");</script>
   <script src="/app-hub.js"></script>

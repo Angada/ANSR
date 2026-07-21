@@ -53,27 +53,62 @@ window.appForm = (title, fields, onSubmit, okLabel = "Create") => {
   };
 };
 
-// Inject the app header into #appbar. activeTab: 'home' | 'admin'.
+// ---- terminal menu bar (super-CPU aesthetic, radar palette) -----------------
+// Self-contained: injects its own scoped CSS once, so it restyles the menu on
+// every page without touching app.css. Monospace, phosphor-green, dark.
+const QTERM_CSS = `
+.q-term{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;
+  padding:10px 18px;background:linear-gradient(180deg,#070c15,#05080e);
+  border-bottom:1px solid rgba(63,240,166,.22);
+  font-family:'Space Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  box-shadow:0 10px 30px -22px #000,0 1px 0 rgba(65,224,255,.08)}
+.q-term a{text-decoration:none}
+.q-term__brand{display:flex;align-items:center;gap:9px;color:#e7f0fa}
+.q-term__led{width:9px;height:9px;border-radius:50%;background:#3ff0a6;box-shadow:0 0 10px #3ff0a6;animation:qled 1.8s ease-in-out infinite;flex:0 0 auto}
+@keyframes qled{50%{opacity:.3}}
+.q-term__mark{font-weight:700;letter-spacing:.22em;font-size:15px}
+.q-term__mark b{color:#3ff0a6}
+.q-term__sys{color:#5f7189;font-size:10px;letter-spacing:.2em}
+.q-term__nav{display:flex;gap:6px;flex:1;flex-wrap:wrap}
+.q-term__tab{color:#8fa3bd;font-size:11px;letter-spacing:.16em;padding:7px 11px;border:1px solid transparent;border-radius:8px;transition:.16s;white-space:nowrap}
+.q-term__tab::before{content:"▹ ";color:#41e0ff}
+.q-term__tab:hover{color:#e7f0fa;border-color:rgba(122,162,204,.3)}
+.q-term__tab.on{color:#04120c;background:#3ff0a6;font-weight:700;box-shadow:0 0 18px -3px rgba(63,240,166,.65)}
+.q-term__tab.on::before{content:"▸ ";color:#04120c}
+.q-term__user{display:flex;align-items:center;gap:10px;font-size:10px;letter-spacing:.1em;color:#8fa3bd}
+.q-term__role{color:#41e0ff;border:1px solid rgba(65,224,255,.4);border-radius:999px;padding:3px 9px}
+.q-term__out{color:#8fa3bd}
+.q-term__out:hover{color:#ff5a52}
+.q-term__hamb{display:none;background:none;border:1px solid rgba(122,162,204,.3);color:#3ff0a6;border-radius:8px;padding:6px 10px;font-size:14px;cursor:pointer}
+@media(max-width:760px){
+  .q-term{flex-wrap:wrap}
+  .q-term__hamb{display:block;margin-left:auto}
+  .q-term__nav,.q-term__user{display:none;width:100%;flex-direction:column;gap:4px}
+  .q-term.q-open .q-term__nav,.q-term.q-open .q-term__user{display:flex}
+  .q-term__user{flex-direction:row;flex-wrap:wrap;padding-top:8px;border-top:1px solid rgba(122,162,204,.14)}
+}`;
+// Inject the app menu into #appbar. activeTab: 'home'|'mint'|'raydar'|'admin'.
 window.qHeader = async (activeTab = "home") => {
   let me = { user: "—", role: "" };
   try { me = await (await fetch("/api/me")).json(); } catch {}
   const el = document.querySelector("#appbar");
   if (!el) return;
+  if (!document.getElementById("qterm-css")) {
+    const st = document.createElement("style"); st.id = "qterm-css"; st.textContent = QTERM_CSS;
+    document.head.appendChild(st);
+  }
+  const tabs = [["home", "Q&", "/"], ["mint", "MINT", "/mint.html"], ["raydar", "RAYDAR", "/whisperer.html"], ["admin", "ADMIN", "/admin.html"]];
   el.outerHTML = `
-  <header class="appbar">
-    <a href="/" class="logo" title="Home"><img class="full" src="/brand/assets/logos/QAnsr-logo.png" alt="Q&ANSR"><img class="emblem" src="/favicon.png" alt="Q&ANSR"></a>
-    <button class="hamb" aria-label="Menu" onclick="document.getElementById('qmenu').classList.toggle('open')">☰</button>
-    <div class="menu" id="qmenu">
-      <nav>
-        <a href="/" class="navtab ${activeTab === "home" ? "active" : ""}">Q&amp;</a>
-        <a href="/mint.html" class="navtab ${activeTab === "mint" ? "active" : ""}">Mint</a>
-        <a href="/admin.html" class="navtab ${activeTab === "admin" ? "active" : ""}">Admin</a>
-      </nav>
-      <div class="user">
-        <span class="nm">${me.user || ""}</span>
-        ${me.role ? `<span class="chip chip--role">${me.role}</span>` : ""}
-        <a href="#" class="navtab" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login.html');return false">Sign out</a>
-      </div>
+  <header class="q-term" id="appbar">
+    <a href="/" class="q-term__brand" title="Home"><span class="q-term__led"></span><span class="q-term__mark">Q&amp;<b>ANSR</b></span><span class="q-term__sys">// CORE</span></a>
+    <button class="q-term__hamb" aria-label="Menu" onclick="this.closest('.q-term').classList.toggle('q-open')">▚</button>
+    <nav class="q-term__nav">
+      ${tabs.map(([k, l, h]) => `<a href="${h}" class="q-term__tab ${activeTab === k ? "on" : ""}">${l}</a>`).join("")}
+    </nav>
+    <div class="q-term__user">
+      <span>USR:${_esc(me.user || "—")}</span>
+      ${me.role ? `<span class="q-term__role">${_esc(me.role)}</span>` : ""}
+      <a href="#" class="q-term__out" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login.html');return false">⏻ SIGN OUT</a>
     </div>
   </header>`;
 };
