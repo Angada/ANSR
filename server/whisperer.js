@@ -42,20 +42,63 @@ const mergeRule = (id, r) => { const d = RULE_DEFAULTS[id] || {}; return { ...d,
 async function getRule(id) { try { const r = (await q(`select rule from wh_business_rule where name=$1`, [id])).rows?.[0]?.rule; return mergeRule(id, r); } catch { return mergeRule(id, null); } }
 
 // ---- Feed collection (real when a source's key is enabled; else []) ---------
+// YouTube: search → video stats (views + publishedAt) → top-N comments. The
+// comments are the demand signal; views÷age is velocity. All params from the rule.
 async function fetchYouTube(topic) {
   const key = getIntegrationKey("youtube"); if (!key) return [];
   const c = (await getRule("youtube")).collection || {};
   const publishedAfter = new Date(Date.now() - (c.publishedDays || 30) * 864e5).toISOString();
-  const r = await timeout(fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=${Math.min(c.maxResults || 10, 20)}&regionCode=${c.regionCode || "IN"}&relevanceLanguage=${c.relevanceLanguage || "en"}&order=viewCount&publishedAfter=${encodeURIComponent(publishedAfter)}&q=${encodeURIComponent(topic)}&key=${encodeURIComponent(key)}`));
-  const j = await r.json(); return (j.items || []).map((i) => ({ source: "youtube", external_id: i.id?.videoId, title: i.snippet?.title, url: `https://youtube.com/watch?v=${i.id?.videoId}`, body: i.snippet?.description }));
+  const s = await timeout(fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=${Math.min(c.maxResults || 20, 25)}&regionCode=${c.regionCode || "IN"}&relevanceLanguage=${c.relevanceLanguage || "en"}&order=${c.order || "viewCount"}&publishedAfter=${encodeURIComponent(publishedAfter)}&q=${encodeURIComponent(topic)}&key=${encodeURIComponent(key)}`));
+  const sj = await s.json();
+  const vids = (sj.items || []).map((i) => ({ id: i.id?.videoId, title: i.snippet?.title, body: i.snippet?.description, publishedAt: i.snippet?.publishedAt })).filter((v) => v.id);
+  if (!vids.length) return [];
+  const stats = {};
+  try {
+    const st = await timeout(fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${vids.map((v) => v.id).join(",")}&key=${encodeURIComponent(key)}`));
+    const stj = await st.json();
+    for (const it of (stj.items || [])) stats[it.id] = { views: Number(it.statistics?.viewCount || 0), comments: Number(it.statistics?.commentCount || 0), publishedAt: it.snippet?.publishedAt };
+  } catch { /* stats optional */ }
+  const topN = Math.min(c.commentsTopVideos || 5, vids.length), perVid = c.commentsPerVideo || 20;
+  const cmts = {};
+  await Promise.allSettled(vids.slice(0, topN).map(async (v) => {
+    try {
+      const cr = await timeout(fetch(`https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${v.id}&maxResults=${perVid}&order=relevance&key=${encodeURIComponent(key)}`));
+      const cj = await cr.json(); cmts[v.id] = (cj.items || []).map((x) => x.snippet?.topLevelComment?.snippet?.textDisplay || "").filter(Boolean);
+    } catch { /* comments optional */ }
+  }));
+  const now = Date.now();
+  return vids.map((v) => {
+    const st = stats[v.id] || {}; const pub = st.publishedAt || v.publishedAt;
+    const ageDays = pub ? Math.max(1, Math.round((now - new Date(pub).getTime()) / 864e5)) : null;
+    return { source: "youtube", external_id: v.id, title: v.title, url: `https://youtube.com/watch?v=${v.id}`, body: v.body, meta: { views: st.views || 0, ageDays, comments: cmts[v.id] || [] } };
+  });
 }
+// Reddit: search posts → walk comment trees on the top-N. Comment trees are the
+// highest-value demand signal; params (subreddits/topPosts/commentTrees) from the rule.
 async function fetchReddit(topic) {
   const pair = getIntegrationKey("reddit"); if (!pair || !pair.includes(":")) return [];
   const [cid, secret] = pair.split(":");
   const tok = await timeout(fetch("https://www.reddit.com/api/v1/access_token", { method: "POST", headers: { authorization: "Basic " + Buffer.from(`${cid}:${secret}`).toString("base64"), "content-type": "application/x-www-form-urlencoded", "user-agent": "qansr-whisperer/1.0" }, body: "grant_type=client_credentials" }));
   const tj = await tok.json(); if (!tj.access_token) return [];
-  const r = await timeout(fetch(`https://oauth.reddit.com/search?q=${encodeURIComponent(topic)}&limit=4&sort=relevance&t=month`, { headers: { authorization: `Bearer ${tj.access_token}`, "user-agent": "qansr-whisperer/1.0" } }));
-  const j = await r.json(); return (j.data?.children || []).map((c) => ({ source: "reddit", external_id: c.data?.id, title: c.data?.title, url: "https://reddit.com" + c.data?.permalink, body: (c.data?.selftext || "").slice(0, 400) }));
+  const H = { authorization: `Bearer ${tj.access_token}`, "user-agent": "qansr-whisperer/1.0" };
+  const rule = (await getRule("reddit")).collection || {};
+  const r = await timeout(fetch(`https://oauth.reddit.com/search?q=${encodeURIComponent(topic)}&limit=${Math.min(rule.topPosts || 10, 15)}&sort=relevance&t=${rule.timeframe || "month"}`, { headers: H }));
+  const j = await r.json(); const posts = (j.data?.children || []).map((c) => c.data).filter(Boolean);
+  const topN = Math.min(rule.commentTrees || 10, posts.length), perPost = rule.commentsPerPost || 100;
+  const cmts = {};
+  await Promise.allSettled(posts.slice(0, topN).map(async (p) => {
+    try {
+      const cr = await timeout(fetch(`https://oauth.reddit.com/comments/${p.id}?limit=${perPost}&depth=4`, { headers: H }));
+      const cj = await cr.json(); const arr = [];
+      const walk = (node) => { for (const ch of (node?.data?.children || [])) { if (ch.kind === "t1" && ch.data?.body) { arr.push(ch.data.body); walk(ch.data.replies); } } };
+      if (Array.isArray(cj)) walk(cj[1]); cmts[p.id] = arr.slice(0, perPost);
+    } catch { /* comments optional */ }
+  }));
+  const now = Date.now();
+  return posts.map((p) => {
+    const ageDays = p.created_utc ? Math.max(1, Math.round((now / 1000 - p.created_utc) / 86400)) : null;
+    return { source: "reddit", external_id: p.id, title: p.title, url: "https://reddit.com" + p.permalink, body: (p.selftext || "").slice(0, 400), meta: { score: p.score, ageDays, comments: cmts[p.id] || [] } };
+  });
 }
 async function fetchNews(topic) {
   const key = getIntegrationKey("newsapi"); if (!key) return [];
@@ -73,10 +116,59 @@ async function collectFeed(topics) {
     const batches = await Promise.allSettled([fetchYouTube(topic), fetchReddit(topic), fetchNews(topic), fetchSerpNews(topic)]);
     for (const b of batches) if (b.status === "fulfilled") out.push(...(b.value || []));
   }
-  // dedupe by url, persist
+  // dedupe by url, persist (incl. metrics meta)
   const seen = new Set(); const uniq = out.filter((x) => x.url && !seen.has(x.url) && seen.add(x.url));
-  for (const it of uniq) await q(`insert into wh_feed_item(source,external_id,title,url,body) values($1,$2,$3,$4,$5) on conflict do nothing`, [it.source, it.external_id || null, it.title || "", it.url, it.body || ""]).catch(() => {});
+  for (const it of uniq) await q(`insert into wh_feed_item(source,external_id,title,url,body,meta) values($1,$2,$3,$4,$5,$6::jsonb) on conflict do nothing`, [it.source, it.external_id || null, it.title || "", it.url, it.body || "", JSON.stringify(it.meta || {})]).catch(() => {});
   return uniq;
+}
+
+// ---- Stage 3 · Gap Analysis — real signals from the collected feed ----------
+// demand  = question-like comments/posts on the topic (comment trees weighted)
+// supply  = how much fresh content already answers it (count + top-item age)
+// velocity = views ÷ days since publish (YouTube), normalised
+// Falls back to the configured gap_map + item-count when no live metrics exist.
+const isQuestion = (t) => /\?|\bhow\b|\bwhy\b|\bwhat\b|\bwhich\b|\bwhen\b|\bcan i\b|\bshould i\b|worth it|vs\b/i.test(String(t || ""));
+function topicSignals(items, gapMapVal) {
+  const withMeta = items.filter((x) => x.meta && (x.meta.comments || x.meta.views != null));
+  // velocity — top views/day across matched videos, log-normalised (~100k/day → 1)
+  const vps = withMeta.map((x) => (x.meta.views || 0) / Math.max(1, x.meta.ageDays || 30)).filter((v) => v > 0);
+  const velocity = vps.length ? Math.min(1, Math.log10(Math.max(...vps) + 1) / 5) : null;
+  // demand — question-like comments + question-like titles
+  const comments = withMeta.flatMap((x) => x.meta.comments || []);
+  const questions = comments.filter(isQuestion).length + items.filter((x) => isQuestion(x.title)).length;
+  // supply — count + freshness (top item age)
+  const ages = withMeta.map((x) => x.meta.ageDays).filter((a) => a != null);
+  const topAge = ages.length ? Math.min(...ages) : null;
+  const stale = topAge != null && topAge > 365;
+  const haveSignal = comments.length > 0 || velocity != null;
+  let gap = gapMapVal ?? 0.6, gapType = null;
+  if (haveSignal) {
+    const demandN = Math.min(1, questions / 20);                 // 20 unanswered Qs → saturate
+    const supplyQ = Math.min(1, items.length / 10) * (stale ? 0.5 : 1);
+    gap = Math.max(0.1, Math.min(1, demandN / Math.max(0.15, supplyQ)));
+    gapType = stale ? "stale"
+      : (velocity != null && velocity >= 0.7 && items.length <= 3) ? "emerging"
+      : (questions >= items.length * 3) ? "unanswered"
+      : (items.length <= 1) ? "thin" : "unanswered";
+  }
+  return { velocity, gap, gapType, demand: questions, supply: items.length, topAgeDays: topAge, live: haveSignal };
+}
+
+// ---- Contradiction & Evidence — validate an idea against the research --------
+// Runs the raydar-contradiction pipeline (gated by key). Returns {evidence[],
+// contradictions[]} or null (mock → generation keeps its heuristic flag).
+async function validateIdea(s, research) {
+  if (!research) return null;
+  try {
+    const rule = await getRule("perplexity");                    // research-side prompt/model
+    const out = await runPipeline("raydar-contradiction", {
+      system: "Validate the content idea against the research. Return STRICT JSON {\"evidence\":[{\"claim\":\"...\",\"source\":\"url\"}],\"contradictions\":[{\"claim\":\"...\",\"conflict\":\"what the belief is\"}]}. Only cite what the research supports; never assert independently.",
+      user: `Idea: ${s.heading}\nSummary: ${s.summary}\nTake: ${JSON.stringify(s.topic_guide || {}).slice(0, 600)}\nResearch: ${JSON.stringify(research).slice(0, 2500)}`,
+      model: rule.model || undefined, maxTokens: 800,
+    });
+    if (out.mode === "ai" && out.text) return jsonFrom(out.text);
+  } catch { /* keep heuristic */ }
+  return null;
 }
 
 // ---- Classify (Stage 2): tag each source's items with THAT integration's -----
@@ -292,10 +384,11 @@ export function mountWhisperer(app, slug) {
     for (const t of topicRows) {
       const research = await researchTopic(t.name).catch(() => null);
       const items = feed.filter((f) => (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase())).slice(0, 5);
-      const velocity = Math.min(1, 0.4 + items.length * 0.1);
+      const sig = topicSignals(items, GAPMAP[t.name]);          // Stage 3 — real demand/supply/velocity when live
+      const velocity = sig.velocity != null ? sig.velocity : Math.min(1, 0.4 + items.length * 0.1);
       const strategic = Math.min(1, (Number(t.strategic_weight) || 1) / 1.5);
       const franchiseHist = hist[t.franchise] || 0;
-      const gap = GAPMAP[t.name] ?? 0.6;
+      const gap = sig.gap;
       for (let a = 0; a < 3; a++) {                       // 3 ideas / topic → ~18 total
         const grounding = (items.length || research) ? `\nReal feed: ${JSON.stringify(items.map((x) => ({ src: x.source, title: x.title, url: x.url, tags: x.tags })))}\nResearch: ${JSON.stringify(research || {}).slice(0, 2000)}` : "";
         const contra = a === 1 || t.name === "Keywords and resume";
@@ -312,9 +405,15 @@ export function mountWhisperer(app, slug) {
           contradiction: contra, contradiction_of: contra ? "popular ATS/resume advice that's factually wrong" : null,
           platform: t.format_home,
         };
+        // Contradiction & Evidence — validate this idea against the research (real when keyed)
+        const val = await validateIdea(s, research).catch(() => null);
+        if (val) {
+          if (Array.isArray(val.contradictions) && val.contradictions.length) { s.contradiction = true; s.contradiction_of = val.contradictions[0].conflict || val.contradictions[0].claim || s.contradiction_of; }
+          if (Array.isArray(val.evidence) && val.evidence.length) s.evidence = val.evidence.map((e) => e.claim).filter(Boolean).join("; ").slice(0, 300) || s.evidence;
+        }
         const score = Math.round((W.gap * gap + W.velocity * velocity + W.strategic * strategic + W.historical * franchiseHist) * 1000) / 1000;
-        const breakdown = { gap, velocity, strategic, historical: Math.round(franchiseHist * 100) / 100, weights: W };
-        const gapType = s.contradiction ? "wrong" : velocity >= 0.8 ? "emerging" : gap >= 0.8 ? "unanswered" : items.length <= 1 ? "thin" : "stale";
+        const breakdown = { gap: Math.round(gap * 100) / 100, velocity: Math.round(velocity * 100) / 100, strategic: Math.round(strategic * 100) / 100, historical: Math.round(franchiseHist * 100) / 100, weights: W, demand: sig.demand, supply: sig.supply, live: sig.live };
+        const gapType = s.contradiction ? "wrong" : (sig.gapType || (velocity >= 0.8 ? "emerging" : gap >= 0.8 ? "unanswered" : items.length <= 1 ? "thin" : "stale"));
         const r = await wq(`insert into wh_feed_story(batch_id,cohort_id,demand_topic,franchise,platform,one_up,emotional_register,heading,topic_guide,summary,why_now,why_relevant,why_cohort,evidence,contradiction,contradiction_of,source_refs,score,score_breakdown,angle,gap_type,in_library,status)
           values($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19::jsonb,$20,$21,true,'draft') returning id`,
           [bid, cohortId, t.name, t.franchise, s.platform || t.format_home, s.one_up, s.emotional_register, s.heading, JSON.stringify(s.topic_guide || {}), s.summary, s.why_now, s.why_relevant, s.why_cohort, s.evidence || "", !!s.contradiction, s.contradiction_of || null, JSON.stringify(srcRefs), score, JSON.stringify(breakdown), ANGLES[a], gapType]);

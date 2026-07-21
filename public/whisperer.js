@@ -205,6 +205,7 @@ function ideaCard(s, i, franchises, opts = {}) {
       ${s.contradiction ? `<div class="why"><b>Contradicts:</b> ${esc(s.contradiction_of || "popular belief")}</div>` : ""}
       <div class="g-l" style="margin-top:12px">Score breakdown${w.gap ? ` · weights ${w.gap}·${w.velocity}·${w.strategic}·${w.historical}` : ""}</div>
       ${bar("gap", brd.gap)}${bar("velocity", brd.velocity)}${bar("strategic", brd.strategic)}${bar("historical", brd.historical)}
+      ${brd.live !== undefined ? `<div class="why" style="font-family:var(--mono);font-size:10.5px">signal: ${brd.live ? "live feed" : "config fallback"} · demand ${brd.demand ?? 0} Qs · supply ${brd.supply ?? 0} items</div>` : ""}
       ${s.source_refs?.length ? `<div class="g-l" style="margin-top:12px">Sources</div><div class="chips">${s.source_refs.slice(0, 6).map((r) => `<a class="chip" href="${esc(r.url)}" target="_blank" rel="noopener">${ic("external")} ${esc(r.source || "src")}</a>`).join("")}</div>` : ""}
       <div class="acts">
         <button class="btn small" onclick="idea(${s.id},'used')">${ic("check")} Used</button>
