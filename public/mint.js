@@ -17,6 +17,8 @@ async function init() {
   });
   $("#run").addEventListener("change", () => openRun($("#run").value, true)); // explicit switch → animate once
   $("#gen").addEventListener("click", generate);
+  renderChips();
+  $("#client").addEventListener("change", () => setTimeout(renderChips, 0));
   $("#purge").addEventListener("click", purge);
   $("#viewOutcomes").addEventListener("click", () => {
     const c = $("#client").value, r = $("#run").value;
@@ -706,5 +708,37 @@ window.askMissing = (item) => {
     setDirty(true);
   });
 };
+
+// ---- Rule chips (Munshi) — atomic clause-referenced rules, confirm/amend ----
+async function renderChips() {
+  const host = $("#chips"); if (!host) return;
+  const client = $("#client")?.value; if (!client || client === "__new__") return;
+  let { chips } = await (await fetch(`/api/mint/chips/${encodeURIComponent(client)}`)).json();
+  let total = (chips || []).reduce((n, g) => n + g.chips.length, 0);
+  if (!total) { const r = await (await fetch(`/api/mint/munshi/parse/${encodeURIComponent(client)}`, { method: "POST" })).json(); chips = r.chips || []; total = chips.reduce((n, g) => n + g.chips.length, 0); }
+  const confirmed = (chips || []).reduce((n, g) => n + g.chips.filter((c) => c.status === "confirmed").length, 0);
+  const badge = (typeof ic === "function" ? ic : () => "");
+  const chip = (c) => `<div class="mchip ${c.status === "confirmed" ? "ok" : ""}">
+      <div class="mchip-h"><b>${esc(c.key)}</b>${c.clause_ref ? `<span class="chip">${esc(c.clause_ref)}</span>` : ""}
+        <span class="chip ${c.status === "confirmed" ? "chip--approved" : "chip--draft"}" style="margin-left:auto">${esc(c.status)}${c.status !== "confirmed" ? " · " + Math.round((c.weight || 0) * 100) + "%" : ""}</span></div>
+      <div class="mchip-v">${esc(JSON.stringify(c.value))}</div>
+      <div class="mchip-a"><button class="btn small" onclick="confirmChip(${c.id})">${badge("check", 12)} Confirm</button>
+        <button class="btn small" onclick="amendChip(${c.id}, ${JSON.stringify(JSON.stringify(c.value)).replace(/"/g, "&quot;")})">${badge("edit", 12)} Amend</button></div>
+    </div>`;
+  host.innerHTML = `<p class="lbl" style="margin:0 0 8px">The contract corpus decomposed into <b>atomic, clause-referenced rule-chips</b> (Munshi method). Confirm locks a chip; a re-parse re-derives the rest but never overwrites a confirmed chip.</p>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn" onclick="reparseCorpus()">${badge("refresh", 13)} Re-parse corpus</button>
+      <span class="lbl">${total} chips · ${confirmed} confirmed</span><span id="chipMsg" class="lbl"></span></div>` +
+    (chips || []).map((g) => `<div class="grp" style="margin:14px 0 6px;font-weight:600;color:var(--ansr-navy);text-transform:capitalize">${esc(g.box_type.replace(/_/g, " "))} <span class="lbl" style="font-weight:400">· ${g.chips.length}</span></div>
+      <div class="mchips">${g.chips.map(chip).join("")}</div>`).join("");
+}
+window.reparseCorpus = async () => {
+  const client = $("#client").value; const m = $("#chipMsg"); if (m) m.textContent = "parsing…";
+  const r = await (await fetch(`/api/mint/munshi/parse/${encodeURIComponent(client)}`, { method: "POST" })).json();
+  if (m) m.textContent = `re-parsed ${r.parsed} · kept ${r.confirmed_kept} confirmed`;
+  renderChips();
+};
+window.confirmChip = async (id) => { await fetch(`/api/mint/chip/${id}/confirm`, { method: "POST" }); renderChips(); };
+window.amendChip = (id, cur) => appPrompt("Amend rule chip", "Value (JSON)", async (v) => { if (!v) return; await fetch(`/api/mint/chip/${id}/amend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ value: v }) }); renderChips(); }, { value: cur });
 
 init();

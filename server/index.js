@@ -18,6 +18,7 @@ import { runPipeline, aiMap, buildContext } from "./ai.js";
 import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples, federation, epidemiology } from "./engine/run.js";
 import { parseDate } from "./engine/normalize.js";
 import { mountWhisperer } from "./whisperer.js";
+import { mountMunshi } from "./munshi.js";
 import { getRate, setManualRate } from "./fx.js";
 import { classify as atlasClassify, route as atlasRoute, listArchetypes, archetypeDetail, getWiki } from "./atlas/atlas.js";
 import { createDrift } from "./atlas/drift.js";
@@ -629,6 +630,8 @@ app.post("/api/integrations/:id/test", async (req, res) => {
 
 // Whisperer routes (demand↔supply content intelligence — Journey 1, mock-first)
 mountWhisperer(app, slug);
+// Munshi-for-Mint — contract corpus → atomic clause-referenced rule-chips
+mountMunshi(app);
 
 // multer / upload errors → clean JSON (e.g. file too large)
 app.use((err, _req, res, _next) => {

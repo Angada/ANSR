@@ -1,8 +1,29 @@
-# 13 · Munshi-for-Mint — parser upgrade (BANKED / not built)
+# 13 · Munshi-for-Mint — parser upgrade (v1 BUILT)
 
-> **Status:** Parked design. Approved in principle, **not yet built**. Build in phases;
-> keep the current stub parser working until the new path is proven.
-> Owner: —  ·  Banked: 2026-07-21
+> **Status:** **v1 built & deployed.** Corpus→chips decomposition, hash-guarded
+> re-parse preserving human-confirmed chips, and the Mint "Rule chips · Munshi"
+> panel all live. Remaining: phase 4 (calc engine reads chips instead of the
+> static rule JSON) and real uploaded-SOW AI parse (currently deterministic from
+> the stub; the `mint-munshi-parse` AI path is wired but off by default).
+> Built: 2026-07-22 · Banked: 2026-07-21
+
+## Built in v1
+- **Schema** `db/init/016_munshi.sql`: `mint_contract_doc` + `mint_contract_chip`
+  (unique per customer×box×key, `status draft|confirmed`, `source_hash`, provenance).
+- **Parser** `server/munshi.js`: `decomposeChips()` breaks the 7 boxes into 33
+  atomic clause-referenced chips (each TA row / OSS slab / milestone / caveat = a
+  chip); `munshiParse()` upserts hash-guarded and **never overwrites a confirmed
+  chip** (verified: confirm a TA-rate chip → re-parse re-derives the other 32 but
+  keeps the confirmed value locked).
+- **Endpoints**: `POST /api/mint/munshi/parse/:client`, `GET /api/mint/chips/:client`,
+  `POST /api/mint/chip/:id/confirm`, `POST /api/mint/chip/:id/amend`.
+- **Pipeline**: `mint-munshi-parse` (Mint, hybrid) in the registry.
+- **UI**: Mint step 5 "Rule chips · Munshi" — chips grouped by box, each with
+  clause_ref + confidence + Confirm/Amend, plus a Re-parse button.
+
+## Remaining (phase 4-5)
+- Calc engine reads the chip set for a customer instead of `billing_rules` JSON.
+- Multi-doc corpus ingest (SOW + amendments) + enable the AI parse of real MD.
 
 ## Why
 

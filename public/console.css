@@ -185,3 +185,12 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--c-org);b
 .boxcard .lbl{font-size:9.5px}
 
 .wrap.mint #result li,.wrap.mint #result p,.wrap.mint #result .section{font-size:11px}
+
+/* ---- Munshi rule-chips (Mint step 5) ---- */
+.mchips{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.mchip{border:1px solid var(--c-line);border-radius:10px;background:#fff;padding:11px 12px;transition:.16s}
+.mchip.ok{border-color:var(--c-grn);background:#F6FBF8}
+.mchip-h{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px}
+.mchip-h b{color:var(--c-navy);font-family:ui-monospace,monospace;font-size:11px}
+.mchip-v{font-family:ui-monospace,monospace;font-size:10px;color:var(--c-dim);margin:7px 0;word-break:break-word;line-height:1.45;max-height:64px;overflow:auto}
+.mchip-a{display:flex;gap:6px}
