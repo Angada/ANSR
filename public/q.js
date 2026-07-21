@@ -58,34 +58,33 @@ window.appForm = (title, fields, onSubmit, okLabel = "Create") => {
 // every page without touching app.css. Monospace, phosphor-green, dark.
 const QTERM_CSS = `
 .q-term{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;
-  padding:10px 18px;background:linear-gradient(180deg,#070c15,#05080e);
-  border-bottom:1px solid rgba(63,240,166,.22);
+  padding:9px 18px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);
+  border-bottom:1px solid #E7E3DC;
   font-family:'Space Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
-  box-shadow:0 10px 30px -22px #000,0 1px 0 rgba(65,224,255,.08)}
+  box-shadow:0 8px 24px -20px rgba(0,36,46,.4)}
 .q-term a{text-decoration:none}
-.q-term__brand{display:flex;align-items:center;gap:9px;color:#e7f0fa}
-.q-term__led{width:9px;height:9px;border-radius:50%;background:#3ff0a6;box-shadow:0 0 10px #3ff0a6;animation:qled 1.8s ease-in-out infinite;flex:0 0 auto}
+.q-term__brand{display:flex;align-items:center;gap:10px;color:#1E1E1E}
+.q-term__logo{height:22px;width:auto;display:block}
+.q-term__led{width:8px;height:8px;border-radius:50%;background:#CE4502;box-shadow:0 0 0 3px rgba(206,69,2,.14);animation:qled 1.8s ease-in-out infinite;flex:0 0 auto}
 @keyframes qled{50%{opacity:.3}}
-.q-term__mark{font-weight:700;letter-spacing:.22em;font-size:15px}
-.q-term__mark b{color:#3ff0a6}
-.q-term__sys{color:#5f7189;font-size:10px;letter-spacing:.2em}
+.q-term__sys{color:#A79F93;font-size:10px;letter-spacing:.2em}
 .q-term__nav{display:flex;gap:6px;flex:1;flex-wrap:wrap}
-.q-term__tab{color:#8fa3bd;font-size:11px;letter-spacing:.16em;padding:7px 11px;border:1px solid transparent;border-radius:8px;transition:.16s;white-space:nowrap}
-.q-term__tab::before{content:"▹ ";color:#41e0ff}
-.q-term__tab:hover{color:#e7f0fa;border-color:rgba(122,162,204,.3)}
-.q-term__tab.on{color:#04120c;background:#3ff0a6;font-weight:700;box-shadow:0 0 18px -3px rgba(63,240,166,.65)}
-.q-term__tab.on::before{content:"▸ ";color:#04120c}
-.q-term__user{display:flex;align-items:center;gap:10px;font-size:10px;letter-spacing:.1em;color:#8fa3bd}
-.q-term__role{color:#41e0ff;border:1px solid rgba(65,224,255,.4);border-radius:999px;padding:3px 9px}
-.q-term__out{color:#8fa3bd}
-.q-term__out:hover{color:#ff5a52}
-.q-term__hamb{display:none;background:none;border:1px solid rgba(122,162,204,.3);color:#3ff0a6;border-radius:8px;padding:6px 10px;font-size:14px;cursor:pointer}
+.q-term__tab{color:#77726B;font-size:11px;letter-spacing:.16em;padding:7px 11px;border:1px solid transparent;border-radius:8px;transition:.16s;white-space:nowrap}
+.q-term__tab::before{content:"▹ ";color:#005465}
+.q-term__tab:hover{color:#1E1E1E;border-color:#D9D3C8}
+.q-term__tab.on{color:#CE4502;background:#FFF1E9;font-weight:700;border-color:#F3D6C2}
+.q-term__tab.on::before{content:"▸ ";color:#CE4502}
+.q-term__user{display:flex;align-items:center;gap:10px;font-size:10px;letter-spacing:.1em;color:#77726B}
+.q-term__role{color:#CE4502;border:1px solid #F3D6C2;background:#FFF1E9;border-radius:999px;padding:3px 9px}
+.q-term__out{color:#77726B}
+.q-term__out:hover{color:#CE4502}
+.q-term__hamb{display:none;background:none;border:1px solid #D9D3C8;color:#CE4502;border-radius:8px;padding:6px 10px;font-size:14px;cursor:pointer}
 @media(max-width:760px){
   .q-term{flex-wrap:wrap}
   .q-term__hamb{display:block;margin-left:auto}
   .q-term__nav,.q-term__user{display:none;width:100%;flex-direction:column;gap:4px}
   .q-term.q-open .q-term__nav,.q-term.q-open .q-term__user{display:flex}
-  .q-term__user{flex-direction:row;flex-wrap:wrap;padding-top:8px;border-top:1px solid rgba(122,162,204,.14)}
+  .q-term__user{flex-direction:row;flex-wrap:wrap;padding-top:8px;border-top:1px solid #E7E3DC}
 }`;
 // Inject the app menu into #appbar. activeTab: 'home'|'mint'|'raydar'|'admin'.
 window.qHeader = async (activeTab = "home") => {
@@ -100,7 +99,7 @@ window.qHeader = async (activeTab = "home") => {
   const tabs = [["home", "Q&", "/"], ["mint", "MINT", "/mint.html"], ["raydar", "RAYDAR", "/whisperer.html"], ["admin", "ADMIN", "/admin.html"]];
   el.outerHTML = `
   <header class="q-term" id="appbar">
-    <a href="/" class="q-term__brand" title="Home"><span class="q-term__led"></span><span class="q-term__mark">Q&amp;<b>ANSR</b></span><span class="q-term__sys">// CORE</span></a>
+    <a href="/" class="q-term__brand" title="Home"><span class="q-term__led"></span><img class="q-term__logo" src="/brand/assets/logos/QAnsr-logo.png" alt="Q&ANSR"><span class="q-term__sys">// CORE</span></a>
     <button class="q-term__hamb" aria-label="Menu" onclick="this.closest('.q-term').classList.toggle('q-open')">▚</button>
     <nav class="q-term__nav">
       ${tabs.map(([k, l, h]) => `<a href="${h}" class="q-term__tab ${activeTab === k ? "on" : ""}">${l}</a>`).join("")}
