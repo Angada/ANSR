@@ -24,6 +24,7 @@ First product on it: **Mint · AR Contract Reconciler**. The engine underneath i
 | 9 | [Glossary](09-glossary.md) | Every term defined in one place. |
 | 10 | [AI pipelines](10-ai-pipelines.md) | The pipeline registry — gates, skills & model selector (Mint + Atlas groups). |
 | 11 | [Contract Compiler](11-contract-compiler.md) | The N-dimensional rule model + coverage validation — and the **method** that built it (reusable on ESPL). |
+| 12 | [Whisperer](12-whisperer.md) | Plan — demand↔supply content intelligence (ClientMind chips · cohorts · Hunger · Feed Stories); new hub agent, mock-first. |
 
 ---
 
