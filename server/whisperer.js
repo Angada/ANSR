@@ -166,14 +166,14 @@ function topicSignals(items, gapMapVal) {
 async function validateIdea(s, research) {
   if (!research) return null;
   try {
-    const rule = await getRule("perplexity");                    // research-side prompt/model
+    // provider/model come from the raydar-contradiction pipeline config (swappable in Admin)
     const out = await runPipeline("raydar-contradiction", {
       system: "Validate the content idea against the research. Return STRICT JSON {\"evidence\":[{\"claim\":\"...\",\"source\":\"url\"}],\"contradictions\":[{\"claim\":\"...\",\"conflict\":\"what the belief is\"}]}. Only cite what the research supports; never assert independently.",
       user: `Idea: ${s.heading}\nSummary: ${s.summary}\nTake: ${JSON.stringify(s.topic_guide || {}).slice(0, 600)}\nResearch: ${JSON.stringify(research).slice(0, 2500)}`,
-      model: rule.model || undefined, maxTokens: 800,
+      maxTokens: 800,
     });
     if (out.mode === "ai" && out.text) return jsonFrom(out.text);
-  } catch { /* keep heuristic */ }
+  } catch { /* no validation → no contradiction claim */ }
   return null;
 }
 
@@ -202,14 +202,21 @@ async function classifyFeed(items) {
   return items;
 }
 
-// ---- Research / validation (Tavily → Serper → Perplexity, whichever enabled) -
+// ---- Research / validation — query ALL enabled research sources, combine ----
+// Every call reads its own business rule (query params + prompt + model) — no
+// hardcoded models/queries. Each ref is tagged with its source for attribution.
 async function researchTopic(topic) {
-  try {
-    if (enabled("tavily")) { const r = await timeout(fetch("https://api.tavily.com/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ api_key: getIntegrationKey("tavily"), query: `${topic} India 2025 trends`, max_results: 5, include_answer: true }) })); const j = await r.json(); return { answer: j.answer, refs: (j.results || []).map((x) => ({ title: x.title, url: x.url })) }; }
-    if (enabled("serper")) { const r = await timeout(fetch("https://google.serper.dev/search", { method: "POST", headers: { "X-API-KEY": getIntegrationKey("serper"), "content-type": "application/json" }, body: JSON.stringify({ q: `${topic} India trends`, gl: "in", hl: "en" }) })); const j = await r.json(); return { answer: (j.answerBox?.answer || j.knowledgeGraph?.description || ""), refs: (j.organic || []).slice(0, 5).map((x) => ({ title: x.title, url: x.link })) }; }
-    if (enabled("perplexity")) { const r = await timeout(fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { authorization: `Bearer ${getIntegrationKey("perplexity")}`, "content-type": "application/json" }, body: JSON.stringify({ model: "sonar", messages: [{ role: "user", content: `Research "${topic}" for India English audience: key recent facts + why trending. Cite sources.` }], max_tokens: 500 }) })); const j = await r.json(); return { answer: j.choices?.[0]?.message?.content, refs: (j.citations || []).map((u) => ({ title: u, url: u })) }; }
-  } catch { /* */ }
-  return null;
+  const runs = [];
+  const key = (id) => getIntegrationKey(id);
+  if (enabled("tavily")) runs.push((async () => { const c = (await getRule("tavily")).collection || {}; const r = await timeout(fetch("https://api.tavily.com/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ api_key: key("tavily"), query: topic, max_results: c.max_results || 5, search_depth: c.search_depth || "basic", include_answer: c.include_answer !== false }) })); const j = await r.json(); return { source: "tavily", answer: j.answer, refs: (j.results || []).map((x) => ({ title: x.title, url: x.url, source: "tavily" })) }; })());
+  if (enabled("serper")) runs.push((async () => { const c = (await getRule("serper")).collection || {}; const r = await timeout(fetch("https://google.serper.dev/search", { method: "POST", headers: { "X-API-KEY": key("serper"), "content-type": "application/json" }, body: JSON.stringify({ q: topic, gl: c.gl || "in", hl: c.hl || "en" }) })); const j = await r.json(); return { source: "serper", answer: j.answerBox?.answer || j.knowledgeGraph?.description || "", refs: (j.organic || []).slice(0, 5).map((x) => ({ title: x.title, url: x.link, source: "serper" })) }; })());
+  if (enabled("perplexity")) runs.push((async () => { const rule = await getRule("perplexity"); const c = rule.collection || {}; const r = await timeout(fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key("perplexity")}`, "content-type": "application/json" }, body: JSON.stringify({ model: c.model || "sonar", messages: [{ role: "user", content: `${rule.prompt || "Research + cite sources."}\nTopic: ${topic}` }], max_tokens: c.max_tokens || 500 }) })); const j = await r.json(); return { source: "perplexity", answer: j.choices?.[0]?.message?.content, refs: (j.citations || []).map((u) => ({ title: String(u), url: String(u), source: "perplexity" })) }; })());
+  if (enabled("exa")) runs.push((async () => { const c = (await getRule("exa")).collection || {}; const r = await timeout(fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": key("exa"), "content-type": "application/json" }, body: JSON.stringify({ query: topic, numResults: c.numResults || 5, useAutoprompt: c.useAutoprompt !== false }) })); const j = await r.json(); return { source: "exa", answer: "", refs: (j.results || []).map((x) => ({ title: x.title, url: x.url, source: "exa" })) }; })());
+  if (enabled("brave")) runs.push((async () => { const c = (await getRule("brave")).collection || {}; const r = await timeout(fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(topic)}&count=${c.count || 5}&country=${c.country || "in"}`, { headers: { "X-Subscription-Token": key("brave") } })); const j = await r.json(); return { source: "brave", answer: j.web?.results?.[0]?.description || "", refs: (j.web?.results || []).slice(0, 5).map((x) => ({ title: x.title, url: x.url, source: "brave" })) }; })());
+  if (!runs.length) return null;
+  const out = { answer: "", refs: [], sources: [] };
+  for (const s of await Promise.allSettled(runs)) if (s.status === "fulfilled" && s.value) { if (s.value.answer && !out.answer) out.answer = s.value.answer; out.refs.push(...(s.value.refs || [])); if (s.value.refs?.length || s.value.answer) out.sources.push(s.value.source); }
+  return (out.refs.length || out.answer) ? out : null;
 }
 async function ai(pipeline, system, user, maxTokens = 1200) {
   try { const out = await runPipeline(pipeline, { system, user, maxTokens }); if (out.mode === "ai" && out.text) return { j: jsonFrom(out.text), model: out.model }; } catch { /* */ }
@@ -397,22 +404,19 @@ export function mountWhisperer(app, slug) {
       const gap = sig.gap;
       for (let a = 0; a < 3; a++) {                       // 3 ideas / topic → ~18 total
         const grounding = (items.length || research) ? `\nReal feed: ${JSON.stringify(items.map((x) => ({ src: x.source, title: x.title, url: x.url, tags: x.tags })))}\nResearch: ${JSON.stringify(research || {}).slice(0, 2000)}` : "";
-        const contra = a === 1 || t.name === "Keywords and resume";
+        const contra = a === 1;
         const { j } = await ai("feedstory-generate", `Create ONE content idea (heading + topic guide brief only — NOT finished copy) for Talent500's '${t.franchise}' franchise. Angle: ${ANGLES[a]}. ${contra ? "This is a CONTRADICTION idea — push against a popular but wrong belief; state the belief. " : ""}Ground it in the real feed + research when given; evidence must be specific.`, `Demand topic: ${t.name} (underlying question: ${t.question})\nFranchise: ${t.franchise} · format: ${t.format_home}\nCohort: ${JSON.stringify(hunger).slice(0, 1200)}\nPick 1-up from ${JSON.stringify(oneups)}, register from ${JSON.stringify(regs)}.${grounding}`);
-        const srcRefs = [...items.map((x) => ({ title: x.title, url: x.url, source: x.source })), ...((research?.refs) || [])].slice(0, 6);
-        const s = j || {
-          heading: `${t.name}: the ${["truth", "myth everyone repeats", "numbers"][a]} no one tells you`,
-          summary: `A ${regs[a % regs.length] || "steady"} take on ${t.name.toLowerCase()} — ${t.franchise}.`,
-          topic_guide: { take: `Reframe "${t.question}" around what this cohort actually feels.`, beats: ["Open with the tension", "One insider data point", "A concrete do-this-now"], proof: ["a benchmark stat", "a real comment/thread"] },
-          why_now: items.length ? `${items.length} fresh items on this across YouTube/Reddit this month.` : "Recurring demand across India GCC talent this month.",
-          why_relevant: `Answers "${t.question}" directly.`, why_cohort: `This cohort (${batch.name}) over-indexes on ${(hunger.motivations || ["growth"])[0]}.`,
-          evidence: items.length ? `Grounded in ${items.length} live items` : "demand signal from cohort chips",
-          one_up: oneups[a % oneups.length], emotional_framework: "", emotional_register: regs[a % regs.length],
-          contradiction: contra, contradiction_of: contra ? "popular ATS/resume advice that's factually wrong" : null,
-          platform: t.format_home,
-        };
+        // LLM-only — no dummy fallback. If the model didn't return a usable idea, skip it.
+        if (!j || !j.heading) continue;
+        const s = j;
+        s.platform = s.platform || t.format_home;
+        s.emotional_register = s.emotional_register || regs[a % regs.length] || "";
+        s.one_up = s.one_up || oneups[a % oneups.length];
+        s.contradiction = !!s.contradiction;
+        s.contradiction_of = s.contradiction ? (s.contradiction_of || null) : null;
         // No TalentMind cohort on this batch → don't fabricate a cohort reason (nil).
         if (!cohortId) s.why_cohort = null;
+        const srcRefs = [...items.map((x) => ({ title: x.title, url: x.url, source: x.source })), ...((research?.refs) || [])].slice(0, 8);
         // Contradiction & Evidence — validate this idea against the research (real when keyed)
         const val = await validateIdea(s, research).catch(() => null);
         if (val) {
@@ -420,7 +424,8 @@ export function mountWhisperer(app, slug) {
           if (Array.isArray(val.evidence) && val.evidence.length) s.evidence = val.evidence.map((e) => e.claim).filter(Boolean).join("; ").slice(0, 300) || s.evidence;
         }
         const score = Math.round((W.gap * gap + W.velocity * velocity + W.strategic * strategic + W.historical * franchiseHist) * 1000) / 1000;
-        const breakdown = { gap: Math.round(gap * 100) / 100, velocity: Math.round(velocity * 100) / 100, strategic: Math.round(strategic * 100) / 100, historical: Math.round(franchiseHist * 100) / 100, weights: W, demand: sig.demand, supply: sig.supply, live: sig.live };
+        const sources = [...new Set([...srcRefs.map((r) => r.source), ...((research && research.sources) || [])])].filter(Boolean);
+        const breakdown = { gap: Math.round(gap * 100) / 100, velocity: Math.round(velocity * 100) / 100, strategic: Math.round(strategic * 100) / 100, historical: Math.round(franchiseHist * 100) / 100, weights: W, demand: sig.demand, supply: sig.supply, live: sig.live, sources };
         const gapType = s.contradiction ? "wrong" : (sig.gapType || (velocity >= 0.8 ? "emerging" : gap >= 0.8 ? "unanswered" : items.length <= 1 ? "thin" : "stale"));
         const r = await wq(`insert into wh_feed_story(batch_id,cohort_id,demand_topic,franchise,platform,one_up,emotional_register,heading,topic_guide,summary,why_now,why_relevant,why_cohort,evidence,contradiction,contradiction_of,source_refs,score,score_breakdown,angle,gap_type,in_library,status)
           values($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19::jsonb,$20,$21,true,'draft') returning id`,

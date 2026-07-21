@@ -234,6 +234,7 @@ function ideaCard(s, i, franchises, opts = {}) {
         ${s.emotional_register ? `<span class="chip">${esc(s.emotional_register)}</span>` : ""}
       </div>
       <p class="sum">${esc(s.summary)}</p>
+      <div class="srcrow">sources: ${(brd.sources && brd.sources.length) ? brd.sources.map((sc) => `<span class="src">${esc(sc)}</span>`).join("") : `<span class="src src-llm">LLM only</span>`}</div>
       <div class="expand">▾ why this ranks — click to expand</div>
     </div>
     <div class="reason">
@@ -347,6 +348,7 @@ window.explainIdea = (id) => {
     <div class="g-l">Composite score = ${pct} · gap ${w.gap} + velocity ${w.velocity} + strategic ${w.strategic} + historical ${w.historical}</div>
     ${contrib("gap", b.gap, w.gap)}${contrib("velocity", b.velocity, w.velocity)}${contrib("strategic", b.strategic, w.strategic)}${contrib("historical", b.historical, w.historical)}
     <div class="why" style="margin-top:10px"><b>Signal:</b> ${signal} · demand ${b.demand ?? 0} questions · supply ${b.supply ?? 0} items · gap type <b>${esc(s.gap_type || "—")}</b></div>
+    <div class="why"><b>Sources:</b> ${(b.sources && b.sources.length) ? b.sources.map((sc) => `<span class="src">${esc(sc)}</span>`).join("") : `<span class="src src-llm">LLM only — add YouTube / Reddit / Tavily / Serper keys for grounded sources</span>`}</div>
     <div class="why"><b>Why now:</b> ${esc(s.why_now || "—")}</div>
     <div class="why"><b>Why relevant:</b> ${esc(s.why_relevant || "—")}</div>
     <div class="why"><b>Cohort fit:</b> ${cohort}</div>
