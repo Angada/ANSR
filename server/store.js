@@ -102,26 +102,41 @@ const DEFAULT_CONFIG = {
       description: "Detect when a contract's fingerprint no longer fits its archetype (sim<.8 or heads changed) and suggest reroute or fork a new archetype version (lineage kept). No model call.",
       provider: "", model: "", skills: ["atlas"], enabled: true, prompt: "" },
 
-    // ---- Whisperer — demand↔supply content intelligence -------------------
-    "clientmind-parse": { id: "clientmind-parse", product: "Whisperer", name: "ClientMind Parse", kind: "hybrid",
-      description: "Read a candidate's whole corpus (CV, letters, history, notes) → a master profile + rich 'chips' (skills, interests, behaviours, aspirations, career patterns, motivations). Munshi method — re-parse on change, weekly refresh.",
-      provider: "anthropic", model: "claude-opus-4-8", skills: ["whisperer", "munshi"], enabled: true,
-      prompt: "You read a candidate's documents and history. Return STRICT JSON {\"master_md\":\"...\",\"chips\":[{\"kind\":\"skill|interest|behaviour|aspiration|career_pattern|motivation|domain|tenure\",\"value\":\"short label\",\"weight\":0-1}]}. Be detailed and specific; never invent facts — only what the docs support." },
-    "cohort-nl-query": { id: "cohort-nl-query", product: "Whisperer", name: "Cohort NL Query", kind: "llm",
-      description: "Turn a natural-language cohort description ('never stayed >2 years anywhere') into a structured filter over candidate meta + chips.",
-      provider: "anthropic", model: "claude-sonnet-4-6", skills: ["whisperer"], enabled: true,
-      prompt: "Convert the natural-language cohort query into STRICT JSON filter rules over candidate fields (meta.years_exp, meta.domain, meta.tenure[], chips[].value). Return {\"rules\":[{\"field\":\"...\",\"op\":\"...\",\"value\":...}], \"explain\":\"...\"}. Flag ambiguity, don't guess." },
-    "hunger-generate": { id: "hunger-generate", product: "Whisperer", name: "Hunger Story", kind: "llm",
-      description: "Analyse a cohort's ClientMind chips → a Hunt Outcome: who they are, what they care about, likely searches, motivations, emotional drivers, and the Demand Topics.",
-      provider: "anthropic", model: "claude-opus-4-8", skills: ["whisperer"], enabled: true,
-      prompt: "From the cohort's aggregated chips, write a warm, specific Hunt Outcome. Return STRICT JSON {\"who\":\"...\",\"cares_about\":[\"...\"],\"likely_searches\":[\"...\"],\"motivations\":[\"...\"],\"emotional_drivers\":[\"...\"],\"demand_topics\":[\"...\"]}." },
-    "trend-detect": { id: "trend-detect", product: "Whisperer", name: "Trend Detection", kind: "hybrid",
-      description: "Scan collected feed items (YouTube/Reddit/Trends/News) for emerging topics, viral conversations, recurring themes and opportunity signals.",
-      provider: "anthropic", model: "claude-sonnet-4-6", skills: ["whisperer"], enabled: true,
+    // ---- RayDar — Talent Trend Radar: demand↔supply content intelligence ----
+    // Hunger (demand) → Feed collection → Classify → Gap → Rank → Idea + validate.
+    "clientmind-parse": { id: "clientmind-parse", product: "RayDar", name: "TalentMind Parse", kind: "hybrid",
+      description: "Read a talent's whole corpus (CV, letters, history, notes) → a master profile + rich 'chips' (skills, interests, behaviours, aspirations, career patterns, motivations). Munshi method — re-parse on change, weekly refresh.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["raydar", "talentmind", "munshi"], enabled: true,
+      prompt: "You read a talent (job seeker)'s documents and history. Return STRICT JSON {\"master_md\":\"...\",\"chips\":[{\"kind\":\"skill|interest|behaviour|aspiration|career_pattern|motivation|domain|tenure\",\"value\":\"short label\",\"weight\":0-1}]}. Be detailed and specific; never invent facts — only what the docs support." },
+    "cohort-nl-query": { id: "cohort-nl-query", product: "RayDar", name: "TalentMind Cohort Query", kind: "llm",
+      description: "Turn a natural-language cohort description ('job seekers only, never stayed >2 years anywhere') into a structured filter over talent meta + chips.",
+      provider: "anthropic", model: "claude-sonnet-4-6", skills: ["raydar", "talentmind"], enabled: true,
+      prompt: "Convert the natural-language cohort query into STRICT JSON filter rules over talent fields (meta.years_exp, meta.domain, meta.tenure[], chips[].value). Return {\"rules\":[{\"field\":\"...\",\"op\":\"...\",\"value\":...}], \"explain\":\"...\"}. Flag ambiguity, don't guess." },
+    "hunger-generate": { id: "hunger-generate", product: "RayDar", name: "Hunger Story", kind: "llm",
+      description: "Step 1 (Hunger). Fuse the chosen routes — Trend Spotting chips, pasted SEO inputs, and/or a TalentMind cohort — into a Hunt Outcome: who they are, what they care about, likely searches, motivations, emotional drivers, and the Demand Topics for this batch.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["raydar"], enabled: true,
+      prompt: "From the batch's routes (trend chips + SEO text + cohort chips), write a warm, specific Hunt Outcome. Return STRICT JSON {\"who\":\"...\",\"cares_about\":[\"...\"],\"likely_searches\":[\"...\"],\"motivations\":[\"...\"],\"emotional_drivers\":[\"...\"],\"demand_topics\":[\"...\"]}." },
+    "trend-detect": { id: "trend-detect", product: "RayDar", name: "Feed Collection & Trend Detection", kind: "hybrid",
+      description: "Pull the feed (YouTube + comments, Reddit + comment trees, Trends, News) per each integration's business rules, then surface emerging topics, viral conversations and opportunity signals against the demand topics.",
+      provider: "anthropic", model: "claude-sonnet-4-6", skills: ["raydar"], enabled: true,
       prompt: "Given feed items, surface the strongest emerging trends relevant to the demand topics. Return STRICT JSON {\"trends\":[{\"title\":\"...\",\"signal\":\"...\",\"why_trending\":\"...\"}]}." },
-    "feedstory-generate": { id: "feedstory-generate", product: "Whisperer", name: "Feed Story", kind: "llm",
-      description: "Turn a matched (demand × trend) into a Feed Story: a HEADING + a TOPIC GUIDE (brief) — never finished content. Classified + justified.",
-      provider: "anthropic", model: "claude-opus-4-8", skills: ["whisperer"], enabled: true,
+    "raydar-classify": { id: "raydar-classify", product: "RayDar", name: "Item Classify", kind: "hybrid",
+      description: "Sub-pipeline. Classify each collected item → demand topic (1–6 / Emerging), 1Up franchise, 4-register distribution (FOMO · Anxiety · Optimism · Ambition), and the underlying question. Hash-cached so a repeated item is never re-billed.",
+      provider: "anthropic", model: "claude-sonnet-4-6", skills: ["raydar"], enabled: true,
+      prompt: "Classify one feed item. Return STRICT JSON {\"topic\":\"1..6|Emerging\",\"franchise\":\"...\",\"registers\":{\"FOMO\":0-1,\"Anxiety\":0-1,\"Optimism\":0-1,\"Ambition\":0-1},\"question\":\"the underlying question in the talent's head\"}. Comments/comment-trees carry the real feeling — weight them." },
+    "raydar-gap": { id: "raydar-gap", product: "RayDar", name: "Gap Analysis", kind: "deterministic",
+      description: "Sub-pipeline. Compare demand (what the cohort hungers for) against supply (what the feed already covers) per topic × franchise → a gap score. Pure math, no model call.",
+      provider: "anthropic", model: "", skills: ["raydar"], enabled: true, prompt: "" },
+    "raydar-rank": { id: "raydar-rank", product: "RayDar", name: "Composite Ranking", kind: "deterministic",
+      description: "Sub-pipeline. Rank ideas by 0.35·gap + 0.25·velocity + 0.20·strategic weight + 0.20·historical (Used feedback per franchise). Deterministic — the score breakdown is shown on every idea.",
+      provider: "anthropic", model: "", skills: ["raydar"], enabled: true, prompt: "" },
+    "raydar-contradiction": { id: "raydar-contradiction", product: "RayDar", name: "Contradiction & Evidence", kind: "llm",
+      description: "Sub-pipeline. Validate a candidate idea against research (Tavily/Serper/Perplexity) — attach cited evidence and flag claims that conflict with the feed before it reaches review.",
+      provider: "anthropic", model: "claude-sonnet-4-6", skills: ["raydar"], enabled: true,
+      prompt: "Given an idea and research results, return STRICT JSON {\"evidence\":[{\"claim\":\"...\",\"source\":\"url\"}],\"contradictions\":[{\"claim\":\"...\",\"conflict\":\"...\"}]}. Only cite what the sources support." },
+    "feedstory-generate": { id: "feedstory-generate", product: "RayDar", name: "Idea Generation", kind: "llm",
+      description: "Turn a matched (demand × trend) into a content idea: a HEADING + a TOPIC GUIDE (brief) routed to a 1Up franchise — never finished content. Classified + justified.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["raydar"], enabled: true,
       prompt: "Produce a content idea as STRICT JSON {\"heading\":\"...\",\"summary\":\"...\",\"topic_guide\":{\"take\":\"...\",\"beats\":[\"...\"],\"proof\":[\"...\"]},\"why_now\":\"...\",\"why_relevant\":\"...\",\"why_cohort\":\"...\",\"one_up\":\"...\",\"emotional_framework\":\"...\",\"emotional_register\":\"...\"}. The output is a heading + brief for a writer — do NOT write the finished piece. Be scientific AND creative in the justifications." },
   },
   // API-key integrations (RayDar). Feed/supply, research, validation. Google
@@ -134,19 +149,19 @@ const DEFAULT_CONFIG = {
 // endpoint to validate the key (best-effort).
 export const INTEGRATION_CATALOG = {
   // Feed / supply
-  youtube:    { label: "YouTube Data API", category: "Feed & supply", auth: "key", hint: "Google Cloud API key (YouTube Data API v3)", icon: "▶️" },
-  reddit:     { label: "Reddit", category: "Feed & supply", auth: "pair", hint: "app client_id:client_secret", icon: "👽" },
-  newsapi:    { label: "News (NewsAPI / GNews)", category: "Feed & supply", auth: "key", hint: "NewsAPI.org or GNews key", icon: "📰" },
-  serpapi:    { label: "SerpApi (Trends/News)", category: "Feed & supply", auth: "key", hint: "Google Trends + news via SerpApi", icon: "📈" },
+  youtube:    { label: "YouTube Data API", category: "Feed & supply", apps: ["RayDar"], auth: "key", hint: "Google Cloud API key (YouTube Data API v3)", icon: "▶️" },
+  reddit:     { label: "Reddit", category: "Feed & supply", apps: ["RayDar"], auth: "pair", hint: "app client_id:client_secret", icon: "👽" },
+  newsapi:    { label: "News (NewsAPI / GNews)", category: "Feed & supply", apps: ["RayDar"], auth: "key", hint: "NewsAPI.org or GNews key", icon: "📰" },
+  serpapi:    { label: "SerpApi (Trends/News)", category: "Feed & supply", apps: ["RayDar"], auth: "key", hint: "Google Trends + news via SerpApi", icon: "📈" },
   // Research / search
-  perplexity: { label: "Perplexity", category: "Research & search", auth: "key", hint: "pplx-… API key", icon: "🔎" },
-  tavily:     { label: "Tavily", category: "Research & search", auth: "key", hint: "tvly-… search API key", icon: "🧭" },
-  serper:     { label: "Serper", category: "Research & search", auth: "key", hint: "Google SERP API key", icon: "🔍" },
-  exa:        { label: "Exa", category: "Research & search", auth: "key", hint: "neural search key", icon: "✴️" },
-  brave:      { label: "Brave Search", category: "Research & search", auth: "key", hint: "Brave Search API key", icon: "🦁" },
+  perplexity: { label: "Perplexity", category: "Research & search", apps: ["RayDar"], auth: "key", hint: "pplx-… API key", icon: "🔎" },
+  tavily:     { label: "Tavily", category: "Research & search", apps: ["RayDar"], auth: "key", hint: "tvly-… search API key", icon: "🧭" },
+  serper:     { label: "Serper", category: "Research & search", apps: ["RayDar"], auth: "key", hint: "Google SERP API key", icon: "🔍" },
+  exa:        { label: "Exa", category: "Research & search", apps: ["RayDar"], auth: "key", hint: "neural search key", icon: "✴️" },
+  brave:      { label: "Brave Search", category: "Research & search", apps: ["RayDar"], auth: "key", hint: "Brave Search API key", icon: "🦁" },
   // Validation / fact
-  factcheck:  { label: "Google Fact Check", category: "Validation", auth: "key", hint: "Fact Check Tools API key", icon: "✅" },
-  wikidata:   { label: "Wikidata / Wikipedia", category: "Validation", auth: "none", hint: "public — no key needed", icon: "📚" },
+  factcheck:  { label: "Google Fact Check", category: "Validation", apps: ["RayDar"], auth: "key", hint: "Fact Check Tools API key", icon: "✅" },
+  wikidata:   { label: "Wikidata / Wikipedia", category: "Validation", apps: ["RayDar"], auth: "none", hint: "public — no key needed", icon: "📚" },
 };
 
 function ensure() {
@@ -167,7 +182,7 @@ function mergeDefaults(cfg) {
     // user keeps runtime choices (provider/model/enabled/prompt); code-defined
     // descriptive fields (name/description/skills/kind) always take the latest
     // from DEFAULT so registry edits propagate over a saved config.
-    pipelines[id] = { ...d, ...p, name: d.name ?? p.name, description: d.description ?? p.description, skills: d.skills ?? p.skills, kind: d.kind ?? p.kind };
+    pipelines[id] = { ...d, ...p, product: d.product ?? p.product, name: d.name ?? p.name, description: d.description ?? p.description, skills: d.skills ?? p.skills, kind: d.kind ?? p.kind };
   }
   return { ...DEFAULT_CONFIG, ...cfg, providers, pipelines, integrations: { ...(cfg.integrations || {}) } };
 }

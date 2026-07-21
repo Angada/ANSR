@@ -22,17 +22,26 @@ window.applyAllDefault = async () => {
   CFG = await (await fetch("/api/config")).json(); renderProducts();
 };
 
-// ---- Business Rules: per-integration collection rules + prompt + model gate ---
+// ---- Business Rules: per-app, per-integration collection rules + prompt + gate ---
+let RULES = null, RULE_APP = "All";
 async function renderRules() {
   const host = document.getElementById("rules"); if (!host) return;
-  const { rules } = await (await fetch("/api/wh/rules")).json();
+  if (!RULES) RULES = (await (await fetch("/api/wh/rules")).json()).rules || {};
   const cfg = CFG || (CFG = await (await fetch("/api/config")).json());
+  const apps = ["All", ...new Set(Object.values(RULES).map((r) => r.app || "Other"))];
   const modelOpts = `<option value="">Default (pipeline model)</option>` + Object.entries(cfg.providers).flatMap(([id, p]) => (p.models || []).map((m) => `<option value="${id}::${m}">${p.label} · ${m}</option>`)).join("");
-  host.innerHTML = `<p class="lbl" style="color:var(--ansr-gray)">How RayDar queries each external API (business rules), the AI prompt that processes it, its model (default pipeline model or a custom one), and the gate. All config — no deploy needed.</p>` +
-    Object.entries(rules || {}).map(([id, r]) => `
+  const shown = Object.entries(RULES).filter(([, r]) => RULE_APP === "All" || (r.app || "Other") === RULE_APP);
+  host.innerHTML = `<p class="lbl" style="color:var(--ansr-gray)">Business rules per app → how it queries each external API, the AI prompt that processes it, its model (default pipeline model or a custom one), and the gate. All config — no deploy needed.</p>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 12px">
+      <label class="lbl">App</label>
+      <select id="ruleApp" onchange="setRuleApp(this.value)" style="max-width:200px">${apps.map((a) => `<option ${a === RULE_APP ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
+      <span class="lbl">${shown.length} rule${shown.length === 1 ? "" : "s"}</span>
+    </div>` +
+    shown.map(([id, r]) => `
     <section class="pipe" data-rule="${id}">
       <div class="pipe-head" onclick="this.parentElement.classList.toggle('open')">
         <b>${id}</b>
+        <span class="chip chip--role">${esc(r.app || "Other")}</span>
         <span class="chip">${esc(r.pipeline || "")}</span>
         <span class="chip ${r.model ? "chip--approved" : "chip--draft"}">${r.model ? esc(r.model.split("::")[1] || r.model) : "default model"}</span>
         <span class="chip ${r.enabled ? "chip--approved" : "chip--draft"}" style="margin-left:auto">${r.enabled ? "on" : "off"}</span>
@@ -52,12 +61,13 @@ async function renderRules() {
       </div>
     </section>`).join("");
 }
+window.setRuleApp = (a) => { RULE_APP = a; renderRules(); };
 window.saveRule = async (id) => {
   let collection = {}; try { collection = JSON.parse(document.getElementById(`rc-${id}`).value || "{}"); } catch { document.getElementById(`rmsg-${id}`).textContent = "invalid JSON in collection rules"; return; }
   const body = { collection, prompt: document.getElementById(`rp-${id}`).value, model: document.getElementById(`rm-${id}`).value, enabled: document.getElementById(`re-${id}`).checked };
   const r = await fetch(`/api/wh/rules/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   document.getElementById(`rmsg-${id}`).textContent = r.ok ? "saved ✓" : "error";
-  renderRules();
+  RULES = null; renderRules();
 };
 
 // ---- RayDar admin: Integrations (key-based) + Vault + Accounts ---------------
@@ -73,6 +83,7 @@ async function renderIntegrations() {
     <div class="pipe" data-intg="${it.id}">
       <div class="pipe-head" onclick="this.parentElement.classList.toggle('open')">
         <b>${it.icon || "🔌"} ${esc(it.label)}</b>
+        ${(it.apps || []).map((a) => `<span class="chip chip--role">${esc(a)}</span>`).join("")}
         <span class="chip ${it.hasKey ? "chip--approved" : "chip--draft"}" style="margin-left:auto">${it.auth === "none" ? "public" : it.hasKey ? "key " + esc(it.keyHint) : "no key"}</span>
         <span class="chip ${it.enabled ? "chip--approved" : "chip--draft"}">${it.enabled ? "on" : "off"}</span>
         <span class="caret">⌄</span>
@@ -89,7 +100,8 @@ async function renderIntegrations() {
           </div>`}
       </div>
     </div>`;
-  host.innerHTML = Object.entries(byCat).map(([cat, items]) => `
+  host.innerHTML = `<p class="lbl" style="color:var(--ansr-gray)">Every external integration lives here — YouTube, Reddit, research &amp; validation APIs. Each carries an <b>app tag</b> (which app needs it, e.g. <span class="chip chip--role">RayDar</span>). Keys are stored AES-encrypted; how each is queried is set per app in <b>Business Rules</b>.</p>` +
+    Object.entries(byCat).map(([cat, items]) => `
     <div class="band">
       <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 8px">${esc(cat)}</h3>
       ${items.map(card).join("")}
