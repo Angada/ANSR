@@ -101,6 +101,28 @@ const DEFAULT_CONFIG = {
     "atlas-drift": { id: "atlas-drift", product: "Atlas", name: "Drift & Fork", kind: "deterministic",
       description: "Detect when a contract's fingerprint no longer fits its archetype (sim<.8 or heads changed) and suggest reroute or fork a new archetype version (lineage kept). No model call.",
       provider: "", model: "", skills: ["atlas"], enabled: true, prompt: "" },
+
+    // ---- Whisperer — demand↔supply content intelligence -------------------
+    "clientmind-parse": { id: "clientmind-parse", product: "Whisperer", name: "ClientMind Parse", kind: "hybrid",
+      description: "Read a candidate's whole corpus (CV, letters, history, notes) → a master profile + rich 'chips' (skills, interests, behaviours, aspirations, career patterns, motivations). Munshi method — re-parse on change, weekly refresh.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["whisperer", "munshi"], enabled: true,
+      prompt: "You read a candidate's documents and history. Return STRICT JSON {\"master_md\":\"...\",\"chips\":[{\"kind\":\"skill|interest|behaviour|aspiration|career_pattern|motivation|domain|tenure\",\"value\":\"short label\",\"weight\":0-1}]}. Be detailed and specific; never invent facts — only what the docs support." },
+    "cohort-nl-query": { id: "cohort-nl-query", product: "Whisperer", name: "Cohort NL Query", kind: "llm",
+      description: "Turn a natural-language cohort description ('never stayed >2 years anywhere') into a structured filter over candidate meta + chips.",
+      provider: "anthropic", model: "claude-sonnet-4-6", skills: ["whisperer"], enabled: true,
+      prompt: "Convert the natural-language cohort query into STRICT JSON filter rules over candidate fields (meta.years_exp, meta.domain, meta.tenure[], chips[].value). Return {\"rules\":[{\"field\":\"...\",\"op\":\"...\",\"value\":...}], \"explain\":\"...\"}. Flag ambiguity, don't guess." },
+    "hunger-generate": { id: "hunger-generate", product: "Whisperer", name: "Hunger Story", kind: "llm",
+      description: "Analyse a cohort's ClientMind chips → a Hunt Outcome: who they are, what they care about, likely searches, motivations, emotional drivers, and the Demand Topics.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["whisperer"], enabled: true,
+      prompt: "From the cohort's aggregated chips, write a warm, specific Hunt Outcome. Return STRICT JSON {\"who\":\"...\",\"cares_about\":[\"...\"],\"likely_searches\":[\"...\"],\"motivations\":[\"...\"],\"emotional_drivers\":[\"...\"],\"demand_topics\":[\"...\"]}." },
+    "trend-detect": { id: "trend-detect", product: "Whisperer", name: "Trend Detection", kind: "hybrid",
+      description: "Scan collected feed items (YouTube/Reddit/Trends/News) for emerging topics, viral conversations, recurring themes and opportunity signals.",
+      provider: "anthropic", model: "claude-sonnet-4-6", skills: ["whisperer"], enabled: true,
+      prompt: "Given feed items, surface the strongest emerging trends relevant to the demand topics. Return STRICT JSON {\"trends\":[{\"title\":\"...\",\"signal\":\"...\",\"why_trending\":\"...\"}]}." },
+    "feedstory-generate": { id: "feedstory-generate", product: "Whisperer", name: "Feed Story", kind: "llm",
+      description: "Turn a matched (demand × trend) into a Feed Story: a HEADING + a TOPIC GUIDE (brief) — never finished content. Classified + justified.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["whisperer"], enabled: true,
+      prompt: "Produce a content idea as STRICT JSON {\"heading\":\"...\",\"summary\":\"...\",\"topic_guide\":{\"take\":\"...\",\"beats\":[\"...\"],\"proof\":[\"...\"]},\"why_now\":\"...\",\"why_relevant\":\"...\",\"why_cohort\":\"...\",\"one_up\":\"...\",\"emotional_framework\":\"...\",\"emotional_register\":\"...\"}. The output is a heading + brief for a writer — do NOT write the finished piece. Be scientific AND creative in the justifications." },
   },
 };
 

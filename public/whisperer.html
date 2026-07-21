@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Whisperer — Q&ANSR</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div id="appbar" class="no-print"></div>
+  <div class="wrap">
+    <div class="band grad-accent" style="margin-top:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h2 style="color:var(--ansr-navy);font-weight:500;margin:0">Whisperer</h2>
+        <span class="chip chip--draft">Journey 1 · mock data</span>
+        <span class="lbl" style="color:var(--ansr-gray)">Demand ↔ Supply content intelligence</span>
+      </div>
+      <p class="lbl" style="margin:6px 0 0;color:var(--ansr-gray)">Candidates → ClientMind (chips) → Cohort → Hunger (Hunt Outcome) → Feed Stories. Each idea = a <b>heading + topic guide</b> for a writer, classified &amp; justified. Properties &amp; keys live in <a href="/admin.html" class="navtab" style="display:inline;padding:0;color:var(--ansr-orange)">Admin</a>.</p>
+    </div>
+
+    <div class="stepper" id="stepper" style="margin:12px 0"></div>
+
+    <div class="flow" id="flow">
+      <section class="flowstep"><div class="flow-rail"><span class="flow-num">1</span></div>
+        <div class="flow-body"><button class="flow-title" type="button" onclick="this.closest('.flowstep').classList.toggle('folded')">ClientMind</button>
+          <div class="flow-content"><div id="clientmind"></div></div></div></section>
+      <section class="flowstep"><div class="flow-rail"><span class="flow-num">2</span></div>
+        <div class="flow-body"><button class="flow-title" type="button" onclick="this.closest('.flowstep').classList.toggle('folded')">Cohort Builder</button>
+          <div class="flow-content"><div id="cohort"></div></div></div></section>
+      <section class="flowstep"><div class="flow-rail"><span class="flow-num">3</span></div>
+        <div class="flow-body"><button class="flow-title" type="button" onclick="this.closest('.flowstep').classList.toggle('folded')">Hunger · Hunt Outcome</button>
+          <div class="flow-content"><div id="hunger"></div></div></div></section>
+      <section class="flowstep"><div class="flow-rail"><span class="flow-num">4</span></div>
+        <div class="flow-body"><button class="flow-title" type="button" onclick="this.closest('.flowstep').classList.toggle('folded')">Feed Stories</button>
+          <div class="flow-content"><div id="stories"></div></div></div></section>
+    </div>
+  </div>
+  <script src="/q.js"></script>
+  <script>qHeader("home");</script>
+  <script src="/whisperer.js"></script>
+</body>
+</html>
