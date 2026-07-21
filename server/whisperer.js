@@ -3,8 +3,57 @@
 // with a deterministic MOCK fallback so the whole journey works with no key.
 import { q } from "./db/client.js";
 import { runPipeline } from "./ai.js";
+import { getIntegrationKey, publicIntegrations } from "./store.js";
 
 const jsonFrom = (text) => { const m = String(text || "").match(/\{[\s\S]*\}/); if (!m) return null; try { return JSON.parse(m[0]); } catch { return null; } };
+const enabled = (id) => { try { return !!publicIntegrations()[id]?.enabled && !!getIntegrationKey(id); } catch { return false; } };
+const timeout = (p, ms = 9000) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms))]);
+
+// ---- Feed collection (real when a source's key is enabled; else []) ---------
+async function fetchYouTube(topic) {
+  const key = getIntegrationKey("youtube"); if (!key) return [];
+  const r = await timeout(fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=4&regionCode=IN&relevanceLanguage=en&q=${encodeURIComponent(topic)}&key=${encodeURIComponent(key)}`));
+  const j = await r.json(); return (j.items || []).map((i) => ({ source: "youtube", external_id: i.id?.videoId, title: i.snippet?.title, url: `https://youtube.com/watch?v=${i.id?.videoId}`, body: i.snippet?.description }));
+}
+async function fetchReddit(topic) {
+  const pair = getIntegrationKey("reddit"); if (!pair || !pair.includes(":")) return [];
+  const [cid, secret] = pair.split(":");
+  const tok = await timeout(fetch("https://www.reddit.com/api/v1/access_token", { method: "POST", headers: { authorization: "Basic " + Buffer.from(`${cid}:${secret}`).toString("base64"), "content-type": "application/x-www-form-urlencoded", "user-agent": "qansr-whisperer/1.0" }, body: "grant_type=client_credentials" }));
+  const tj = await tok.json(); if (!tj.access_token) return [];
+  const r = await timeout(fetch(`https://oauth.reddit.com/search?q=${encodeURIComponent(topic)}&limit=4&sort=relevance&t=month`, { headers: { authorization: `Bearer ${tj.access_token}`, "user-agent": "qansr-whisperer/1.0" } }));
+  const j = await r.json(); return (j.data?.children || []).map((c) => ({ source: "reddit", external_id: c.data?.id, title: c.data?.title, url: "https://reddit.com" + c.data?.permalink, body: (c.data?.selftext || "").slice(0, 400) }));
+}
+async function fetchNews(topic) {
+  const key = getIntegrationKey("newsapi"); if (!key) return [];
+  const r = await timeout(fetch(`https://newsapi.org/v2/everything?q=${encodeURIComponent(topic)}&language=en&pageSize=4&sortBy=publishedAt&apiKey=${encodeURIComponent(key)}`));
+  const j = await r.json(); return (j.articles || []).map((a) => ({ source: "news", title: a.title, url: a.url, body: a.description }));
+}
+async function fetchSerpNews(topic) {
+  const key = getIntegrationKey("serpapi"); if (!key) return [];
+  const r = await timeout(fetch(`https://serpapi.com/search.json?engine=google_news&q=${encodeURIComponent(topic)}&gl=in&hl=en&api_key=${encodeURIComponent(key)}`));
+  const j = await r.json(); return (j.news_results || []).slice(0, 4).map((n) => ({ source: "serpapi", title: n.title, url: n.link, body: n.snippet }));
+}
+async function collectFeed(topics) {
+  const out = [];
+  for (const topic of (topics || []).slice(0, 3)) {
+    const batches = await Promise.allSettled([fetchYouTube(topic), fetchReddit(topic), fetchNews(topic), fetchSerpNews(topic)]);
+    for (const b of batches) if (b.status === "fulfilled") out.push(...(b.value || []));
+  }
+  // dedupe by url, persist
+  const seen = new Set(); const uniq = out.filter((x) => x.url && !seen.has(x.url) && seen.add(x.url));
+  for (const it of uniq) await q(`insert into wh_feed_item(source,external_id,title,url,body) values($1,$2,$3,$4,$5) on conflict do nothing`, [it.source, it.external_id || null, it.title || "", it.url, it.body || ""]).catch(() => {});
+  return uniq;
+}
+
+// ---- Research / validation (Tavily → Serper → Perplexity, whichever enabled) -
+async function researchTopic(topic) {
+  try {
+    if (enabled("tavily")) { const r = await timeout(fetch("https://api.tavily.com/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ api_key: getIntegrationKey("tavily"), query: `${topic} India 2025 trends`, max_results: 5, include_answer: true }) })); const j = await r.json(); return { answer: j.answer, refs: (j.results || []).map((x) => ({ title: x.title, url: x.url })) }; }
+    if (enabled("serper")) { const r = await timeout(fetch("https://google.serper.dev/search", { method: "POST", headers: { "X-API-KEY": getIntegrationKey("serper"), "content-type": "application/json" }, body: JSON.stringify({ q: `${topic} India trends`, gl: "in", hl: "en" }) })); const j = await r.json(); return { answer: (j.answerBox?.answer || j.knowledgeGraph?.description || ""), refs: (j.organic || []).slice(0, 5).map((x) => ({ title: x.title, url: x.link })) }; }
+    if (enabled("perplexity")) { const r = await timeout(fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { authorization: `Bearer ${getIntegrationKey("perplexity")}`, "content-type": "application/json" }, body: JSON.stringify({ model: "sonar", messages: [{ role: "user", content: `Research "${topic}" for India English audience: key recent facts + why trending. Cite sources.` }], max_tokens: 500 }) })); const j = await r.json(); return { answer: j.choices?.[0]?.message?.content, refs: (j.citations || []).map((u) => ({ title: u, url: u })) }; }
+  } catch { /* */ }
+  return null;
+}
 async function ai(pipeline, system, user, maxTokens = 1200) {
   try { const out = await runPipeline(pipeline, { system, user, maxTokens }); if (out.mode === "ai" && out.text) return { j: jsonFrom(out.text), model: out.model }; } catch { /* */ }
   return { j: null, model: null };
@@ -142,10 +191,18 @@ export function mountWhisperer(app, slug) {
     const oneups = (await wq(`select name from wh_one_up where active`)).rows.map((r) => r.name);
     const frames = (await wq(`select name from wh_emotional_framework where active`)).rows.map((r) => r.name);
     const regs = (await wq(`select name from wh_emotional_register where active`)).rows.map((r) => r.name);
+    // real feed + research when integrations are enabled (else empty → mock)
+    const feed = await collectFeed(topics).catch(() => []);
     const made = [];
     for (let i = 0; i < topics.length; i++) {
       const topic = topics[i];
-      const { j } = await ai("feedstory-generate", "Create a content idea (heading + brief only).", `Demand topic: ${topic}\nCohort: ${JSON.stringify(hunger).slice(0, 2000)}\nPick a 1-up from ${JSON.stringify(oneups)}, framework from ${JSON.stringify(frames)}, register from ${JSON.stringify(regs)}.`);
+      const research = await researchTopic(topic).catch(() => null);
+      const items = feed.filter((f) => (f.title || "").toLowerCase().includes(topic.split(" ")[0].toLowerCase())).slice(0, 5);
+      const grounding = (items.length || research)
+        ? `\nReal feed items: ${JSON.stringify(items.map((x) => ({ src: x.source, title: x.title, url: x.url })))}\nResearch: ${JSON.stringify(research || {}).slice(0, 2500)}`
+        : "";
+      const { j } = await ai("feedstory-generate", "Create a content idea (heading + brief only). Ground it in the real feed items + research when provided; cite source urls in proof.", `Demand topic: ${topic}\nCohort: ${JSON.stringify(hunger).slice(0, 1500)}\nPick a 1-up from ${JSON.stringify(oneups)}, framework from ${JSON.stringify(frames)}, register from ${JSON.stringify(regs)}.${grounding}`);
+      const srcRefs = [...items.map((x) => ({ title: x.title, url: x.url, source: x.source })), ...((research?.refs) || [])].slice(0, 6);
       const s = j || {
         heading: `${topic}: the ${["truth","playbook","numbers"][i % 3]} no one tells you`,
         summary: `A ${regs[i % regs.length] || "sharp"} take on ${topic.toLowerCase()} for this cohort.`,
@@ -154,15 +211,30 @@ export function mountWhisperer(app, slug) {
         why_cohort: `This cohort (${co.nl_query || co.name}) over-indexes on ${(hunger.motivations || ["growth"])[0]}.`,
         one_up: oneups[i % oneups.length], emotional_framework: frames[i % frames.length], emotional_register: regs[i % regs.length],
       };
-      const r = await wq(`insert into wh_feed_story(cohort_id,demand_topic,one_up,emotional_framework,emotional_register,heading,topic_guide,summary,why_now,why_relevant,why_cohort,status)
-        values($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,'draft') returning id`,
-        [id, topic, s.one_up, s.emotional_framework, s.emotional_register, s.heading, JSON.stringify(s.topic_guide || {}), s.summary, s.why_now, s.why_relevant, s.why_cohort]);
+      const r = await wq(`insert into wh_feed_story(cohort_id,demand_topic,one_up,emotional_framework,emotional_register,heading,topic_guide,summary,why_now,why_relevant,why_cohort,source_refs,status)
+        values($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11,$12::jsonb,'draft') returning id`,
+        [id, topic, s.one_up, s.emotional_framework, s.emotional_register, s.heading, JSON.stringify(s.topic_guide || {}), s.summary, s.why_now, s.why_relevant, s.why_cohort, JSON.stringify(srcRefs)]);
       made.push(r.rows?.[0]?.id);
     }
     res.json({ ok: true, made: made.length });
   });
 
   app.get("/api/wh/feedstories/:cohortId", async (req, res) => res.json({ stories: (await wq(`select * from wh_feed_story where cohort_id=$1 and status<>'deleted' order by id desc`, [Number(req.params.cohortId)])).rows }));
+
+  // which sources are live (enabled + keyed) → the journey shows real vs mock
+  app.get("/api/wh/feed/status", (_req, res) => {
+    let ig = {}; try { ig = publicIntegrations(); } catch { /* */ }
+    const live = (ids) => ids.filter((id) => ig[id]?.enabled && ig[id]?.hasKey);
+    const feed = live(["youtube", "reddit", "newsapi", "serpapi"]);
+    const research = live(["tavily", "serper", "perplexity", "exa", "brave"]);
+    res.json({ feed, research, live: feed.length > 0 || research.length > 0, mock: feed.length === 0 && research.length === 0 });
+  });
+  // manual feed collection (scheduler proxy)
+  app.post("/api/wh/feed/collect", async (req, res) => {
+    const topics = req.body?.topics?.length ? req.body.topics : (await wq(`select name from wh_demand_topic where active order by id limit 3`)).rows.map((r) => r.name);
+    const items = await collectFeed(topics).catch(() => []);
+    res.json({ ok: true, collected: items.length, sources: [...new Set(items.map((i) => i.source))] });
+  });
 
   app.post("/api/wh/feedstory/:id/action", async (req, res) => {
     const id = Number(req.params.id), a = req.body?.action;

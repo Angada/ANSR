@@ -96,8 +96,12 @@ window.saveHunger = async () => {
 // ---- 4 · Feed Stories ------------------------------------------------------
 window.runWhisperer = async () => {
   step(3, 3);
-  $("#stories").innerHTML = `<div id="fsMeter"></div>`;
-  await meter(["Collecting feed (YouTube · Reddit · Trends · News)", "Detecting trends", "Matching demand × supply", "Writing headings + topic guides", "Classifying + justifying"], "fsMeter", "✓ Feed Stories ready");
+  const st = await (await fetch("/api/wh/feed/status")).json().catch(() => ({ mock: true }));
+  const banner = st.live
+    ? `<div class="chip chip--approved">🟢 live sources: ${[...(st.feed || []), ...(st.research || [])].join(", ")}</div>`
+    : `<div class="chip chip--draft">mock data — enable YouTube/Reddit/Tavily/Serper keys in Admin → Integrations for live feed</div>`;
+  $("#stories").innerHTML = `<div style="margin-bottom:8px">${banner}</div><div id="fsMeter"></div>`;
+  await meter(["Collecting feed (YouTube · Reddit · Trends · News)", "Researching + validating", "Detecting trends", "Writing headings + topic guides", "Classifying + justifying"], "fsMeter", "✓ Feed Stories ready");
   await fetch(`/api/wh/feedstories/${COHORT.id}`, { method: "POST" });
   step(4);
   const { stories } = await (await fetch(`/api/wh/feedstories/${COHORT.id}`)).json();
@@ -132,6 +136,7 @@ function renderStories(stories) {
           <div class="lbl"><b style="color:var(--ansr-navy)">Why relevant:</b> ${esc(s.why_relevant)}</div>
           <div class="lbl"><b style="color:var(--ansr-navy)">Why this cohort:</b> ${esc(s.why_cohort)}</div>
         </div>
+        ${(s.source_refs || []).length ? `<div class="lbl" style="margin-top:6px"><b style="color:var(--ansr-navy)">Sources:</b> ${(s.source_refs || []).slice(0, 6).map((r) => `<a href="${esc(r.url)}" target="_blank" class="chip">${esc(r.source || "link")}</a>`).join(" ")}</div>` : ""}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
           <button class="btn" onclick="storyAction(${s.id},'approve')" style="border-color:var(--ansr-teal);color:var(--ansr-teal)">✓ Approve</button>
           <button class="btn btn--ghost" onclick="storyAction(${s.id},'bank')">🏦 Bank</button>
