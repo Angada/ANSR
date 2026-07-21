@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>RayDar — Q&ANSR</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div id="appbar" class="no-print"></div>
+  <div class="wrap">
+    <div class="band grad-accent" style="margin-top:14px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h2 style="color:var(--ansr-navy);font-weight:500;margin:0">RayDar</h2>
+        <span class="chip chip--draft">scope coming soon</span>
+        <span class="lbl" style="color:var(--ansr-gray)">Accounts &amp; Integrations</span>
+      </div>
+      <p class="lbl" style="margin:6px 0 0;color:var(--ansr-gray)">One admin page for the new agent — connect providers &amp; the <b>MissQ</b> assistant, wire Google + third-party integrations, a document vault, and accounts. Same pattern as Admin: one page, apply-to-all, model dropdowns.</p>
+    </div>
+
+    <div class="tabs no-print" role="tablist">
+      <button class="tab active" data-tab="missq">✨ MissQ · AI</button>
+      <button class="tab" data-tab="integrations">Integrations</button>
+      <button class="tab" data-tab="vault">Vault</button>
+      <button class="tab" data-tab="accounts">Accounts</button>
+    </div>
+
+    <div id="pane-missq" class="pane"><div id="missq"></div></div>
+    <div id="pane-integrations" class="pane" hidden><div id="integrations"></div></div>
+    <div id="pane-vault" class="pane" hidden><div id="vault"></div></div>
+    <div id="pane-accounts" class="pane" hidden><div id="accounts"></div></div>
+  </div>
+  <script src="/q.js"></script>
+  <script>qHeader("home");</script>
+  <script src="/raydar.js"></script>
+</body>
+</html>

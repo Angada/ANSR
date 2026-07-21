@@ -18,6 +18,7 @@ export function stubOps() {
     A("Ember", "Forecast", "Projects future billing from the hiring pipeline, with explainable drivers.", "", "coming"),
     A("Sentinel", "Anomaly Watch", "Spots outlier CTC, headcount jumps, and duplicate placements before approval.", "", "coming"),
     A("Trace", "Audit Vault", "Every document, extract, and number — provenance back to the original.", "", "coming"),
+    A("RayDar", "Accounts & Integrations", "New scope — coming soon. Set up accounts, Google + third-party integrations, a document vault and a per-agent AI console (MissQ) from one admin page.", "/raydar.html", "live"),
     A("Admin", "AI & Pipelines", "Switch models, manage AI pipelines and provider keys.", "/admin.html", "live"),
   ];
 }
