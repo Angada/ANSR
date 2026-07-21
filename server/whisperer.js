@@ -177,6 +177,21 @@ export function mountWhisperer(app, slug) {
     res.json({ ok: true, id: r.rows?.[0]?.id, members: members.length, member_ids: members });
   });
 
+  // Batch = the demand seed (Hunger step). Combine routes: trend topics + SEO +
+  // (optionally) a TalentMind-simulation cohort. Saved with name + timestamp.
+  app.post("/api/wh/batch", async (req, res) => {
+    const { name, trend_topics, talentmind_cohort_id, seo } = req.body || {};
+    const nm = name || `Batch ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+    if (talentmind_cohort_id) {                          // reuse the simulation cohort (has its hunger)
+      await wq(`update wh_cohort set name=$2 where id=$1`, [talentmind_cohort_id, nm]).catch(() => {});
+      return res.json({ ok: true, id: talentmind_cohort_id, name: nm });
+    }
+    const topics = (trend_topics || []).length ? trend_topics : (await wq(`select name from wh_demand_topic where active and name<>'Emerging' order by id`)).rows.map((r) => r.name);
+    const hunger = { who: `Batch seeded from ${[(trend_topics || []).length ? "Trend Spotting" : "", seo ? "SEO inputs" : ""].filter(Boolean).join(" + ") || "all topics"}.`, demand_topics: topics, cares_about: topics.slice(0, 4), motivations: ["growth"], routes: { trend: !!(trend_topics || []).length, seo: !!seo } };
+    const r = await wq(`insert into wh_cohort(name,nl_query,filter_def,member_ids,hunger_story) values($1,'',$2::jsonb,'{}',$3::jsonb) returning id`, [nm, JSON.stringify({ batch: true }), JSON.stringify(hunger)]);
+    res.json({ ok: true, id: r.rows?.[0]?.id, name: nm });
+  });
+
   // ---- Hunger (Hunt Outcome) ------------------------------------------------
   app.post("/api/wh/hunger/:cohortId", async (req, res) => {
     const id = Number(req.params.cohortId);
@@ -209,7 +224,10 @@ export function mountWhisperer(app, slug) {
     if (!co) return res.status(404).json({ error: "cohort not found" });
     const hunger = co.hunger_story || {};
     // the approved 6 demand topics + franchise routing (skip Emerging for generation)
-    const topicRows = (await wq(`select name, franchise, format_home, strategic_weight, question from wh_demand_topic where active and name<>'Emerging' order by id`)).rows;
+    let topicRows = (await wq(`select name, franchise, format_home, strategic_weight, question from wh_demand_topic where active and name<>'Emerging' order by id`)).rows;
+    // restrict to the batch's chosen demand topics (Trend Spotting / TalentMind) when set
+    const chosen = hunger.demand_topics || [];
+    if (chosen.length) { const sel = topicRows.filter((t) => chosen.includes(t.name)); if (sel.length) topicRows = sel; }
     const regs = (await wq(`select name from wh_emotional_register where active`)).rows.map((r) => r.name);
     const oneups = ["Contrarian take", "Insider data", "Do-this-now"];
     // historical acceptance per franchise (feedback loop → ranking)

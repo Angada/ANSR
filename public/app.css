@@ -497,3 +497,6 @@ td.pending, .pending-val { color: var(--ansr-gray-mid); }
 
 /* safe-area for notched phones */
 @supports (padding: max(0px)) { .wrap, .topbar { padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); } }
+
+/* RayDar trend-spotting selected chip */
+.ai-chip.sel { background: var(--ansr-orange); color: #fff; border-color: var(--ansr-orange); }
