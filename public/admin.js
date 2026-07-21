@@ -6,7 +6,63 @@ let CFG = null;
 
 async function load() {
   CFG = await (await fetch("/api/config")).json();
-  renderAiWriteup(); renderConnectors(); renderProducts(); wireTabs();
+  renderAiWriteup(); renderConnectors(); renderProducts();
+  renderIntegrations(); renderVault(); renderAccounts(); wireTabs();
+}
+
+// ---- RayDar admin: Integrations · Vault · Accounts (folded into this page) ----
+// Google + third-party connectors. Wire-ready placeholders — the live OAuth port
+// from TKB-Admin lands once a Google OAuth client (id/secret) + scopes are set.
+const INTEGRATIONS = [
+  { group: "Google", items: [
+    ["Gmail", "read + send mail, thread context for MissQ", "✉️"],
+    ["Calendar", "book / move / cancel meetings", "📅"],
+    ["Drive", "pull docs into the vault", "🗂️"],
+    ["Sheets", "MIS export + import", "📊"],
+    ["Contacts", "sync people into accounts", "👥"],
+    ["Google SSO", "sign in with a workspace domain", "🔐"],
+  ] },
+  { group: "Messaging & sources", items: [
+    ["Slack", "notifications + MissQ commands", "💬"],
+    ["WhatsApp", "client comms", "🟢"],
+    ["Talent500", "candidate pool for Whisperer / ClientMind", "🎯"],
+    ["YouTube", "feed collection (Whisperer supply)", "▶️"],
+    ["Reddit", "feed collection (Whisperer supply)", "👽"],
+  ] },
+];
+function renderIntegrations() {
+  const host = document.getElementById("integrations"); if (!host) return;
+  host.innerHTML = INTEGRATIONS.map((g) => `
+    <div class="band">
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 8px">${g.group}</h3>
+      <div class="agents" style="grid-template-columns:1fr 1fr;gap:10px">
+        ${g.items.map(([name, desc, ic]) => `
+          <div class="agent coming">
+            <div class="badge">${ic}</div>
+            <div style="flex:1"><div class="nm"><b>${name}</b><span class="chip chip--draft" style="margin-left:auto">coming soon</span></div>
+              <p class="blurb">${desc}</p></div>
+            <button class="btn btn--ghost" disabled style="align-self:center">Connect</button>
+          </div>`).join("")}
+      </div>
+    </div>`).join("") + `
+    <p class="lbl" style="color:var(--ansr-gray)">Ports from the TKB-Admin integration panels (Google OAuth + connectors). Needs a Google OAuth client (id/secret) in the Vault + a scope decision before wiring live.</p>`;
+}
+function renderVault() {
+  const host = document.getElementById("vault"); if (!host) return;
+  host.innerHTML = `
+    <div class="band">
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 6px">Document Vault <span class="chip chip--draft">coming soon</span></h3>
+      <p class="lbl" style="color:var(--ansr-gray)">The hybrid store — originals (T1) · markdown extracts (T2) · facts in Postgres (T3), served via the doc×api switch. Holds account docs, integration exports and encrypted provider/OAuth keys, with provenance back to source.</p>
+      <div class="chips" style="margin-top:8px">${["originals", "md extracts", "provider keys (encrypted)", "OAuth tokens", "audit trail"].map((s) => `<span class="chip">${s}</span>`).join("")}</div>
+    </div>`;
+}
+function renderAccounts() {
+  const host = document.getElementById("accounts"); if (!host) return;
+  host.innerHTML = `
+    <div class="band">
+      <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 6px">Accounts &amp; roles <span class="chip chip--draft">coming soon</span></h3>
+      <p class="lbl" style="color:var(--ansr-gray)">Accounts + teams + roles — each account carries its own integration connections, vault and MissQ context. Ports from the TKB-Admin users/RBAC.</p>
+    </div>`;
 }
 
 // short AI write-up (the full mapping lives in Pipelines by product below)
