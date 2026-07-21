@@ -27,15 +27,11 @@
     </div>
 
     <div id="pane-ai" class="pane" hidden>
-      <div class="band grad-teal">
-        <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 4px">AI Skills</h3>
-        <p class="lbl" style="color:var(--ansr-gray);font-size:13px;margin:0">Every AI skill behind the app → its gate (capability · provider · model · prompt). Routed through your BYOK keys in the <b>Vault</b> — nothing hardcoded. Raw user text never reaches a model outside an enabled pipeline.</p>
-      </div>
-      <div id="aiwrite"></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 6px">
+      <div id="skillFilter" class="skill-filter"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 8px">
         <label class="lbl">Default provider · model — apply to every skill</label>
-        <select id="defAll" style="min-width:200px"></select>
-        <button class="btn btn--ghost" onclick="applyAllDefault()">✦ Apply to all</button>
+        <select id="defAll" style="min-width:190px"></select>
+        <button class="btn btn--ghost" onclick="applyAllDefault()">Apply to all</button>
         <span id="defMsg" class="lbl"></span>
       </div>
       <div id="products"></div>

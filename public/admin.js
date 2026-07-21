@@ -7,7 +7,7 @@ let CFG = null;
 
 async function load() {
   CFG = await (await fetch("/api/config")).json();
-  renderAiWriteup(); renderDefaultAll(); renderProducts();
+  renderDefaultAll(); renderSkillFilter(); renderProducts();
   renderIntegrations(); renderRules(); renderVault(); renderAccounts(); wireTabs();
 }
 // default provider·model applied to every skill
@@ -229,11 +229,33 @@ window.makeDefault = async (id) => {
 // AI Skills — grouped by product; each skill a card with capability · routing ·
 // prompt · gate (TKB "AI Skills" design). Every pipeline behind the app appears.
 const CAP_COLOR = { deterministic: "#8a8a8a", llm: "#c0392b", hybrid: "#0a7d78" };
+let SKILL_FILTER = "All";
+const PROD_ORDER = ["RayDar", "Mint", "Atlas"];
+function pipeGroups() {
+  const raw = {};
+  for (const p of Object.values(CFG.pipelines)) (raw[p.product || "Other"] ||= []).push(p);
+  const ordered = {};
+  for (const k of PROD_ORDER) if (raw[k]) ordered[k] = raw[k];
+  for (const k of Object.keys(raw)) if (!ordered[k]) ordered[k] = raw[k];
+  return ordered;
+}
+// Agent filter boxes — one per product; click to show only that agent's skills.
+function renderSkillFilter() {
+  const host = document.getElementById("skillFilter"); if (!host) return;
+  const groups = pipeGroups();
+  const total = Object.values(CFG.pipelines).length;
+  const boxes = [["All", total], ...Object.entries(groups).map(([p, arr]) => [p, arr.length])];
+  host.innerHTML = boxes.map(([name, n]) =>
+    `<button class="agentbox ${SKILL_FILTER === name ? "on" : ""}" onclick="setSkillFilter('${esc(name).replace(/'/g, "\\'")}')">
+       <span class="ab-name">${esc(name)}</span><span class="ab-n">${n} skills</span>
+     </button>`).join("");
+}
+window.setSkillFilter = (name) => { SKILL_FILTER = name; renderSkillFilter(); renderProducts(); };
 function renderProducts() {
-  const groups = {};
-  for (const p of Object.values(CFG.pipelines)) (groups[p.product || "Other"] ||= []).push(p);
-  $("#products").innerHTML = Object.entries(groups).map(([prod, pipes]) =>
-    `<div class="grp" style="color:var(--ansr-navy);font-weight:600;font-size:14px;margin:20px 0 6px">${esc(prod)} <span class="lbl" style="font-weight:400">· ${pipes.length} skills</span></div>` +
+  const groups = pipeGroups();
+  const shown = Object.entries(groups).filter(([prod]) => SKILL_FILTER === "All" || prod === SKILL_FILTER);
+  $("#products").innerHTML = shown.map(([prod, pipes]) =>
+    `<div class="grp" style="color:var(--ansr-navy);font-weight:600;margin:18px 0 6px">${esc(prod)} <span class="lbl" style="font-weight:400">· ${pipes.length} skills</span></div>` +
     pipes.map(skillCard).join("")).join("");
 }
 function skillCard(p) {
