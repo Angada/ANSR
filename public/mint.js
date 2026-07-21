@@ -11,9 +11,11 @@ async function init() {
   $("#client").innerHTML = clients.map((c) => `<option value="${c.id}">${c.name}</option>`).join("")
     + `<option value="__new__">+ Create new client…</option>`;
   await loadRuns();
+  loadMunshi();
   $("#client").addEventListener("change", () => {
     if ($("#client").value === "__new__") return createClient();
     loadRuns();
+    loadMunshi();
   });
   $("#run").addEventListener("change", () => openRun($("#run").value, true)); // explicit switch → animate once
   $("#gen").addEventListener("click", generate);
@@ -705,6 +707,180 @@ window.askMissing = (item) => {
     appAlert("Recorded", `“${item}” noted — it'll ground the analysis.`);
     setDirty(true);
   });
+};
+
+// ============================================================================
+// Munshi-for-Mint — living contract corpus + atomic rule-chips (Phase 5 UI).
+// Renders the 7 boxes as chip GROUPS: every chip shows its clause_ref +
+// confidence + confirm/amend. Amendments re-derive affected rules and surface
+// confirmed-vs-proposed conflicts. Additive + flag-safe: the panel only shows
+// when a corpus exists, so the existing generate flow is untouched by default.
+// ============================================================================
+const ROLE_LABEL = { primary_sow: "SOW", amendment: "Amendment", side_letter: "Side-letter", clarification: "Clarification", prior_invoice: "Prior invoice", other: "Doc" };
+
+async function loadMunshi() {
+  const client = $("#client").value;
+  if (!client || client === "__new__") { $("#munshiCard").style.display = "none"; return; }
+  const [mode, groups] = await Promise.all([
+    fetch("/api/mint/parser").then((r) => r.json()).catch(() => ({ mode: "stub" })),
+    fetch(`/api/mint/chips/${client}`).then((r) => r.json()).catch(() => ({ boxes: [], corpus: [], conflicts: [] })),
+  ]);
+  if (client !== $("#client").value) return; // client changed mid-fetch
+  const hasCorpus = (groups.corpus || []).length > 0;
+  if (!hasCorpus && !(groups.chip_count > 0)) { $("#munshiCard").style.display = "none"; return; }
+  $("#munshiCard").style.display = "";
+  renderMunshi(mode.mode || "stub", groups);
+}
+
+function chipValLabel(ch) {
+  const v = ch.value || {};
+  if (v.kind === "row") {
+    const r = v.row || {};
+    return Object.entries(r).filter(([k]) => k !== "clause_ref").map(([k, x]) => `${esc(k)}=<b>${esc(x)}</b>`).join(" · ");
+  }
+  if (v.kind === "item") return esc(v.v);
+  if (v.kind === "object") return esc(JSON.stringify(v.v));
+  return `${esc(v.field)}: <b>${esc(v.v)}</b>`;
+}
+function chipTable(ch) {
+  const v = ch.value || {};
+  if (v.kind === "row") return v.table;
+  if (v.kind === "item") return v.field;
+  return v.field || "";
+}
+
+function chipRow(ch) {
+  const cc = confClass(ch.confidence ?? 0.7);
+  const locked = ch.status === "confirmed";
+  const pending = ch.provenance?.pending;
+  const src = ch.provenance?.doc_id ? ` · <span class="lbl" title="source doc">${esc(ch.provenance.doc_id)}</span>` : "";
+  return `<div class="chiprow" data-id="${ch.id}" style="display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--ansr-border)">
+    <span class="conf-dot ${cc}" title="confidence ${((ch.confidence ?? 0) * 100).toFixed(0)}%" style="margin-top:5px"></span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;line-height:1.5">${chipValLabel(ch)}</div>
+      <div class="lbl" style="color:var(--ansr-gray);margin-top:2px"><em>${esc(ch.clause_ref || "")}</em>${src}${pending ? ` · <span style="color:#b3261e">amendment proposes a change</span>` : ""}</div>
+    </div>
+    <div style="display:flex;gap:6px;flex-shrink:0">
+      ${locked
+        ? `<span class="chip chip--approved" title="human-confirmed reading — never overwritten by re-parse">${ic("check")} locked</span>`
+        : `<button class="btn btn--ghost" style="padding:4px 10px;min-height:32px" onclick="confirmChip(${ch.id})">Confirm</button>`}
+      <button class="btn btn--ghost" style="padding:4px 10px;min-height:32px" onclick="amendChipUI(${ch.id})">Amend</button>
+    </div>
+  </div>`;
+}
+
+function chipGroupCard(box) {
+  const cc = confClass(box.confidence ?? 0.7);
+  const nConf = box.chips.filter((c) => c.status === "confirmed").length;
+  return `<div class="boxcard">
+    <div class="bc-head"><span><span class="conf-dot ${cc}"></span><b>${esc(box.title)}</b></span>
+      <span class="chip ${box.status === "approved" ? "chip--approved" : "chip--draft"}">${nConf}/${box.chips.length} confirmed</span></div>
+    <div class="bc-data">
+      <div class="lbl" style="color:var(--ansr-gray);margin-bottom:6px"><em>${esc(box.clause_ref || "")}</em> · ${esc(box.ai_explain || "")}</div>
+      ${box.chips.map(chipRow).join("") || `<div class="lbl">No chips.</div>`}
+    </div>
+  </div>`;
+}
+
+function renderMunshi(mode, g) {
+  const client = $("#client").value;
+  const corpus = g.corpus || [], conflicts = g.conflicts || [];
+  const isMunshi = mode === "munshi";
+  const corpusRows = corpus.map((d) => `<span class="chip chip--role" title="${esc(d.doc_id)}${d.effective_date ? " · eff " + esc(d.effective_date) : ""}">${esc(ROLE_LABEL[d.role] || d.role)}: ${esc(d.title || d.doc_id)}</span>`).join(" ");
+  const conflictBanner = conflicts.length ? `
+    <div class="conf-lo" style="padding:10px;border-radius:8px;margin:10px 0">
+      <b>${ic("bolt")} ${conflicts.length} amendment conflict${conflicts.length > 1 ? "s" : ""}</b>
+      <div class="lbl" style="margin-top:2px">A re-parse proposes changing a reading you confirmed. Your reading is kept until you decide.</div>
+      ${conflicts.map((c) => `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:13px">
+        <span class="lbl"><em>${esc(c.clause_ref || c.key)}</em></span>
+        confirmed <b>${esc(JSON.stringify(c.confirmed?.row ?? c.confirmed?.v ?? c.confirmed))}</b>
+        → proposed <b>${esc(JSON.stringify(c.proposed?.value?.row ?? c.proposed?.value?.v ?? c.proposed?.value))}</b>
+        <button class="btn btn--ghost" style="padding:3px 9px;min-height:30px" onclick="resolveConflict(${c.id},'keep')">Keep mine</button>
+        <button class="btn" style="padding:3px 9px;min-height:30px" onclick="resolveConflict(${c.id},'take')">Take amendment</button>
+      </div>`).join("")}
+    </div>` : "";
+
+  $("#munshi").innerHTML = `
+    <div class="sd" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <div><b style="font-size:15px">Living contract corpus</b>
+        <span class="lbl" style="margin-left:6px">${g.chip_count || 0} rule-chips · every number traces to chip → clause → doc</span></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span class="chip ${isMunshi ? "chip--approved" : "chip--draft"}" title="calc read-path">Parser: ${isMunshi ? "Munshi (chips)" : "stub (static box)"}</span>
+        <button class="btn btn--ghost" style="padding:4px 10px;min-height:32px" onclick="toggleParser('${isMunshi ? "stub" : "munshi"}')">Switch to ${isMunshi ? "stub" : "Munshi"}</button>
+        <span id="trustBadge" class="lbl"></span>
+      </div>
+    </div>
+    <div style="margin:10px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      ${corpusRows || `<span class="lbl">No corpus yet.</span>`}
+      <label class="btn btn--ghost" style="padding:4px 10px;min-height:32px;cursor:pointer">${ic("upload")} Add amendment<input type="file" id="amendFile" accept=".pdf,.docx,.doc,.txt,.md" style="display:none" onchange="addAmendment(this)"></label>
+      <button class="btn btn--ghost" style="padding:4px 10px;min-height:32px" onclick="reparseCorpus()">${ic("spark")} Re-parse changed</button>
+      ${corpus.length ? "" : `<button class="btn" style="padding:4px 10px;min-height:32px" onclick="intakeCorpusUI()">Build chips</button>`}
+    </div>
+    ${conflictBanner}
+    <div class="boxrail" id="chiprail">${(g.boxes || []).map(chipGroupCard).join("") || `<div class="lbl">No chips yet — register a SOW and build the chip set.</div>`}</div>`;
+  loadTrust(client);
+}
+
+async function loadTrust(client) {
+  try {
+    const t = await fetch(`/api/mint/trust/${client}`).then((r) => r.json());
+    const el = document.getElementById("trustBadge"); if (!el) return;
+    if (t.reason) { el.innerHTML = `<span class="chip chip--draft">${esc(t.reason)}</span>`; return; }
+    el.innerHTML = t.ready
+      ? `<span class="chip chip--approved" title="worked examples reproduce from chips">${ic("check")} trust test passes</span>`
+      : `<span class="chip chip--flag" title="chip rule book doesn't yet reproduce the worked examples">${ic("bolt")} trust test pending</span>`;
+  } catch { /* */ }
+}
+
+window.toggleParser = async (mode) => {
+  await fetch("/api/mint/parser", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ mode }) });
+  loadMunshi();
+};
+window.confirmChip = async (id) => {
+  await fetch(`/api/mint/chip/${id}/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value }) });
+  loadMunshi();
+};
+window.amendChipUI = (id) => {
+  appPrompt("Amend chip", "Enter the corrected value (JSON for a row, or a plain value). This locks your reading — re-parse will never overwrite it.", async (t) => {
+    if (!t) return;
+    let value; try { value = JSON.parse(t); } catch { value = t; }
+    await fetch(`/api/mint/chip/${id}/amend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, value }) });
+    loadMunshi();
+  });
+};
+window.resolveConflict = async (id, how) => {
+  // "keep" = leave confirmed value (just clear the pending flag by re-confirming);
+  // "take" = amend the chip to the proposed value. Both go through the audited path.
+  const g = await fetch(`/api/mint/chips/${$("#client").value}`).then((r) => r.json());
+  const c = (g.conflicts || []).find((x) => x.id === id); if (!c) return loadMunshi();
+  if (how === "take") {
+    await fetch(`/api/mint/chip/${id}/amend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, value: c.proposed.value }) });
+  } else {
+    await fetch(`/api/mint/chip/${id}/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value }) });
+  }
+  loadMunshi();
+};
+window.reparseCorpus = async () => {
+  const r = await fetch("/api/mint/corpus/reparse", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value }) }).then((x) => x.json());
+  const t = r.totals || {};
+  appAlert("Re-parsed", `Re-parsed ${t.reparsed || 0} doc(s), skipped ${t.skipped || 0} unchanged. ${t.updated || 0} chips updated, ${t.preserved || 0} confirmed kept, ${t.conflicts || 0} conflict(s).`);
+  loadMunshi();
+};
+window.intakeCorpusUI = async () => {
+  await fetch("/api/mint/corpus/intake", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value }) });
+  loadMunshi();
+};
+window.addAmendment = async (input) => {
+  const f = input.files?.[0]; if (!f) return;
+  const client = $("#client").value;
+  const fd = new FormData(); fd.append("file", f); fd.append("customer", client); fd.append("docType", "amendment");
+  const up = await fetch("/api/upload", { method: "POST", body: fd }).then((r) => r.json());
+  if (!up.docId) return appAlert("Upload failed", up.error || "");
+  await fetch("/api/mint/corpus/add", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client, doc_id: up.docId, role: "amendment", title: f.name }) });
+  const r = await fetch("/api/mint/corpus/reparse", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client }) }).then((x) => x.json());
+  const t = r.totals || {};
+  appAlert("Amendment added", `Parsed the amendment: ${t.updated || 0} rules re-derived, ${t.preserved || 0} confirmed kept, ${t.conflicts || 0} conflict(s) to review.`);
+  loadMunshi();
 };
 
 init();

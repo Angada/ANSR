@@ -10,6 +10,8 @@ import { computeRun, runWorkedExamples } from "./compute.js";
 import { createFederation } from "../atlas/federation.js";
 import { createEpidemiology } from "../atlas/epidemiology.js";
 import { getRuleSet } from "./ruleset.js";
+import { useChips } from "../munshi/flag.js";
+import { ruleBookFromChips } from "../munshi/engine.js";
 
 const cid = (client) => `(select id from customer where code='${client.replace(/'/g, "")}')`;
 export const federation = createFederation(q);
@@ -29,6 +31,15 @@ export async function getRuleBook(client) {
     const rs = await getRuleSet(q, client);
     if (rs?.compiled?.cost_heads?.length) return rs.compiled;
   } catch { /* */ }
+  // 2) Munshi chip path (flag-gated): assemble the rule book from the chip set,
+  // so every number traces to chip → clause → doc span. Falls through to the
+  // static billing_rules path when off or no chips exist (the trust-test guard).
+  if (useChips()) {
+    try {
+      const rb = await ruleBookFromChips(client);
+      if (rb?.cost_heads?.length) return rb;
+    } catch { /* */ }
+  }
   let box = null;
   try {
     const r = await q(`select manifest from run where customer_id=(select id from customer where code=$1) order by run_no desc limit 1`, [client]);

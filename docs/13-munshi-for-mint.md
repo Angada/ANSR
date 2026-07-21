@@ -1,8 +1,42 @@
-# 13 · Munshi-for-Mint — parser upgrade (BANKED / not built)
+# 13 · Munshi-for-Mint — parser upgrade (BUILT / flag-gated)
 
-> **Status:** Parked design. Approved in principle, **not yet built**. Build in phases;
-> keep the current stub parser working until the new path is proven.
-> Owner: —  ·  Banked: 2026-07-21
+> **Status:** Built in phases, tested locally against the live DB. Ships **flag-gated**
+> (`MINT_PARSER`, default `stub`) — the current single-SOW path stays live until the
+> chip path reproduces the worked examples (the trust test). Not yet deployed.
+> Owner: —  ·  Banked: 2026-07-21 · Built: 2026-07-22
+
+## Built (what landed)
+
+- **Schema** — [`db/init/016_munshi_chips.sql`](../db/init/016_munshi_chips.sql):
+  `contract_doc` (corpus membership layered over `document`), `contract_chunk`
+  (per-clause content hashes = the change detector), `contract_chip` (atomic,
+  weighted, provenance-backed rule facts; unique `(customer, box_type, key)`).
+- **Engine** — [`server/munshi/`](../server/munshi/): `atomize.js` (box↔chip round-trip,
+  byte-identical), `chunk.js` (multi-doc chunk + hash-diff), `mstore.js` (persistence
+  with **confirmed-chip preservation**), `engine.js` (intake · reparse · read-path),
+  `flag.js`.
+- **Calc read-path** — `getRuleBook()` in [`server/engine/run.js`](../server/engine/run.js)
+  reads the chip set (assembled → `compileRuleBook`) when `MINT_PARSER=munshi`; each
+  number traces chip → clause → doc span. Falls back to the static box path otherwise.
+- **Routes** — `/api/mint/corpus/*` (add/list/intake/reparse), `/api/mint/chips/:client`,
+  `/api/mint/chip/:id/{confirm,amend}`, `/api/mint/trust/:client` (worked-example gate),
+  `/api/mint/parser` (flag toggle) in [`server/index.js`](../server/index.js).
+- **UI** — [`public/mint.js`](../public/mint.js) + [`mint.html`](../public/mint.html):
+  the "Living contract corpus" panel — 7 boxes as chip groups, per-chip
+  clause_ref + confidence + confirm/amend, corpus manager (add amendment → re-derive),
+  amendment-conflict banner (confirmed vs proposed), parser toggle + trust badge.
+  Additive + hidden until a corpus exists, so the generate flow is untouched.
+
+**Verified locally:** atomizer round-trips byte-identical & yields identical
+worked-example results vs the stub path; confirm→amend→force-reparse **preserves** the
+human reading and **surfaces** the AI's re-derivation as a conflict (never overwrites);
+flag flip changes what `getRuleBook` returns (stub 8.5% → chip 7.25%); delta re-parse
+skips unchanged docs. **Trust gate correctly refuses to flip** while the stub's
+worked-example `expected` strings aren't machine-verifiable — real AI intake emits
+numeric expecteds. **Not deployed** (awaiting approval).
+
+---
+
 
 ## Why
 

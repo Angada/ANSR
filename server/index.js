@@ -24,6 +24,8 @@ import { createDrift } from "./atlas/drift.js";
 import { createPreIntake } from "./atlas/preintake.js";
 import { runMigrations } from "./migrate.js";
 import { stubClauses, upsertInterpretation, getInterpretations } from "./clauses.js";
+import { registerCorpusDoc, intakeCorpus, reparse, getChipGroups, ruleBookFromChips, mstore } from "./munshi/engine.js";
+import { parserMode, setParserMode } from "./munshi/flag.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const uploads = join(root, "uploads"); // multer temp only — persistent artifacts go to storage.js
@@ -527,6 +529,57 @@ app.post("/api/mint/interpret", async (req, res) => {
   const ok = await upsertInterpretation(client, { clause_ref, reading, compiles_to });
   res.json({ ok, clause_ref, learned: ok });
 });
+
+// ---- Munshi-for-Mint — living contract corpus + atomic rule-chips ----------
+// (flag-gated: MINT_PARSER=munshi routes calc through the chip set; default stub)
+// register a doc (uploaded via /api/upload → docId) into the contract corpus
+app.post("/api/mint/corpus/add", async (req, res) => {
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  try { res.json(await registerCorpusDoc(client, req.body || {})); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.get("/api/mint/corpus/:client", async (req, res) => {
+  res.json({ corpus: await mstore.listCorpus(slug(req.params.client)) });
+});
+// full (re)build of the chip set from the whole corpus
+app.post("/api/mint/corpus/intake", async (req, res) => {
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  try { res.json(await intakeCorpus(client)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// re-parse only the docs whose content hash moved (delta); confirmed chips kept
+app.post("/api/mint/corpus/reparse", async (req, res) => {
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  try { res.json(await reparse(client, { force: !!req.body?.force })); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+// the chip view: 7 boxes as chip groups + corpus + confirmed-vs-amendment conflicts
+app.get("/api/mint/chips/:client", async (req, res) => {
+  try { res.json(await getChipGroups(slug(req.params.client))); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post("/api/mint/chip/:id/confirm", async (req, res) => {
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  res.json({ ok: await mstore.confirmChip(client, Number(req.params.id)) });
+});
+app.post("/api/mint/chip/:id/amend", async (req, res) => {
+  const client = slug(req.body?.client || "ANSR-KENVUE");
+  if (req.body?.value === undefined) return res.status(400).json({ error: "value required" });
+  res.json({ ok: await mstore.amendChip(client, Number(req.params.id), req.body.value) });
+});
+// trust badge: run the SOW's worked examples through the CHIP-assembled rule book
+app.get("/api/mint/trust/:client", async (req, res) => {
+  const client = slug(req.params.client);
+  try {
+    const rb = await ruleBookFromChips(client);
+    if (!rb) return res.json({ ready: false, reason: "no chips — run corpus intake first" });
+    const tests = await runWorkedExamples(rb, getRate);
+    res.json({ ready: tests.length > 0 && tests.every((t) => t.pass), tests, heads: rb.cost_heads.map((h) => h.code), warnings: rb._warnings || [], source: rb._source });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+// the parser flag (stub | munshi) — read + toggle
+app.get("/api/mint/parser", (_req, res) => res.json({ mode: parserMode() }));
+app.post("/api/mint/parser", (req, res) => res.json({ mode: setParserMode(req.body?.mode) }));
 
 // the AI write-up / mapping for the Admin tab
 app.get("/api/ai/map", (_req, res) => res.json({ pipelines: aiMap() }));
