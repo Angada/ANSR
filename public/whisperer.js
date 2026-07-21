@@ -53,7 +53,7 @@ window.setView = (v) => {
 };
 
 async function init() {
-  renderSubnav(); rail();
+  renderSubnav(); rail(); renderBatchPick();
   ALL_TOPICS = (await (await fetch("/api/wh/topics")).json()).topics || [];
   FRANCHISES = ((await (await fetch("/api/wh/franchises")).json()).franchises) || [];
   renderHunger();
@@ -195,7 +195,7 @@ window.onProcess = async () => {
   await meter(["Collecting feed · YouTube + Reddit", "Classifying → topic · franchise · registers", "Gap analysis + velocity", "Writing headings + briefs", "Composite ranking"], "procMeter", "◎ Signal locked");
   await fetch(`/api/wh/feedstories/${BATCH.id}`, { method: "POST" });
   await loadIdeas();
-  STAGE = 3; toIdeas();
+  STAGE = 3; toIdeas(); renderBatchPick();
 };
 
 // ---- STAGE 03 · Ideas (ranked, franchise-routed, review CRUD) --------------
@@ -293,7 +293,17 @@ async function renderBatches() {
       <span class="bm">${b.created_at ? new Date(b.created_at).toLocaleString() : ""}</span>
     </div>`).join("") : `<div class="empty">// no batches yet — run a sweep //</div>`);
 }
-window.openBatch = async (id, name) => { BATCH = { id, name }; FR = "all"; setView("sweep"); await loadIdeas(); toIdeas(); };
+window.openBatch = async (id, name) => { BATCH = { id, name }; FR = "all"; setView("sweep"); await loadIdeas(); toIdeas(); renderBatchPick(); };
+
+// batches dropdown on the sweep page — jump straight to any saved batch's ideas
+async function renderBatchPick() {
+  const host = $("#batchpick"); if (!host) return;
+  const { batches } = await (await fetch("/api/wh/batches")).json();
+  host.innerHTML = `batch <select onchange="if(this.value)openBatch(+this.value, this.selectedOptions[0].dataset.n)">
+    <option value="">— new sweep —</option>
+    ${(batches || []).map((b) => `<option value="${b.id}" data-n="${esc(b.name)}" ${BATCH && BATCH.id === b.id ? "selected" : ""}>${esc(b.name)} · ${b.story_count || 0} ideas · ${esc(b.source || "")}</option>`).join("")}
+  </select>`;
+}
 
 // ---- Library view ----------------------------------------------------------
 let LIB_FR = "all", LIB_FB = "all";

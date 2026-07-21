@@ -224,6 +224,13 @@
   .srcrow{font-size:11px;color:var(--dim2);margin-top:8px;display:flex;flex-wrap:wrap;gap:5px;align-items:center}
   .src{font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--cyan);border:1px solid rgba(0,84,101,.35);border-radius:6px;padding:2px 7px;background:#fff}
   .src.src-llm{color:var(--grn);border-color:rgba(206,69,2,.35)}
+
+  /* sweep top row: batches dropdown + gates link */
+  .sweeptop{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 14px}
+  .batchpick{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--dim2);letter-spacing:.08em;text-transform:uppercase}
+  .batchpick select{font-family:var(--sans);font-size:13px;color:var(--txt);background:#fff;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;min-width:220px}
+  .gateslink{margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--grn);text-decoration:none;border:1px solid var(--line2);border-radius:999px;padding:7px 13px;transition:.16s}
+  .gateslink:hover{border-color:var(--grn-dim);background:var(--bg2)}
   </style>
 </head>
 <body>
@@ -241,6 +248,10 @@
     <div class="subnav" id="subnav"></div>
 
     <div id="view-sweep">
+      <div class="sweeptop">
+        <div class="batchpick" id="batchpick"></div>
+        <a class="gateslink" href="/admin.html" title="Edit the business rules & API gates that drive the sweep">◈ Business rules &amp; API gates</a>
+      </div>
       <div class="rail" id="rail"></div>
       <div class="viewport">
         <div class="track" id="track">
