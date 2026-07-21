@@ -88,7 +88,7 @@ async function renderIntegrations() {
   const card = (it) => `
     <div class="pipe" data-intg="${it.id}">
       <div class="pipe-head" onclick="this.parentElement.classList.toggle('open')">
-        <b>${it.icon || "🔌"} ${esc(it.label)}</b>
+        <b>${ic(it.id)} ${esc(it.label)}</b>
         ${(it.apps || []).map((a) => `<span class="chip chip--role">${esc(a)}</span>`).join("")}
         <span class="chip ${it.hasKey ? "chip--approved" : "chip--draft"}" style="margin-left:auto">${it.auth === "none" ? "public" : it.hasKey ? "key " + esc(it.keyHint) : "no key"}</span>
         <span class="chip ${it.enabled ? "chip--approved" : "chip--draft"}">${it.enabled ? "on" : "off"}</span>
@@ -127,7 +127,7 @@ window.toggleIntg = async (id) => {
 window.testIntg = async (id) => {
   const el = document.getElementById(`it-${id}`); if (el) el.textContent = "testing…";
   const r = await (await fetch(`/api/integrations/${id}/test`, { method: "POST" })).json();
-  if (el) el.innerHTML = r.ok ? `<span style="color:var(--ansr-teal)">✓ ${esc(r.detail)}${r.ms ? " · " + r.ms + "ms" : ""}</span>` : `<span style="color:var(--ansr-orange-deep)">✗ ${esc(r.detail)}</span>`;
+  if (el) el.innerHTML = r.ok ? `<span style="color:var(--ansr-teal)">${ic("check")} ${esc(r.detail)}${r.ms ? " · " + r.ms + "ms" : ""}</span>` : `<span style="color:var(--ansr-orange-deep)">${ic("x")} ${esc(r.detail)}</span>`;
 };
 // Vault — BYOK AI provider keys (AES-256-GCM encrypted, never displayed).
 function renderVault() {
@@ -156,7 +156,7 @@ function renderVault() {
     </div>`;
 }
 window.vaultSave = async (id) => { const apiKey = document.getElementById(`vk-${id}`)?.value; if (!apiKey) return; await fetch(`/api/providers/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ apiKey }) }); CFG = await (await fetch("/api/config")).json(); renderVault(); renderProducts(); };
-window.vaultTest = async (id) => { const el = document.getElementById(`vt-${id}`); if (el) el.textContent = "…"; const r = await (await fetch(`/api/providers/${id}/test`, { method: "POST" })).json(); if (el) el.innerHTML = r.ok ? `<span style="color:var(--ansr-teal)">✓ ${esc(r.detail || "")}</span>` : `<span style="color:var(--ansr-orange-deep)">✗ ${esc(r.detail || "")}</span>`; };
+window.vaultTest = async (id) => { const el = document.getElementById(`vt-${id}`); if (el) el.textContent = "…"; const r = await (await fetch(`/api/providers/${id}/test`, { method: "POST" })).json(); if (el) el.innerHTML = r.ok ? `<span style="color:var(--ansr-teal)">${ic("check")} ${esc(r.detail || "")}</span>` : `<span style="color:var(--ansr-orange-deep)">${ic("x")} ${esc(r.detail || "")}</span>`; };
 function renderAccounts() {
   const host = document.getElementById("accounts"); if (!host) return;
   host.innerHTML = `
@@ -221,7 +221,7 @@ window.saveKey = async (id) => {
 window.testKey = async (id) => {
   const el = $(`#test-${id}`); el.textContent = "testing…";
   const r = await (await fetch(`/api/providers/${id}/test`, { method: "POST" })).json();
-  el.innerHTML = r.ok ? `<span style="color:var(--ansr-teal)">✓ ${r.detail}${r.ms ? " · " + r.ms + "ms" : ""}</span>` : `<span style="color:var(--ansr-orange-deep)">✗ ${r.detail}</span>`;
+  el.innerHTML = r.ok ? `<span style="color:var(--ansr-teal)">${ic("check")} ${r.detail}${r.ms ? " · " + r.ms + "ms" : ""}</span>` : `<span style="color:var(--ansr-orange-deep)">${ic("x")} ${r.detail}</span>`;
 };
 
 window.makeDefault = async (id) => {

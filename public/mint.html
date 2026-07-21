@@ -21,8 +21,8 @@
       <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
         <div style="flex:1;min-width:150px"><label class="lbl">Client</label><select id="client"></select></div>
         <div style="flex:1;min-width:150px"><label class="lbl">Version</label><select id="run"></select></div>
-        <button class="btn-ai" id="gen"><span class="tw">✨</span>Generate Contract Analysis</button>
-        <button class="btn btn--ghost" id="viewOutcomes">📊 View past outcomes</button>
+        <button class="btn-ai" id="gen"><span class="tw" data-ic="spark"></span>Generate Contract Analysis</button>
+        <button class="btn btn--ghost" id="viewOutcomes"><span data-ic="chart" style="margin-right:5px"></span>View past outcomes</button>
         <button class="btn btn--ghost" id="purge" style="border-color:#b3261e;color:#b3261e">Purge runs</button>
       </div>
       <div id="newRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid var(--ansr-border);padding-top:10px">
@@ -36,7 +36,7 @@
       <div id="sowRow" style="display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px solid var(--ansr-border);padding-top:10px">
         <label class="lbl" style="margin:0;color:var(--ansr-navy);font-weight:500">Upload SOW / Contract:</label>
         <input type="file" id="sowFile" accept=".pdf,.docx,.doc,.txt,.md" style="flex:1;min-width:160px">
-        <button class="btn btn--ghost" id="sowBtn">↑ Add</button>
+        <button class="btn btn--ghost" id="sowBtn"><span data-ic="upload" style="margin-right:5px"></span>Add</button>
         <span id="sowMsg" class="lbl"></span>
       </div>
       <div id="stepwrap" style="margin-top:14px;display:none"><div class="stepper" id="stepper"></div></div>
@@ -88,6 +88,7 @@
   </div>
   <script src="/q.js"></script>
   <script>qHeader("mint");</script>
+  <script src="/icons.js"></script>
   <script src="/mint.js"></script>
 </body>
 </html>

@@ -87,7 +87,7 @@ async function renderCalc() {
   $("#calc").innerHTML = `
     <div class="band"><h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 6px">OSS — headcount roll-forward</h3>${ossSteps}</div>
     <div class="band"><h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 6px">TA — fee bridge (per placement)</h3>${ta}</div>
-    <div class="ai-box"><div class="ai-head"><span class="tw">✨</span> Ask about any number</div>
+    <div class="ai-box"><div class="ai-head">${ic("spark")} Ask about any number</div>
       <div class="ai-chips" id="calcchips"></div>
       <div class="ai-log" id="calclog"></div>
       <div class="ai-row"><input id="calcask" placeholder="e.g. why is OSS this much?"><button class="btn-ai" onclick="askCalc(document.getElementById('calcask').value)">Ask</button></div></div>`;
@@ -101,7 +101,7 @@ window.askCalc = async (q) => {
   const log = $("#calclog"); $("#calcask").value = "";
   log.insertAdjacentHTML("beforeend", `<div class="ai-msg"><span class="who">You:</span> ${esc(q)}</div>`);
   const r = await (await fetch(`/api/box/qa/chat`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: q, client: CLIENT }) })).json();
-  log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">✨ AI:</span> ${esc(r.reply)}${r.cited?.length ? ` <span class="lbl">[${r.cited.join(", ")}]</span>` : ""}</div>`);
+  log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">${ic("spark")} AI:</span> ${esc(r.reply)}${r.cited?.length ? ` <span class="lbl">[${r.cited.join(", ")}]</span>` : ""}</div>`);
   log.scrollTop = log.scrollHeight;
 };
 

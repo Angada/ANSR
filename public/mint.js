@@ -110,19 +110,19 @@ function renderUnderstanding() {
             : `<div class="ai-chips">${c.options.map((o) => `<span class="ai-chip" onclick="answerRoster(${i}, this.dataset.v)" data-v="${esc(o)}">${esc(o)}</span>`).join("")}</div>`}
     </div>`;
   }).join("");
-  const aiBadge = d.ai?.mode === "ai" ? `<span class="chip chip--approved" title="read by ${esc(d.ai.model || "AI")}">🤖 AI read</span>` : "";
+  const aiBadge = d.ai?.mode === "ai" ? `<span class="chip chip--approved" title="read by ${esc(d.ai.model || "AI")}">${ic("robot")} AI read</span>` : "";
   const head = ((!cl.length || !pending)
     ? `<span class="chip chip--approved">All columns understood ✓</span>`
     : `<span class="chip chip--flag">${pending} to confirm</span>`) + aiBadge;
   $("#rout").innerHTML = `
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-      <span class="chip">📄 ${esc(d.filename)}</span>
+      <span class="chip">${ic("doc")} ${esc(d.filename)}</span>
       <a class="chip chip--approved" href="${d.apiUrl}" target="_blank">API · ${esc(d.docId)}</a>
       <span class="lbl">${d.rowCount} rows</span>${head}</div>
     <div class="chatbox">${bubbles}${qs}
       <div class="ai-row"><input id="rosterAsk" placeholder="reply or instruct in plain English…" onkeydown="if(event.key==='Enter')rosterFreeText(this.value)"><button class="send-btn" aria-label="Send" onclick="rosterFreeText(document.getElementById('rosterAsk').value)">➤</button></div>
     </div>
-    <div class="recal-wrap"><button class="btn-recal ${pending ? "" : "dirty"}" id="rosterSave" onclick="recalSaveRoster()">↻ Recalibrate &amp; save to database</button></div>
+    <div class="recal-wrap"><button class="btn-recal ${pending ? "" : "dirty"}" id="rosterSave" onclick="recalSaveRoster()">${ic("refresh")} Recalibrate &amp; save to database</button></div>
     <div id="rsavemeter"></div>`;
 }
 
@@ -167,9 +167,9 @@ async function showActions() {
     <h3 style="color:var(--ansr-navy);font-weight:500;margin:0 0 6px">Calculate the bill</h3>
     <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
       <div><label class="lbl">Invoice month</label><input type="month" id="calcMonth" value="${month}" ${bounds} style="min-width:150px"></div>
-      <button class="btn-ai" id="runCalc"><span class="tw">✨</span>Calculate invoice</button>
+      <button class="btn-ai" id="runCalc"><span class="tw">${ic("spark")}</span>Calculate invoice</button>
     </div>
-    <p class="lbl" style="margin:8px 0 0;color:var(--ansr-gray)">📅 ${hint}.</p>
+    <p class="lbl" style="margin:8px 0 0;color:var(--ansr-gray)">${ic("calendar")} ${hint}.</p>
     <div id="calcmeter"></div></div>`;
   $("#runCalc").addEventListener("click", runCompute);
   document.getElementById("validate").scrollIntoView({ behavior: "smooth", block: "center" });
@@ -189,7 +189,7 @@ function renderRunResult(res, month) {
   const m = money(res.totals?.grand, cur);
   const clar = (res.clarifications || []).map((c) => `
     <div class="ai-box" style="margin-top:8px">
-      <div class="ai-head"><span class="tw">✨</span> ${esc(c.question)} <span class="chip chip--flag" style="margin-left:auto">${c.rows_affected || 1} rows</span></div>
+      <div class="ai-head"><span class="tw">${ic("spark")}</span> ${esc(c.question)} <span class="chip chip--flag" style="margin-left:auto">${c.rows_affected || 1} rows</span></div>
       <div class="ai-chips">${(c.options || []).map((o) => `<span class="ai-chip" onclick="resolveClar('${esc(c.topic)}','${esc(o)}','${month}',${res.run_no})">${esc(o)}</span>`).join("")}</div>
     </div>`).join("");
   const exc = (res.exceptions || []).map((e) => `<div class="chk miss"><span class="ic">✕</span><span><b>${esc(e.ext_id || "row")}</b> — ${esc(e.issue)} <span class="lbl">${esc(e.detail || "")}</span></span></div>`).join("");
@@ -215,11 +215,11 @@ function renderRunResult(res, month) {
       ${res.exceptions?.length ? `<div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin:10px 0 2px">Quarantined (not billed)</div>${exc}` : ""}
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
         <a class="btn" href="/invoice-doc.html?customer=${$("#client").value}&run=${res.run_no}#months">Invoicing summary</a>
-        <a class="btn-ai" href="/invoice-doc.html?customer=${$("#client").value}&run=${res.run_no}#invoice"><span class="tw">✨</span>Generate invoice</a>
+        <a class="btn-ai" href="/invoice-doc.html?customer=${$("#client").value}&run=${res.run_no}#invoice"><span class="tw">${ic("spark")}</span>Generate invoice</a>
         <a class="btn btn--ghost" href="/invoice-doc.html?customer=${$("#client").value}&run=${res.run_no}#calc">Detailed calculations</a>
         <a class="btn btn--ghost" href="/invoice.html?customer=${$("#client").value}&run=${res.run_no}">Replay + heatmap</a>
-        <button class="btn btn--ghost" id="recalRunBtn" onclick="recalibrateRun(${res.run_no},'${month}')">↻ Recalibrate this run</button>
-        <button class="btn btn--ghost" id="releaseBtn" onclick="releaseRun(${res.run_no})" style="border-color:var(--ansr-teal);color:var(--ansr-teal)">🔒 Release &amp; lock</button>
+        <button class="btn btn--ghost" id="recalRunBtn" onclick="recalibrateRun(${res.run_no},'${month}')">${ic("refresh")} Recalibrate this run</button>
+        <button class="btn btn--ghost" id="releaseBtn" onclick="releaseRun(${res.run_no})" style="border-color:var(--ansr-teal);color:var(--ansr-teal)">${ic("lock")} Release &amp; lock</button>
       </div>
       <div id="releaseMsg" class="lbl" style="margin-top:8px"></div>
     </div>`;
@@ -231,7 +231,7 @@ function renderRunResult(res, month) {
 // Recalibrate an existing run in place — recompute run `no` with the current
 // rules + decisions (does NOT spawn a new run). For old runs: chat, view, recal.
 window.recalibrateRun = async (no, month) => {
-  const btn = document.getElementById("recalRunBtn"); if (btn) { btn.disabled = true; btn.textContent = "↻ Recalibrating…"; }
+  const btn = document.getElementById("recalRunBtn"); if (btn) { btn.disabled = true; btn.textContent = "Recalibrating…"; }
   const m = month || new Date().toISOString().slice(0, 7);
   const res = await (await fetch("/api/mint/run/compute", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, month: m, runNo: no }) })).json();
   window.RUN = res; renderRunResult(res, m);
@@ -241,8 +241,8 @@ window.recalibrateRun = async (no, month) => {
 window.releaseRun = async (no) => {
   appConfirm("Release run", `Freeze run ${no} for ${$("#client").value}? The statement becomes immutable for audit; a later calculation opens a new version.`, async () => {
     const r = await (await fetch(`/api/mint/run/${$("#client").value}/${no}/release`, { method: "POST" })).json();
-    $("#releaseMsg").innerHTML = r.released ? `<span style="color:var(--ansr-teal)">🔒 Released — run ${no} is locked.</span>` : (r.error || "release failed");
-    const b = document.getElementById("releaseBtn"); if (b && r.released) { b.disabled = true; b.textContent = "🔒 Released"; }
+    $("#releaseMsg").innerHTML = r.released ? `<span style="color:var(--ansr-teal)">${ic("lock")} Released — run ${no} is locked.</span>` : (r.error || "release failed");
+    const b = document.getElementById("releaseBtn"); if (b && r.released) { b.disabled = true; b.textContent = "Released"; }
   }, "Release", false);
 };
 
@@ -275,7 +275,7 @@ async function submitNewClient() {
   $("#run").innerHTML = `<option value="">— no runs yet —</option>`;
   $("#result").innerHTML = `<div class="band grad-accent" style="margin-top:14px">
     <b style="color:var(--ansr-navy)">${esc(name)} created</b>
-    <p class="lbl" style="margin:6px 0 0">Step 1 — upload the SOW / Contract above, then press <span style="color:#7b2dc4">✨ Generate Contract Analysis</span>. Every step is AI-driven; document currencies are normalised via FX (today's or historical rates).</p></div>`;
+    <p class="lbl" style="margin:6px 0 0">Step 1 — upload the SOW / Contract above, then press <span style="color:#7b2dc4">${ic("spark")} Generate Contract Analysis</span>. Every step is AI-driven; document currencies are normalised via FX (today's or historical rates).</p></div>`;
 }
 function cancelNewClient() { $("#newRow").style.display = "none"; $("#client").value = _lastClient || $("#client").options[0].value; }
 
@@ -411,7 +411,7 @@ function boxCard(b) {
       ${renderContent(b.content)}
     </div>
     <div class="ai-box">
-      <div class="ai-head"><span class="tw">✨</span> Ask this box</div>
+      <div class="ai-head"><span class="tw">${ic("spark")}</span> Ask this box</div>
       <div class="ai-chips">${chips}</div>
       <div class="ai-log" id="log-${b.id}"></div>
       <div class="ai-row"><input id="ask-${b.id}" placeholder="ask or instruct…" onkeydown="if(event.key==='Enter')askBox('${b.id}', this.value)"><button class="send-btn" aria-label="Send" onclick="askBox('${b.id}', document.getElementById('ask-${b.id}').value)">➤</button></div>
@@ -429,7 +429,7 @@ async function showCoverage() {
     sd.querySelector(".cov-chip")?.remove(); // idempotent — never stack chips
     const cls = rs.status === "green" ? "chip--approved" : rs.status === "amber" ? "chip--flag" : "chip--draft";
     const gaps = rs.validation?.gaps?.length || 0;
-    sd.insertAdjacentHTML("beforeend", `<span class="chip cov-chip ${cls}" style="margin-left:6px" title="canonical rule set · ${rs.dimensions.map((d) => d.name).join("×") || "no dimensions"}">📐 coverage ${rs.coverage_pct ?? 0}%${gaps ? " · " + gaps + " gap" + (gaps > 1 ? "s" : "") : ""}</span>`);
+    sd.insertAdjacentHTML("beforeend", `<span class="chip cov-chip ${cls}" style="margin-left:6px" title="canonical rule set · ${rs.dimensions.map((d) => d.name).join("×") || "no dimensions"}">${ic("ruler")} coverage ${rs.coverage_pct ?? 0}%${gaps ? " · " + gaps + " gap" + (gaps > 1 ? "s" : "") : ""}</span>`);
   } catch { /* */ }
 }
 
@@ -447,17 +447,17 @@ window.askBox = async (boxId, text) => {
   const r = await (await fetch(`/api/box/${boxId}/chat`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: text, client: $("#client").value }) })).json();
   if (isInstr) {
     PENDING[boxId] = text;
-    log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">✨ AI:</span> Got it — record this as the confirmed reading of <b>${BOX_CLAUSE[boxId] || boxId}</b>? It will ground every future answer. <div style="margin-top:6px"><button class="btn-ai" style="padding:5px 12px;min-height:32px" onclick="acceptInstr('${boxId}',this)">Accept</button> <button class="btn btn--ghost" style="padding:5px 12px;min-height:32px" onclick="this.closest('.ai-msg').remove()">Discard</button></div></div>`);
+    log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">${ic("spark")} AI:</span> Got it — record this as the confirmed reading of <b>${BOX_CLAUSE[boxId] || boxId}</b>? It will ground every future answer. <div style="margin-top:6px"><button class="btn-ai" style="padding:5px 12px;min-height:32px" onclick="acceptInstr('${boxId}',this)">Accept</button> <button class="btn btn--ghost" style="padding:5px 12px;min-height:32px" onclick="this.closest('.ai-msg').remove()">Discard</button></div></div>`);
   } else {
     const cite = r.cited?.length ? ` <span class="lbl">[${r.cited.join(", ")}]</span>` : "";
-    log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">✨ AI:</span> ${esc(r.reply)}${cite}</div>`);
+    log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">${ic("spark")} AI:</span> ${esc(r.reply)}${cite}</div>`);
   }
   log.scrollTop = log.scrollHeight;
 };
 window.acceptInstr = async (boxId, btn) => {
   const r = await (await fetch(`/api/mint/interpret`, { method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ client: $("#client").value, clause_ref: BOX_CLAUSE[boxId] || boxId, reading: PENDING[boxId] || "user correction" }) })).json();
-  btn.closest(".ai-msg").innerHTML = `<span class="who">✨ AI:</span> <span style="color:var(--ansr-teal)">✓ Learned — ${esc(BOX_CLAUSE[boxId] || boxId)} reading saved. Recalibrate to cement it into the rules.</span>`;
+  btn.closest(".ai-msg").innerHTML = `<span class="who">${ic("spark")} AI:</span> <span style="color:var(--ansr-teal)">✓ Learned — ${esc(BOX_CLAUSE[boxId] || boxId)} reading saved. Recalibrate to cement it into the rules.</span>`;
   setDirty(true);
 };
 
@@ -557,7 +557,7 @@ function render() {
     : `<span class="chip chip--draft" style="margin-left:6px">${DATA.sow ? "SOW added · set a model key for live boxes" : "sample data"}</span>`;
   const a = DATA.atlas;
   const atlasChip = a?.archetype
-    ? `<a href="/atlas.html" class="chip ${a.decision === "novel" ? "chip--draft" : "chip--approved"}" style="margin-left:6px;text-decoration:none" title="Atlas archetype">🧭 ${a.decision === "novel" ? "new archetype" : "matched"} · ${esc(a.archetype.slug)}${a.similarity ? " · " + Math.round(a.similarity * 100) + "%" : ""}${DATA.compiled_rule_book ? " · rule book pre-loaded" : ""}</a>`
+    ? `<a href="/atlas.html" class="chip ${a.decision === "novel" ? "chip--draft" : "chip--approved"}" style="margin-left:6px;text-decoration:none" title="Atlas archetype">${ic("compass")} ${a.decision === "novel" ? "new archetype" : "matched"} · ${esc(a.archetype.slug)}${a.similarity ? " · " + Math.round(a.similarity * 100) + "%" : ""}${DATA.compiled_rule_book ? " · rule book pre-loaded" : ""}</a>`
     : "";
   $("#result").innerHTML = `
     <div class="sd lbl" style="margin-bottom:8px">${SECDESC.summary} <span class="chip" style="margin-left:6px" title="each Calculate is a new version">v${DATA.run_no}</span>${srcChip}${atlasChip}</div>
@@ -575,7 +575,7 @@ function render() {
     <div class="boxrail" id="boxrail">${DATA.boxes.map(boxCard).join("")}</div>
     <p class="lbl" style="margin:12px 0 0;color:var(--ansr-gray)">Reviewed the boxes? Recalibrate to turn this analysis into billing rules + worksheet requirements.</p>
     <!-- boxes reveal one-by-one below: see sequenceReveal() call -->
-    <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalBuild" onclick="recalBuild()">↻ Recalibrate from analysis${DIRTY ? " — changes pending" : ""}</button></div>
+    <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalBuild" onclick="recalBuild()">${ic("refresh")} Recalibrate from analysis${DIRTY ? " — changes pending" : ""}</button></div>
     <div id="buildmeter"></div>`;
   dragScroll(document.getElementById("boxrail"));
   // box reveal is driven by revealFlowSequence() during generate(), so the whole
@@ -610,7 +610,7 @@ function renderReady() {
     <div class="lbl" style="color:var(--ansr-navy);font-weight:500;margin:12px 0 2px">What we'll need from your worksheet</div>
     <ul class="findings sm">${n.map((b) => `<li>${b}</li>`).join("")}</ul>
     <div class="ai-box">
-      <div class="ai-head"><span class="tw">✨</span> Clarify or suggest — chat about the rules &amp; inputs</div>
+      <div class="ai-head"><span class="tw">${ic("spark")}</span> Clarify or suggest — chat about the rules &amp; inputs</div>
       <div class="ai-chips">
         <span class="ai-chip" onclick="askReady('What inputs might this contract need that aren\\'t listed?')">Suggest missing inputs</span>
         <span class="ai-chip" onclick="askReady('Explain the mandatory fields and exceptions.')">Mandatory &amp; exceptions</span>
@@ -620,7 +620,7 @@ function renderReady() {
       <div class="ai-row"><input id="readyask" placeholder="ask to clarify, or suggest an input…" onkeydown="if(event.key==='Enter')askReady(this.value)"><button class="btn-ai" onclick="askReady(document.getElementById('readyask').value)">Ask</button></div>
     </div>
     <p class="lbl" style="margin:10px 0 0;color:var(--ansr-gray)">When you're happy, recalibrate to lock these rules + checks. The worksheet (step 4) is then validated against them.</p>
-    <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalCommit" onclick="recalCommit()">↻ Recalibrate &amp; lock rules${DIRTY ? " — changes pending" : ""}</button></div>
+    <div class="recal-wrap"><button class="btn-recal ${DIRTY ? "dirty" : ""}" id="recalCommit" onclick="recalCommit()">${ic("refresh")} Recalibrate &amp; lock rules${DIRTY ? " — changes pending" : ""}</button></div>
     <div id="recal"></div>`;
 }
 
@@ -630,7 +630,7 @@ function setDirty(v) {
   ["recalBuild", "recalCommit"].forEach((id) => {
     const b = document.getElementById(id); if (!b) return;
     b.classList.toggle("dirty", v);
-    b.textContent = (id === "recalBuild" ? "↻ Recalibrate from analysis" : "↻ Recalibrate & lock rules") + (v ? " — changes pending" : "");
+    b.textContent = (id === "recalBuild" ? "Recalibrate from analysis" : "Recalibrate & lock rules") + (v ? " — changes pending" : "");
   });
 }
 
@@ -681,7 +681,7 @@ window.askReady = async (q) => {
   log.insertAdjacentHTML("beforeend", `<div class="ai-msg"><span class="who">You:</span> ${esc(q)}</div>`);
   const isSuggest = /^(add|include|use|suggest|need|also|require)\b/i.test(q);
   const r = await (await fetch(`/api/box/billing_rules/chat`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: q, client: $("#client").value }) })).json();
-  log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">✨ AI:</span> ${esc(r.reply)}${r.cited?.length ? ` <span class="lbl">[${r.cited.join(", ")}]</span>` : ""}</div>`);
+  log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="who">${ic("spark")} AI:</span> ${esc(r.reply)}${r.cited?.length ? ` <span class="lbl">[${r.cited.join(", ")}]</span>` : ""}</div>`);
   if (isSuggest) { setDirty(true); log.insertAdjacentHTML("beforeend", `<div class="ai-msg bot"><span class="lbl">Noted as a change — Recalibrate to apply it to the inputs.</span></div>`); }
   log.scrollTop = log.scrollHeight;
 };

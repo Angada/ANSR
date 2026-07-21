@@ -92,7 +92,7 @@ async function renderHunger() {
         <span class="idx">Feed 03</span>
         <h3>TalentMind ${TM ? `<span class="chip tag-grn" style="cursor:default">sim active</span>` : `<span class="badge-soon">soon · needs T500 + parse AI</span>`}</h3>
         <p class="desc">Demand seeded from the talent themselves — parse each job seeker's corpus into chips, cohort them, read their hunger.</p>
-        ${TM ? "" : `<button class="btn small" onclick="talentmindSim()">▶ Run simulation</button>`}
+        ${TM ? "" : `<button class="btn small" onclick="talentmindSim()">${ic("play")} Run simulation</button>`}
         <div id="tmSim"></div>
       </div>
 
@@ -180,15 +180,15 @@ function ideaCard(s, i, franchises, opts = {}) {
       <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
         <span class="rank">#${i + 1}<span class="pct">${(Number(s.score) * 100).toFixed(0)}</span></span>
         ${s.gap_type ? `<span class="chip tag-cyan" style="cursor:default">${esc(s.gap_type)}</span>` : ""}
-        ${s.contradiction ? `<span class="chip flag" title="pushes against ${esc(s.contradiction_of || "popular belief")}">⚡ contradiction</span>` : ""}
+        ${s.contradiction ? `<span class="chip flag" title="pushes against ${esc(s.contradiction_of || "popular belief")}">${ic("bolt")} contradiction</span>` : ""}
         ${fb ? `<span class="chip ${fb === "used" ? "tag-grn" : fb === "saved" ? "tag-amber" : "tag-mag"}" style="cursor:default">${esc(fb)}</span>` : ""}
-        ${opts.showBatch && s.batch_name ? `<span class="chip" style="cursor:default;margin-left:auto">▣ ${esc(s.batch_name)}</span>` : ""}
+        ${opts.showBatch && s.batch_name ? `<span class="chip" style="cursor:default;margin-left:auto">${ic("box")} ${esc(s.batch_name)}</span>` : ""}
       </div>
       <h4>${esc(s.heading)}</h4>
       <div class="chips">
-        <span class="chip ${tag}">🎯 ${esc(s.franchise)}</span>
-        <span class="chip">📌 ${esc(s.demand_topic)}</span>
-        ${s.platform ? `<span class="chip">📺 ${esc(s.platform)}</span>` : ""}
+        <span class="chip ${tag}">${ic("target")} ${esc(s.franchise)}</span>
+        <span class="chip">${ic("pin")} ${esc(s.demand_topic)}</span>
+        ${s.platform ? `<span class="chip">${ic("monitor")} ${esc(s.platform)}</span>` : ""}
         ${s.emotional_register ? `<span class="chip">${esc(s.emotional_register)}</span>` : ""}
       </div>
       <p class="sum">${esc(s.summary)}</p>
@@ -205,12 +205,12 @@ function ideaCard(s, i, franchises, opts = {}) {
       ${s.contradiction ? `<div class="why"><b>Contradicts:</b> ${esc(s.contradiction_of || "popular belief")}</div>` : ""}
       <div class="g-l" style="margin-top:12px">Score breakdown${w.gap ? ` · weights ${w.gap}·${w.velocity}·${w.strategic}·${w.historical}` : ""}</div>
       ${bar("gap", brd.gap)}${bar("velocity", brd.velocity)}${bar("strategic", brd.strategic)}${bar("historical", brd.historical)}
-      ${s.source_refs?.length ? `<div class="g-l" style="margin-top:12px">Sources</div><div class="chips">${s.source_refs.slice(0, 6).map((r) => `<a class="chip" href="${esc(r.url)}" target="_blank" rel="noopener">↗ ${esc(r.source || "src")}</a>`).join("")}</div>` : ""}
+      ${s.source_refs?.length ? `<div class="g-l" style="margin-top:12px">Sources</div><div class="chips">${s.source_refs.slice(0, 6).map((r) => `<a class="chip" href="${esc(r.url)}" target="_blank" rel="noopener">${ic("external")} ${esc(r.source || "src")}</a>`).join("")}</div>` : ""}
       <div class="acts">
-        <button class="btn small" onclick="idea(${s.id},'used')">✓ Used</button>
-        <button class="btn small" onclick="idea(${s.id},'saved')">🏦 Save</button>
-        <button class="btn small" onclick="rejectIdea(${s.id})">✕ Reject</button>
-        <button class="btn small" onclick="editIdea(${s.id},'${esc(s.heading).replace(/'/g, "\\'")}')">✎ Edit</button>
+        <button class="btn small" onclick="idea(${s.id},'used')">${ic("check")} Used</button>
+        <button class="btn small" onclick="idea(${s.id},'saved')">${ic("save")} Save</button>
+        <button class="btn small" onclick="rejectIdea(${s.id})">${ic("x")} Reject</button>
+        <button class="btn small" onclick="editIdea(${s.id},'${esc(s.heading).replace(/'/g, "\\'")}')">${ic("edit")} Edit</button>
         <label class="build"><input type="checkbox" ${s.selected ? "checked" : ""} onchange="idea(${s.id},'select')"> build</label>
       </div>
       ${s.reject_reason ? `<div style="font-family:var(--mono);font-size:10.5px;color:var(--red);margin-top:8px">rejected: ${esc(s.reject_reason)}</div>` : ""}
@@ -223,7 +223,7 @@ function renderIdeas(stories, franchises) {
   const host = $("#stageIdeas");
   if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each a heading + brief routed to a 1Up franchise, ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
   const filter = `<div class="ideas-head">
-      <span class="chip tag-grn" style="cursor:default">▣ ${esc(BATCH?.name || "batch")}</span>
+      <span class="chip tag-grn" style="cursor:default">${ic("box")} ${esc(BATCH?.name || "batch")}</span>
       <span class="chip" style="border:none;background:none;padding:0">franchise</span>
       <select onchange="setFR(this.value)"><option value="all" ${FR === "all" ? "selected" : ""}>all</option>${(franchises || []).map((f) => `<option ${FR === f.name ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
       <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${stories.length} ideas · ranked</span>

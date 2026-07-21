@@ -20,7 +20,7 @@
     <div class="band grad-soft">
       <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
         <div style="flex:1;min-width:160px"><label class="lbl">Classify a client</label><select id="client"></select></div>
-        <button class="btn-ai" id="classify"><span class="tw">✨</span>Classify</button>
+        <button class="btn-ai" id="classify"><span class="tw" data-ic="spark"></span>Classify</button>
         <button class="btn" id="route">Route &amp; learn</button>
       </div>
       <div id="result"></div>
@@ -28,13 +28,14 @@
 
     <div style="display:flex;align-items:center;gap:8px;margin:18px 0 6px">
       <h3 style="color:var(--ansr-navy);font-weight:500;margin:0">Archetypes <span id="acount" class="chip"></span></h3>
-      <button class="btn btn--ghost" style="margin-left:auto;padding:6px 14px;min-height:36px" onclick="showWiki()">📖 Relationship wiki</button>
+      <button class="btn btn--ghost" style="margin-left:auto;padding:6px 14px;min-height:36px" onclick="showWiki()"><span data-ic="book" style="margin-right:5px"></span>Relationship wiki</button>
     </div>
     <div id="archetypes" class="agents"></div>
     <div id="detail"></div>
   </div>
   <script src="/q.js"></script>
   <script>qHeader();</script>
+  <script src="/icons.js"></script>
   <script src="/atlas.js"></script>
 </body>
 </html>

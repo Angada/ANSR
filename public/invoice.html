@@ -20,7 +20,7 @@
       <summary>Invoice replay</summary>
       <div class="body">
         <div class="replay no-print">
-          <button class="btn--ghost btn" id="play" style="min-width:64px">▶</button>
+          <button class="btn--ghost btn" id="play" style="min-width:64px"><span data-ic="play" style="margin-right:4px"></span></button>
           <input type="range" id="slider" min="0" value="0">
           <span id="seqlbl" class="lbl"></span>
         </div>
@@ -39,13 +39,14 @@
     <div id="pane-exceptions" class="pane" hidden></div>
 
     <div style="display:flex;gap:10px;margin:18px 0" class="no-print">
-      <button class="btn" id="audit">⬇ Audit pack</button>
+      <button class="btn" id="audit"><span data-ic="download" style="margin-right:4px"></span>Audit pack</button>
       <span class="lbl" style="align-self:center;color:var(--ansr-gray);font-size:13px">color = AI confidence · drag slider to replay the calc</span>
     </div>
   </div>
 
   <script src="/q.js"></script>
   <script>qHeader("mint");</script>
+  <script src="/icons.js"></script>
   <script src="/invoice.js"></script>
 </body>
 </html>
