@@ -17,6 +17,7 @@ let VIEW = "sweep";     // sweep | batches | library
 let FRANCHISES = [];
 let EDIT_CONCEPTS = false;
 let GUARD = null;       // guardrails (audience · language · region) from business rules
+let SWEEP_PROMPT = "";  // the user's free-text "anything more to add?" brief
 
 // ---- journey rail (horizontal) ---------------------------------------------
 const STATIONS = [
@@ -102,10 +103,15 @@ async function renderHunger() {
 
     </div>
 
+    <div class="sweepbox">
+      <span class="idx">Your brief</span>
+      <textarea id="sweepPrompt" rows="2" placeholder="anything more to add in your sweep?" oninput="setSweepPrompt(this.value)">${esc(SWEEP_PROMPT)}</textarea>
+    </div>
     <div class="process"><button class="sweep-btn" onclick="onProcess()">◎ Run the sweep</button></div>
     <div id="procMeter"></div>`;
   rail();
 }
+window.setSweepPrompt = (v) => { SWEEP_PROMPT = v; };
 window.route = (k) => { ROUTES[k] = !ROUTES[k]; renderHunger(); };
 window.toggleTopic = (name) => { ROUTES.trend = true; TOPICS = TOPICS.includes(name) ? TOPICS.filter((t) => t !== name) : [...TOPICS, name]; renderHunger(); };
 window.addSeo = async () => { const content = $("#seoText")?.value.trim(); if (!content) return; ROUTES.seo = true; await fetch("/api/wh/seo", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "keywords", content }) }); renderHunger(); };
@@ -191,7 +197,8 @@ window.saveTM = async () => {
 window.onProcess = async () => {
   if (!ROUTES.trend && !ROUTES.seo && !ROUTES.talentmind) { rdAlert("Arm a feed", "Tick Trend Spotting, add SEO inputs, or run the TalentMind simulation first."); return; }
   STAGE = 2; rail();
-  const body = TM ? { talentmind_cohort_id: TM.cohortId, name: TM.name } : { trend_topics: ROUTES.trend ? TOPICS : [], seo: ROUTES.seo };
+  const prompt = ($("#sweepPrompt")?.value || SWEEP_PROMPT || "").trim();
+  const body = TM ? { talentmind_cohort_id: TM.cohortId, name: TM.name, prompt } : { trend_topics: ROUTES.trend ? TOPICS : [], seo: ROUTES.seo, prompt };
   const b = await (await fetch("/api/wh/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
   BATCH = { id: b.id, name: b.name };
   await meter(["Collecting feed · YouTube + Reddit", "Classifying → topic · franchise · registers", "Gap analysis + velocity", "Writing headings + briefs", "Composite ranking"], "procMeter", "◎ Signal locked");

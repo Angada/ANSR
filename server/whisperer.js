@@ -16,9 +16,9 @@ const RULE_DEFAULTS = {
   youtube:    { app: "RayDar", pipeline: "trend-detect", collection: { regionCode: "IN", relevanceLanguage: "en", publishedDays: 30, maxResults: 20, commentsTopVideos: 5, commentsPerVideo: 20 }, prompt: "Classify each YouTube item → demand topic (1–6 / Emerging), 1Up franchise, 4-register distribution, and the underlying question. Comments carry the real feeling — weight them.", model: "", enabled: true },
   reddit:     { app: "RayDar", pipeline: "trend-detect", collection: { subreddits: ["developersIndia", "IndianWorkplace", "IndiaCareers", "cscareerquestions", "leetcode"], topPosts: 50, timeframe: "month", commentTrees: 10, commentsPerPost: 100 }, prompt: "Classify each Reddit post/comment → topic, franchise, registers, underlying question. Comment trees are the highest-value signal.", model: "", enabled: true },
   newsapi:    { app: "RayDar", pipeline: "trend-detect", collection: { language: "en", pageSize: 20, sortBy: "publishedAt" }, prompt: "Summarise each article's relevance to the demand topics.", model: "", enabled: true },
-  serpapi:    { app: "RayDar", pipeline: "trend-detect", collection: { gl: "in", hl: "en" }, prompt: "Extract trending headlines relevant to the demand topics.", model: "", enabled: true },
+  serpapi:    { app: "RayDar", pipeline: "trend-detect", collection: { gl: "in", hl: "en", num: 5 }, prompt: "Extract trending headlines relevant to the demand topics.", model: "", enabled: true },
   tavily:     { app: "RayDar", pipeline: "feedstory-generate", collection: { max_results: 5, search_depth: "basic", include_answer: true }, prompt: "Use for VALIDATION — pull facts + cite source URLs. Flag claims that conflict with the feed.", model: "", enabled: true },
-  serper:     { app: "RayDar", pipeline: "feedstory-generate", collection: { gl: "in", hl: "en" }, prompt: "Use for grounding + validation; cite links.", model: "", enabled: true },
+  serper:     { app: "RayDar", pipeline: "feedstory-generate", collection: { gl: "in", hl: "en", num: 5 }, prompt: "Use for grounding + validation; cite links.", model: "", enabled: true },
   perplexity: { app: "RayDar", pipeline: "feedstory-generate", collection: { model: "sonar", max_tokens: 500 }, prompt: "Research + validate with citations; India English context.", model: "", enabled: true },
 };
 // tag the above as integrations, add the rest of the catalog + journey + scoring rules
@@ -37,10 +37,16 @@ Object.assign(RULE_DEFAULTS, {
     collection: { weights: { gap: 0.35, velocity: 0.25, strategic: 0.20, historical: 0.20 },
       gap_map: { "Keywords and resume": 0.9, "Salary negotiation": 0.85, "Using AI to get better jobs": 0.82, "Landing your dream job": 0.7, "Skills to get a new job": 0.6, "Which coding tool to use": 0.6, "Emerging": 0.75 } },
     prompt: "Composite rank = Σ(weight × signal). Signals: gap (demand ÷ supply quality), velocity (views ÷ days), strategic (topic weight), historical (Used acceptance per franchise).", model: "", enabled: true },
-  // ---- guardrails (audience · language · region — prepended to every idea prompt) ----
+  // ---- guardrails (from the Talent500 brief — prepended to every idea prompt) ----
   guardrails: { app: "RayDar", category: "guardrails", pipeline: "feedstory-generate",
-    collection: { language: "English", region: "India", locale: "en-IN", audience: "job seekers · GCC / tech talent", brand: "Talent500", currency: "INR" },
-    prompt: "Write for India-English job seekers (GCC / tech talent), Indian context — use INR where money is mentioned. Brand: Talent500. Output is a heading + topic-guide brief for a writer, never finished copy. Keep it on-brand, credible and specific.",
+    collection: {
+      language: "English", region: "India", locale: "en-IN",
+      audience: "Indian job seekers · GCC / tech talent", brand: "Talent500", currency: "INR",
+      idiom: ["hike", "notice period", "CTC", "package", "service company", "product company", "fresher", "campus placement", "on-site", "bench"],
+      out_of_scope: ["Hindi / regional-language content (v2)"],
+      caveats: ["Reddit is a leading indicator, not a census", "velocity is directional, not precise"],
+    },
+    prompt: "GUARDRAILS (Talent500 brief):\n• Audience — Indian job seekers (GCC / tech talent). Write India English; use Indian workplace idiom (hike, notice period, CTC, package, service/product company, fresher, campus placement, on-site, bench). Use INR for money.\n• Voice — the whisperer posture: sound like you read the reader's mind before they spoke. Never hype, never generic. Be the only adult in the room. Do NOT replicate what's already out there — bring an original angle.\n• Output — a HEADING + topic-guide brief for a writer. NEVER finished copy.\n• Evidence must be specific (cite comment counts / sources), never vague.\n• Contradictions — you PROPOSE, you never ASSERT. Flag any 'this is wrong' for human verification; never assert independently.\n• Treat Reddit as a leading indicator (not a census) and velocity as directional (not precise).",
     model: "", enabled: true },
 });
 const mergeRule = (id, r) => { const d = RULE_DEFAULTS[id] || {}; return { ...d, ...(r || {}), collection: { ...(d.collection || {}), ...((r || {}).collection || {}) } }; };
@@ -107,13 +113,15 @@ async function fetchReddit(topic) {
 }
 async function fetchNews(topic) {
   const key = getIntegrationKey("newsapi"); if (!key) return [];
-  const r = await timeout(fetch(`https://newsapi.org/v2/everything?q=${encodeURIComponent(topic)}&language=en&pageSize=4&sortBy=publishedAt&apiKey=${encodeURIComponent(key)}`));
+  const c = (await getRule("newsapi")).collection || {};
+  const r = await timeout(fetch(`https://newsapi.org/v2/everything?q=${encodeURIComponent(topic)}&language=${c.language||"en"}&pageSize=${c.pageSize||10}&sortBy=${c.sortBy||"publishedAt"}&apiKey=${encodeURIComponent(key)}`));
   const j = await r.json(); return (j.articles || []).map((a) => ({ source: "news", title: a.title, url: a.url, body: a.description }));
 }
 async function fetchSerpNews(topic) {
   const key = getIntegrationKey("serpapi"); if (!key) return [];
-  const r = await timeout(fetch(`https://serpapi.com/search.json?engine=google_news&q=${encodeURIComponent(topic)}&gl=in&hl=en&api_key=${encodeURIComponent(key)}`));
-  const j = await r.json(); return (j.news_results || []).slice(0, 4).map((n) => ({ source: "serpapi", title: n.title, url: n.link, body: n.snippet }));
+  const c = (await getRule("serpapi")).collection || {};
+  const r = await timeout(fetch(`https://serpapi.com/search.json?engine=google_news&q=${encodeURIComponent(topic)}&gl=${c.gl||"in"}&hl=${c.hl||"en"}&api_key=${encodeURIComponent(key)}`));
+  const j = await r.json(); return (j.news_results || []).slice(0, c.num || 5).map((n) => ({ source: "serpapi", title: n.title, url: n.link, body: n.snippet }));
 }
 // topics may be strings or {name, terms[]}. Each concept's terms are the actual
 // search queries fired at YouTube/Reddit/News; items are tagged with the concept.
@@ -214,7 +222,7 @@ async function researchTopic(topic) {
   const runs = [];
   const key = (id) => getIntegrationKey(id);
   if (enabled("tavily")) runs.push((async () => { const c = (await getRule("tavily")).collection || {}; const r = await timeout(fetch("https://api.tavily.com/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ api_key: key("tavily"), query: topic, max_results: c.max_results || 5, search_depth: c.search_depth || "basic", include_answer: c.include_answer !== false }) })); const j = await r.json(); return { source: "tavily", answer: j.answer, refs: (j.results || []).map((x) => ({ title: x.title, url: x.url, source: "tavily" })) }; })());
-  if (enabled("serper")) runs.push((async () => { const c = (await getRule("serper")).collection || {}; const r = await timeout(fetch("https://google.serper.dev/search", { method: "POST", headers: { "X-API-KEY": key("serper"), "content-type": "application/json" }, body: JSON.stringify({ q: topic, gl: c.gl || "in", hl: c.hl || "en" }) })); const j = await r.json(); return { source: "serper", answer: j.answerBox?.answer || j.knowledgeGraph?.description || "", refs: (j.organic || []).slice(0, 5).map((x) => ({ title: x.title, url: x.link, source: "serper" })) }; })());
+  if (enabled("serper")) runs.push((async () => { const c = (await getRule("serper")).collection || {}; const r = await timeout(fetch("https://google.serper.dev/search", { method: "POST", headers: { "X-API-KEY": key("serper"), "content-type": "application/json" }, body: JSON.stringify({ q: topic, gl: c.gl || "in", hl: c.hl || "en" }) })); const j = await r.json(); return { source: "serper", answer: j.answerBox?.answer || j.knowledgeGraph?.description || "", refs: (j.organic || []).slice(0, c.num || 5).map((x) => ({ title: x.title, url: x.link, source: "serper" })) }; })());
   if (enabled("perplexity")) runs.push((async () => { const rule = await getRule("perplexity"); const c = rule.collection || {}; const r = await timeout(fetch("https://api.perplexity.ai/chat/completions", { method: "POST", headers: { authorization: `Bearer ${key("perplexity")}`, "content-type": "application/json" }, body: JSON.stringify({ model: c.model || "sonar", messages: [{ role: "user", content: `${rule.prompt || "Research + cite sources."}\nTopic: ${topic}` }], max_tokens: c.max_tokens || 500 }) })); const j = await r.json(); return { source: "perplexity", answer: j.choices?.[0]?.message?.content, refs: (j.citations || []).map((u) => ({ title: String(u), url: String(u), source: "perplexity" })) }; })());
   if (enabled("exa")) runs.push((async () => { const c = (await getRule("exa")).collection || {}; const r = await timeout(fetch("https://api.exa.ai/search", { method: "POST", headers: { "x-api-key": key("exa"), "content-type": "application/json" }, body: JSON.stringify({ query: topic, numResults: c.numResults || 5, useAutoprompt: c.useAutoprompt !== false }) })); const j = await r.json(); return { source: "exa", answer: "", refs: (j.results || []).map((x) => ({ title: x.title, url: x.url, source: "exa" })) }; })());
   if (enabled("brave")) runs.push((async () => { const c = (await getRule("brave")).collection || {}; const r = await timeout(fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(topic)}&count=${c.count || 5}&country=${c.country || "in"}`, { headers: { "X-Subscription-Token": key("brave") } })); const j = await r.json(); return { source: "brave", answer: j.web?.results?.[0]?.description || "", refs: (j.web?.results || []).slice(0, 5).map((x) => ({ title: x.title, url: x.url, source: "brave" })) }; })());
@@ -332,9 +340,10 @@ export function mountWhisperer(app, slug) {
   // Batch = the demand seed (Hunger step). Combine routes: trend topics + SEO +
   // (optionally) a TalentMind-simulation cohort. Saved with name + timestamp.
   app.post("/api/wh/batch", async (req, res) => {
-    const { name, trend_topics, talentmind_cohort_id, seo } = req.body || {};
+    const { name, trend_topics, talentmind_cohort_id, seo, prompt } = req.body || {};
     const nm = name || `Batch ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
-    const routes = { trend: !!(trend_topics || []).length, seo: !!seo, talentmind: !!talentmind_cohort_id };
+    const extra = (prompt || "").trim();
+    const routes = { trend: !!(trend_topics || []).length, seo: !!seo, talentmind: !!talentmind_cohort_id, prompt: !!extra };
     let cohortId = null, hunger = null, topics = [], source = "trend";
     if (talentmind_cohort_id) {                          // reuse the simulation cohort (has its hunger)
       cohortId = Number(talentmind_cohort_id); source = "talentmind";
@@ -346,6 +355,7 @@ export function mountWhisperer(app, slug) {
       source = routes.trend && routes.seo ? "mixed" : routes.seo ? "seo" : "trend";
       hunger = { who: `Batch seeded from ${[routes.trend ? "Trend Spotting" : "", routes.seo ? "SEO inputs" : ""].filter(Boolean).join(" + ") || "all topics"}.`, demand_topics: topics, cares_about: topics.slice(0, 4), motivations: ["growth"], routes };
     }
+    if (extra) hunger.extra_prompt = extra;              // the user's free-text sweep brief (context + feed query)
     const b = await wq(`insert into wh_batch(name,source,routes,demand_topics,cohort_id,hunger,status) values($1,$2,$3::jsonb,$4,$5,$6::jsonb,'draft') returning id`,
       [nm, source, JSON.stringify(routes), topics, cohortId, JSON.stringify(hunger)]);
     res.json({ ok: true, id: b.rows?.[0]?.id, name: nm });
@@ -398,12 +408,15 @@ export function mountWhisperer(app, slug) {
     // historical acceptance per franchise (feedback loop → ranking)
     const hist = {}; for (const r of (await wq(`select franchise, count(*) filter(where feedback='used') u, count(*) filter(where feedback is not null) t from wh_feed_story group by franchise`)).rows) hist[r.franchise] = Number(r.t) ? Number(r.u) / Number(r.t) : 0;
 
-    const feed = await collectFeed(topicRows.map((t) => ({ name: t.name, terms: t.terms }))).catch(() => []);
+    const extra = (hunger.extra_prompt || "").trim();    // the user's free-text sweep brief
+    const feedTopics = topicRows.map((t) => ({ name: t.name, terms: t.terms }));
+    if (extra) feedTopics.push({ name: "__extra__", terms: [extra] });   // also search the user's prompt
+    const feed = await collectFeed(feedTopics).catch(() => []);
     await classifyFeed(feed).catch(() => {});            // Stage 2 — channel through each source's rule prompt
     const made = [];
     for (const t of topicRows) {
-      const research = await researchTopic(t.name).catch(() => null);
-      const items = feed.filter((f) => f.topic === t.name || (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase())).slice(0, 5);
+      const research = await researchTopic(extra ? `${t.name} — ${extra}` : t.name).catch(() => null);
+      const items = feed.filter((f) => f.topic === t.name || f.topic === "__extra__" || (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase())).slice(0, 5);
       const sig = topicSignals(items, GAPMAP[t.name]);          // Stage 3 — real demand/supply/velocity when live
       const velocity = sig.velocity != null ? sig.velocity : Math.min(1, 0.4 + items.length * 0.1);
       const strategic = Math.min(1, (Number(t.strategic_weight) || 1) / 1.5);
@@ -412,7 +425,7 @@ export function mountWhisperer(app, slug) {
       for (let a = 0; a < 3; a++) {                       // 3 ideas / topic → ~18 total
         const grounding = (items.length || research) ? `\nReal feed: ${JSON.stringify(items.map((x) => ({ src: x.source, title: x.title, url: x.url, tags: x.tags })))}\nResearch: ${JSON.stringify(research || {}).slice(0, 2000)}` : "";
         const contra = a === 1;
-        const { j } = await ai("feedstory-generate", `${guardPrompt ? guardPrompt + "\n\n" : ""}Create ONE content idea (heading + topic guide brief only — NOT finished copy) for the '${t.franchise}' franchise. Angle: ${ANGLES[a]}. ${contra ? "This is a CONTRADICTION idea — push against a popular but wrong belief; state the belief. " : ""}Ground it in the real feed + research when given; evidence must be specific.`, `Demand topic: ${t.name} (underlying question: ${t.question})\nFranchise: ${t.franchise} · format: ${t.format_home}\nCohort: ${JSON.stringify(hunger).slice(0, 1200)}\nPick 1-up from ${JSON.stringify(oneups)}, register from ${JSON.stringify(regs)}.${grounding}`);
+        const { j } = await ai("feedstory-generate", `${guardPrompt ? guardPrompt + "\n\n" : ""}Create ONE content idea (heading + topic guide brief only — NOT finished copy) for the '${t.franchise}' franchise. Angle: ${ANGLES[a]}. ${contra ? "This is a CONTRADICTION idea — push against a popular but wrong belief; state the belief. " : ""}Ground it in the real feed + research when given; evidence must be specific.`, `Demand topic: ${t.name} (underlying question: ${t.question})\nFranchise: ${t.franchise} · format: ${t.format_home}\nCohort: ${JSON.stringify(hunger).slice(0, 1200)}${extra ? `\nUser's extra brief for this sweep (weight it heavily): ${extra}` : ""}\nPick 1-up from ${JSON.stringify(oneups)}, register from ${JSON.stringify(regs)}.${grounding}`);
         // LLM-only — no dummy fallback. If the model didn't return a usable idea, skip it.
         if (!j || !j.heading) continue;
         const s = j;
