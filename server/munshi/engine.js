@@ -8,6 +8,7 @@
 import { runPipeline } from "../ai.js";
 import { getExtract, putExtract } from "../storage.js";
 import { stubAnalysis } from "../stub.js";
+import { stubClauses } from "../clauses.js";
 import { compileRuleBook } from "../engine/rulebook.js";
 import { chunkDoc, docHash, diffChunks } from "./chunk.js";
 import { boxToChips, chipsToBoxes, chipsToContent } from "./atomize.js";
@@ -178,7 +179,11 @@ export async function seedStubCorpus(client) {
   if ((await store.getChips(client)).length) return { seeded: false };   // already has chips
   const docId = "sow-stub";
   try {
-    await putExtract(client, docId, `# ${client} — SOW (stub)\nPlaceholder contract. Upload a real SOW to replace.`);
+    // rich SOW markdown from the stub clauses, so an AI parse (or the fallback)
+    // produces a full atomic rule-chip set for the demo. A real upload supersedes.
+    const md = `# ${client} — Statement of Work\n\n` +
+      stubClauses(client).map((c) => `## ${c.ref} ${c.title}\n\n${c.body}`).join("\n\n");
+    await putExtract(client, docId, md);
     const corpus = await store.listCorpus(client);
     if (!corpus.find((c) => c.doc_id === docId)) await registerCorpusDoc(client, { doc_id: docId, role: "primary_sow", title: "SOW (stub)" });
     return { seeded: true };
