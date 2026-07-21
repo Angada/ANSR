@@ -4,11 +4,12 @@
    Q&ANSR CORE console look: mono readouts, deep-orange accent, technical grid,
    LED chips. Only these pages link it, so Admin/others keep their own styling.
    ========================================================================== */
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
 
 :root{
-  --c-mono:'Space Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
-  --c-sans:'Space Grotesk',system-ui,-apple-system,Segoe UI,sans-serif;
+  /* clean sans everywhere — Inter for body, headings and the console labels */
+  --c-sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --c-mono:var(--c-sans);
   --c-org:#CE4502; --c-orgbr:#FF5400; --c-tint:#FFF1E9; --c-tintline:#F3D6C2;
   --c-navy:#00242E; --c-teal:#005465; --c-grn:#276B44;
   --c-line:#E7E3DC; --c-line2:#D9D3C8;
@@ -37,8 +38,8 @@ body{
 .hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--c-orgbr),var(--c-org))}
 .hero::after{content:"";position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(rgba(0,36,46,.02) 1px,transparent 1px) 0 0/100% 26px}
-.eyebrow{font-family:var(--c-mono);font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--c-org)}
-.hero h1{font-family:var(--c-mono);font-weight:700;letter-spacing:.03em;color:var(--c-navy)}
+.eyebrow{font-family:var(--c-sans);font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--c-org)}
+.hero h1{font-family:var(--c-sans);font-weight:700;letter-spacing:0;color:var(--c-navy)}
 .hero p{color:var(--c-dim)}
 
 /* ---- section titles → mono ---- */
@@ -53,10 +54,10 @@ h2,h3{font-family:var(--c-mono);letter-spacing:.02em}
 .section,.pipe{border:1px solid var(--c-line);border-radius:12px;background:#fff}
 
 /* ---- buttons ---- */
-.btn,.btn--ghost{font-family:var(--c-mono);letter-spacing:.1em;text-transform:uppercase;font-size:11px;
+.btn,.btn--ghost{font-family:var(--c-sans);font-weight:600;letter-spacing:.02em;font-size:12px;
   border-radius:9px;border:1px solid var(--c-line2);background:#fff;color:var(--c-navy);transition:.16s}
 .btn:hover,.btn--ghost:hover{border-color:var(--c-org);color:var(--c-org)}
-.btn-ai{font-family:var(--c-mono);letter-spacing:.1em;text-transform:uppercase;font-weight:700;font-size:12px;
+.btn-ai{font-family:var(--c-sans);letter-spacing:.02em;font-weight:600;font-size:13px;
   border-radius:999px;background:linear-gradient(90deg,var(--c-orgbr),var(--c-org)) !important;color:#fff !important;
   box-shadow:0 10px 30px -14px rgba(206,69,2,.6)}
 .btn-recal,.btn-recal.dirty{font-family:var(--c-mono);letter-spacing:.12em;text-transform:uppercase}
@@ -98,7 +99,7 @@ table.grid th,.inv thead th,.scroll-x thead th{font-family:var(--c-mono);letter-
 .agent.live:hover{border-color:var(--c-org);transform:translateY(-3px);box-shadow:0 18px 40px -26px rgba(206,69,2,.45)}
 .agent .nm b{font-family:var(--c-mono);letter-spacing:.06em;color:var(--c-navy)}
 .agent.live .nm b{color:var(--c-navy)}
-.agent .role{font-family:var(--c-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--c-org)}
+.agent .role{font-family:var(--c-sans);font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-org)}
 .agent .badge{border-radius:10px;background:var(--c-tint);color:var(--c-org);font-family:var(--c-mono)}
 .agent.live .badge{background:var(--c-org);color:#fff}
 .agent .go{color:var(--c-org)}

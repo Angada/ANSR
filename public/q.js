@@ -60,7 +60,7 @@ const QTERM_CSS = `
 .q-term{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;
   padding:9px 18px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);
   border-bottom:1px solid #E7E3DC;
-  font-family:'Space Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
   box-shadow:0 8px 24px -20px rgba(0,36,46,.4)}
 .q-term a{text-decoration:none}
 .q-term__brand{display:flex;align-items:center;gap:10px;color:#1E1E1E}
