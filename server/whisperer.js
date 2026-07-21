@@ -110,11 +110,17 @@ async function fetchSerpNews(topic) {
   const r = await timeout(fetch(`https://serpapi.com/search.json?engine=google_news&q=${encodeURIComponent(topic)}&gl=in&hl=en&api_key=${encodeURIComponent(key)}`));
   const j = await r.json(); return (j.news_results || []).slice(0, 4).map((n) => ({ source: "serpapi", title: n.title, url: n.link, body: n.snippet }));
 }
+// topics may be strings or {name, terms[]}. Each concept's terms are the actual
+// search queries fired at YouTube/Reddit/News; items are tagged with the concept.
 async function collectFeed(topics) {
   const out = [];
-  for (const topic of (topics || []).slice(0, 3)) {
-    const batches = await Promise.allSettled([fetchYouTube(topic), fetchReddit(topic), fetchNews(topic), fetchSerpNews(topic)]);
-    for (const b of batches) if (b.status === "fulfilled") out.push(...(b.value || []));
+  for (const t of (topics || []).slice(0, 6)) {
+    const name = typeof t === "string" ? t : t.name;
+    const terms = (typeof t === "object" && Array.isArray(t.terms) && t.terms.length) ? t.terms : [name];
+    for (const term of terms.slice(0, 4)) {
+      const batches = await Promise.allSettled([fetchYouTube(term), fetchReddit(term), fetchNews(term), fetchSerpNews(term)]);
+      for (const b of batches) if (b.status === "fulfilled") for (const it of (b.value || [])) out.push({ ...it, topic: name, term });
+    }
   }
   // dedupe by url, persist (incl. metrics meta)
   const seen = new Set(); const uniq = out.filter((x) => x.url && !seen.has(x.url) && seen.add(x.url));
@@ -369,7 +375,7 @@ export function mountWhisperer(app, slug) {
     const W = sc.weights || { gap: 0.35, velocity: 0.25, strategic: 0.20, historical: 0.20 };
     const GAPMAP = sc.gap_map || {};
     // the approved 6 demand topics + franchise routing (skip Emerging for generation)
-    let topicRows = (await wq(`select name, franchise, format_home, strategic_weight, question from wh_demand_topic where active and name<>'Emerging' order by id`)).rows;
+    let topicRows = (await wq(`select name, franchise, format_home, strategic_weight, question, terms from wh_demand_topic where active and name<>'Emerging' order by id`)).rows;
     // restrict to the batch's chosen demand topics when set
     const chosen = (batch.demand_topics && batch.demand_topics.length) ? batch.demand_topics : (hunger.demand_topics || []);
     if (chosen.length) { const sel = topicRows.filter((t) => chosen.includes(t.name)); if (sel.length) topicRows = sel; }
@@ -378,12 +384,12 @@ export function mountWhisperer(app, slug) {
     // historical acceptance per franchise (feedback loop → ranking)
     const hist = {}; for (const r of (await wq(`select franchise, count(*) filter(where feedback='used') u, count(*) filter(where feedback is not null) t from wh_feed_story group by franchise`)).rows) hist[r.franchise] = Number(r.t) ? Number(r.u) / Number(r.t) : 0;
 
-    const feed = await collectFeed(topicRows.map((t) => t.name)).catch(() => []);
+    const feed = await collectFeed(topicRows.map((t) => ({ name: t.name, terms: t.terms }))).catch(() => []);
     await classifyFeed(feed).catch(() => {});            // Stage 2 — channel through each source's rule prompt
     const made = [];
     for (const t of topicRows) {
       const research = await researchTopic(t.name).catch(() => null);
-      const items = feed.filter((f) => (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase())).slice(0, 5);
+      const items = feed.filter((f) => f.topic === t.name || (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase())).slice(0, 5);
       const sig = topicSignals(items, GAPMAP[t.name]);          // Stage 3 — real demand/supply/velocity when live
       const velocity = sig.velocity != null ? sig.velocity : Math.min(1, 0.4 + items.length * 0.1);
       const strategic = Math.min(1, (Number(t.strategic_weight) || 1) / 1.5);
@@ -483,7 +489,21 @@ export function mountWhisperer(app, slug) {
   });
 
   // demand topics with franchise routing (for the initial journey + settings)
-  app.get("/api/wh/topics", async (_req, res) => res.json({ topics: (await wq(`select name, question, franchise, format_home, strategic_weight, notes, active from wh_demand_topic order by id`)).rows }));
+  app.get("/api/wh/topics", async (_req, res) => res.json({ topics: (await wq(`select id, name, question, franchise, format_home, strategic_weight, terms, notes, active from wh_demand_topic order by id`)).rows }));
+  // create / update a Trend Spotting concept (+ its search terms)
+  app.post("/api/wh/topic", async (req, res) => {
+    const { name, question, franchise, format_home, strategic_weight, terms, old_name } = req.body || {};
+    if (!name) return res.status(400).json({ error: "name required" });
+    const arr = Array.isArray(terms) ? terms : String(terms || "").split(",").map((t) => t.trim()).filter(Boolean);
+    const key = old_name || name;
+    const exists = (await wq(`select 1 from wh_demand_topic where name=$1`, [key])).rows.length;
+    if (exists) await wq(`update wh_demand_topic set name=$2, question=coalesce($3,question), franchise=coalesce($4,franchise), format_home=coalesce($5,format_home), strategic_weight=coalesce($6,strategic_weight), terms=$7 where name=$1`,
+      [key, name, question || null, franchise || null, format_home || null, strategic_weight != null ? Number(strategic_weight) : null, arr]);
+    else await wq(`insert into wh_demand_topic(name, question, franchise, format_home, strategic_weight, terms, active) values($1,$2,$3,$4,$5,$6,true)`,
+      [name, question || "", franchise || "Emerging", format_home || "", strategic_weight != null ? Number(strategic_weight) : 1, arr]);
+    res.json({ ok: true });
+  });
+  app.post("/api/wh/topic/:name/delete", async (req, res) => { await wq(`delete from wh_demand_topic where name=$1 and name<>'Emerging'`, [req.params.name]); res.json({ ok: true }); });
 
   // 1Up franchises (routing targets) — config, editable
   app.get("/api/wh/franchises", async (_req, res) => res.json({ franchises: (await wq(`select * from wh_franchise order by id`)).rows }));

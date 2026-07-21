@@ -18,26 +18,26 @@
   /* darken the shared app.css greys too, so inline var(--ansr-*) text darkens everywhere */
   --ansr-text:#141414; --ansr-gray:#54504A; --ansr-gray-mid:#6E665A; --ansr-navy:#001C24;
   /* tight, RayDar-density type scale, ~2px down (app.css base is an oversized 18px) */
-  --ansr-fs-base:12px; --ansr-fs-small:11px;
+  --ansr-fs-base:14px; --ansr-fs-small:13px;
 }
 body{color:var(--c-txt)}
 
 /* ---- tight type scale — match RayDar density across all pages ---- */
-html,body{font-size:12px}
+html,body{font-size:14px}
 body{line-height:1.5}
-h1{font-size:17px;line-height:1.2} h2{font-size:14.5px;line-height:1.25}
-h3{font-size:13px;line-height:1.3} h4{font-size:12px}
-.hero .eyebrow{font-size:10px !important;letter-spacing:.12em}
-.hero h1{font-size:17px !important}
-.hero p{font-size:11px !important}
-.band h3,.grp{font-size:12.5px !important}
-.tab{font-size:12px}
-.lbl{font-size:10.5px}
-p{font-size:12px}
-input,select,textarea{font-size:12px !important;min-height:32px !important;padding:7px 10px !important}
-.btn,.btn--ghost{font-size:10.5px !important;padding:7px 11px !important;min-height:32px}
-.btn-ai{font-size:11px !important;padding:8px 15px !important}
-.chip{font-size:10px !important}
+h1{font-size:19px;line-height:1.2} h2{font-size:16.5px;line-height:1.25}
+h3{font-size:15px;line-height:1.3} h4{font-size:14px}
+.hero .eyebrow{font-size:12px !important;letter-spacing:.12em}
+.hero h1{font-size:19px !important}
+.hero p{font-size:13px !important}
+.band h3,.grp{font-size:14.5px !important}
+.tab{font-size:14px}
+.lbl{font-size:12.5px}
+p{font-size:14px}
+input,select,textarea{font-size:14px !important;min-height:32px !important;padding:7px 10px !important}
+.btn,.btn--ghost{font-size:12.5px !important;padding:7px 11px !important;min-height:32px}
+.btn-ai{font-size:13px !important;padding:8px 15px !important}
+.chip{font-size:12px !important}
 
 /* technical grid canvas */
 body{
@@ -57,7 +57,7 @@ body{
 .hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--c-orgbr),var(--c-org))}
 .hero::after{content:"";position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(rgba(0,36,46,.02) 1px,transparent 1px) 0 0/100% 26px}
-.eyebrow{font-family:var(--c-sans);font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--c-org)}
+.eyebrow{font-family:var(--c-sans);font-size:13px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--c-org)}
 .hero h1{font-family:var(--c-sans);font-weight:700;letter-spacing:0;color:var(--c-navy)}
 .hero p{color:var(--c-dim)}
 
@@ -73,16 +73,16 @@ h2,h3{font-family:var(--c-mono);letter-spacing:.02em}
 .section,.pipe{border:1px solid var(--c-line);border-radius:12px;background:#fff}
 
 /* ---- buttons ---- */
-.btn,.btn--ghost{font-family:var(--c-sans);font-weight:600;letter-spacing:.02em;font-size:12px;
+.btn,.btn--ghost{font-family:var(--c-sans);font-weight:600;letter-spacing:.02em;font-size:14px;
   border-radius:9px;border:1px solid var(--c-line2);background:#fff;color:var(--c-navy);transition:.16s}
 .btn:hover,.btn--ghost:hover{border-color:var(--c-org);color:var(--c-org)}
-.btn-ai{font-family:var(--c-sans);letter-spacing:.02em;font-weight:600;font-size:13px;
+.btn-ai{font-family:var(--c-sans);letter-spacing:.02em;font-weight:600;font-size:15px;
   border-radius:999px;background:linear-gradient(90deg,var(--c-orgbr),var(--c-org)) !important;color:#fff !important;
   box-shadow:0 10px 30px -14px rgba(206,69,2,.6)}
 .btn-recal,.btn-recal.dirty{font-family:var(--c-mono);letter-spacing:.12em;text-transform:uppercase}
 
 /* ---- chips → console pills ---- */
-.chip{font-family:var(--c-mono);font-size:11px;letter-spacing:.02em;border-radius:999px;
+.chip{font-family:var(--c-mono);font-size:13px;letter-spacing:.02em;border-radius:999px;
   background:var(--c-tint);color:var(--c-org);border:1px solid var(--c-tintline)}
 .chip--approved{background:#E7F2EC;color:var(--c-grn);border-color:#CDE6D8}
 .chip--draft{background:#F4F1EC;color:var(--c-dim);border-color:var(--c-line)}
@@ -118,7 +118,7 @@ table.grid th,.inv thead th,.scroll-x thead th{font-family:var(--c-mono);letter-
 .agent.live:hover{border-color:var(--c-org);transform:translateY(-3px);box-shadow:0 18px 40px -26px rgba(206,69,2,.45)}
 .agent .nm b{font-family:var(--c-mono);letter-spacing:.06em;color:var(--c-navy)}
 .agent.live .nm b{color:var(--c-navy)}
-.agent .role{font-family:var(--c-sans);font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-org)}
+.agent .role{font-family:var(--c-sans);font-weight:600;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--c-org)}
 .agent .badge{border-radius:10px;background:var(--c-tint);color:var(--c-org);font-family:var(--c-mono)}
 .agent.live .badge{background:var(--c-org);color:#fff}
 .agent .go{color:var(--c-org)}
@@ -138,22 +138,22 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--c-org);b
   transition:.16s;font-family:var(--c-sans)}
 .agentbox:hover{border-color:var(--c-line2);transform:translateY(-1px)}
 .agentbox.on{border-color:var(--c-org);background:var(--c-tint);box-shadow:0 0 0 1px var(--c-org) inset}
-.agentbox .ab-name{font-weight:600;font-size:14px;color:var(--c-navy)}
+.agentbox .ab-name{font-weight:600;font-size:16px;color:var(--c-navy)}
 .agentbox.on .ab-name{color:var(--c-org)}
-.agentbox .ab-n{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--c-dim2)}
+.agentbox .ab-n{font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--c-dim2)}
 
 /* ---- skill cards: tighter RayDar density ---- */
 .band[data-skl]{padding:14px 15px !important;border-radius:12px}
 .grp{letter-spacing:.01em}
 
 /* ---- Mint content density → match RayDar ---- */
-.flow-title{font-size:12.5px !important}
-#result{font-size:12px}
-.sum-text{font-size:11.5px}
-.findings.sm li,.findings li{font-size:11.5px}
-.node .lbl{font-size:9.5px}
-.sectionhead .st{font-size:12.5px}
-.boxcard .bc-head b{font-size:12.5px}
+.flow-title{font-size:14.5px !important}
+#result{font-size:14px}
+.sum-text{font-size:13.5px}
+.findings.sm li,.findings li{font-size:13.5px}
+.node .lbl{font-size:11.5px}
+.sectionhead .st{font-size:14.5px}
+.boxcard .bc-head b{font-size:14.5px}
 
 /* inline vector icons */
 .ic{vertical-align:-.18em}
@@ -166,31 +166,31 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--c-org);b
 .rd-meter::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--c-orgbr),var(--c-org))}
 .rd-bar{height:6px;border-radius:999px;background:#F0ECE4;overflow:hidden}
 .rd-fill{height:100%;width:0;background:linear-gradient(90deg,var(--c-org),var(--c-teal));transition:width .45s cubic-bezier(.5,0,.2,1);box-shadow:0 0 12px rgba(206,69,2,.5)}
-.rd-now{font-size:12px;font-weight:600;color:var(--c-org);margin:12px 0 8px;letter-spacing:.02em}
-.rd-ms{font-size:11.5px;color:var(--c-dim2);padding:3px 0;display:flex;align-items:center;gap:7px;opacity:.5;transition:opacity .3s}
+.rd-now{font-size:14px;font-weight:600;color:var(--c-org);margin:12px 0 8px;letter-spacing:.02em}
+.rd-ms{font-size:13.5px;color:var(--c-dim2);padding:3px 0;display:flex;align-items:center;gap:7px;opacity:.5;transition:opacity .3s}
 .rd-ms.on{opacity:1}
 .rd-ms.done{color:var(--c-teal)}
 .rd-ms .ic{flex:0 0 auto}
 
 /* ---- Mint: one more notch down; analysis boxes smaller still ---- */
-.wrap.mint{font-size:11px}
-.wrap.mint .flow-title{font-size:12px !important}
-.wrap.mint #result{font-size:11px}
-.wrap.mint .sum-text{font-size:10.5px}
-.wrap.mint .findings.sm li,.wrap.mint .findings li{font-size:10.5px}
-.boxcard{font-size:10.5px}
-.boxcard .bc-head b{font-size:11.5px !important}
-.boxcard .bc-data,.boxcard .bc-data td,.boxcard .bc-data th,.boxcard .bc-data li,.boxcard .bc-data div{font-size:10px}
-.boxcard .ai-msg,.boxcard .ai-chip,.boxcard .ai-row input,.boxcard .ai-head{font-size:10px}
-.boxcard .lbl{font-size:9.5px}
+.wrap.mint{font-size:13px}
+.wrap.mint .flow-title{font-size:14px !important}
+.wrap.mint #result{font-size:13px}
+.wrap.mint .sum-text{font-size:12.5px}
+.wrap.mint .findings.sm li,.wrap.mint .findings li{font-size:12.5px}
+.boxcard{font-size:12.5px}
+.boxcard .bc-head b{font-size:13.5px !important}
+.boxcard .bc-data,.boxcard .bc-data td,.boxcard .bc-data th,.boxcard .bc-data li,.boxcard .bc-data div{font-size:12px}
+.boxcard .ai-msg,.boxcard .ai-chip,.boxcard .ai-row input,.boxcard .ai-head{font-size:12px}
+.boxcard .lbl{font-size:11.5px}
 
-.wrap.mint #result li,.wrap.mint #result p,.wrap.mint #result .section{font-size:11px}
+.wrap.mint #result li,.wrap.mint #result p,.wrap.mint #result .section{font-size:13px}
 
 /* ---- Munshi rule-chips (Mint step 5) ---- */
 .mchips{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
 .mchip{border:1px solid var(--c-line);border-radius:10px;background:#fff;padding:11px 12px;transition:.16s}
 .mchip.ok{border-color:var(--c-grn);background:#F6FBF8}
-.mchip-h{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px}
-.mchip-h b{color:var(--c-navy);font-family:ui-monospace,monospace;font-size:11px}
-.mchip-v{font-family:ui-monospace,monospace;font-size:10px;color:var(--c-dim);margin:7px 0;word-break:break-word;line-height:1.45;max-height:64px;overflow:auto}
+.mchip-h{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:13px}
+.mchip-h b{color:var(--c-navy);font-family:ui-monospace,monospace;font-size:13px}
+.mchip-v{font-family:ui-monospace,monospace;font-size:12px;color:var(--c-dim);margin:7px 0;word-break:break-word;line-height:1.45;max-height:64px;overflow:auto}
 .mchip-a{display:flex;gap:6px}

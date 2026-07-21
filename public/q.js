@@ -67,16 +67,16 @@ const QTERM_CSS = `
 .q-term__logo{height:44px;width:auto;display:block}
 .q-term__led{width:8px;height:8px;border-radius:50%;background:#CE4502;box-shadow:0 0 0 3px rgba(206,69,2,.14);animation:qled 1.8s ease-in-out infinite;flex:0 0 auto}
 @keyframes qled{50%{opacity:.3}}
-.q-term__sys{color:#A79F93;font-size:11px;letter-spacing:.14em}
+.q-term__sys{color:#A79F93;font-size:13px;letter-spacing:.14em}
 .q-term__nav{display:flex;gap:4px;flex:1;flex-wrap:wrap}
-.q-term__tab{color:#54504A;font-size:13px;font-weight:500;letter-spacing:.01em;padding:7px 13px;border:1px solid transparent;border-radius:8px;transition:.16s;white-space:nowrap}
+.q-term__tab{color:#54504A;font-size:15px;font-weight:500;letter-spacing:.01em;padding:7px 13px;border:1px solid transparent;border-radius:8px;transition:.16s;white-space:nowrap}
 .q-term__tab:hover{color:#141414;border-color:#E7E3DC}
 .q-term__tab.on{color:#CE4502;background:#FFF1E9;font-weight:600;border-color:#F3D6C2}
-.q-term__user{display:flex;align-items:center;gap:10px;font-size:12px;color:#54504A}
-.q-term__role{color:#CE4502;border:1px solid #F3D6C2;background:#FFF1E9;border-radius:999px;padding:3px 10px;font-size:11px}
+.q-term__user{display:flex;align-items:center;gap:10px;font-size:14px;color:#54504A}
+.q-term__role{color:#CE4502;border:1px solid #F3D6C2;background:#FFF1E9;border-radius:999px;padding:3px 10px;font-size:13px}
 .q-term__out{color:#54504A}
 .q-term__out:hover{color:#CE4502}
-.q-term__hamb{display:none;background:none;border:1px solid #D9D3C8;color:#CE4502;border-radius:8px;padding:6px 10px;font-size:14px;cursor:pointer}
+.q-term__hamb{display:none;background:none;border:1px solid #D9D3C8;color:#CE4502;border-radius:8px;padding:6px 10px;font-size:16px;cursor:pointer}
 @media(max-width:760px){
   .q-term{flex-wrap:wrap}
   .q-term__hamb{display:block;margin-left:auto}

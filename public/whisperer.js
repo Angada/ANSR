@@ -15,6 +15,7 @@ let BATCH = null, FR = "all";
 let STAGE = 1;          // 1 hunger · 2 sweeping · 3 ideas
 let VIEW = "sweep";     // sweep | batches | library
 let FRANCHISES = [];
+let EDIT_CONCEPTS = false;
 
 // ---- journey rail (horizontal) ---------------------------------------------
 const STATIONS = [
@@ -74,9 +75,10 @@ async function renderHunger() {
 
       <div class="mod ${ROUTES.trend ? "sel" : ""}">
         <span class="idx">Feed 01</span>
-        <h3><span class="tick" onclick="route('trend')">✓</span> Trend Spotting</h3>
-        <p class="desc">Pick the demand topics — the six domains job seekers hunger for. Each routes to a 1Up franchise.</p>
-        <div class="chips">${trendChips}</div>
+        <h3><span class="tick" onclick="route('trend')">✓</span> Trend Spotting
+          <a class="ceditlink" onclick="toggleConcepts()">${EDIT_CONCEPTS ? "done" : "⚙ edit concepts"}</a></h3>
+        <p class="desc">Pick the demand concepts — the domains job seekers hunger for. Each concept carries the <b>search terms</b> we fire at YouTube/Reddit and routes to a 1Up franchise.</p>
+        ${EDIT_CONCEPTS ? conceptEditor() : `<div class="chips">${trendChips}</div>`}
       </div>
 
       <div class="mod ${ROUTES.seo ? "sel" : ""}">
@@ -106,6 +108,43 @@ window.route = (k) => { ROUTES[k] = !ROUTES[k]; renderHunger(); };
 window.toggleTopic = (name) => { ROUTES.trend = true; TOPICS = TOPICS.includes(name) ? TOPICS.filter((t) => t !== name) : [...TOPICS, name]; renderHunger(); };
 window.addSeo = async () => { const content = $("#seoText")?.value.trim(); if (!content) return; ROUTES.seo = true; await fetch("/api/wh/seo", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "keywords", content }) }); renderHunger(); };
 window.delSeo = async (id) => { await fetch(`/api/wh/seo/${id}/delete`, { method: "POST" }); renderHunger(); };
+
+// ---- Trend Spotting concept editor — edit terms, add/remove concepts, save --
+function conceptEditor() {
+  const rows = ALL_TOPICS.filter((t) => t.name !== "Emerging").map((t, i) => `
+    <div class="cedit">
+      <input id="cn-${i}" value="${esc(t.name)}" placeholder="concept" style="font-weight:600">
+      <input id="ct-${i}" value="${esc((t.terms || []).join(", "))}" placeholder="search terms → YouTube/Reddit queries (comma-separated)">
+      <input id="cf-${i}" value="${esc(t.franchise || "")}" placeholder="1Up franchise" title="franchise">
+      <input id="cw-${i}" value="${esc(t.strategic_weight || 1)}" title="strategic weight" style="text-align:center">
+      <button class="btn small" onclick="saveConcept('${esc(t.name).replace(/'/g, "\\'")}',${i})">Save</button>
+      <button class="btn small" onclick="delConcept('${esc(t.name).replace(/'/g, "\\'")}')" title="remove">${ic("x", 12)}</button>
+    </div>`).join("");
+  return `<div class="cedit-wrap">
+    <div class="cedit cedit-h"><span>concept</span><span>search terms (what it covers)</span><span>franchise</span><span>wt</span><span></span><span></span></div>
+    ${rows}
+    <div class="cedit">
+      <input id="cn-new" placeholder="+ new concept" style="font-weight:600">
+      <input id="ct-new" placeholder="search terms, comma-separated">
+      <input id="cf-new" placeholder="franchise">
+      <input id="cw-new" value="1" style="text-align:center">
+      <button class="btn small" onclick="addConcept()">Add</button><span></span>
+    </div></div>`;
+}
+window.toggleConcepts = () => { EDIT_CONCEPTS = !EDIT_CONCEPTS; renderHunger(); };
+async function refreshTopics() { ALL_TOPICS = (await (await fetch("/api/wh/topics")).json()).topics || []; renderHunger(); }
+window.saveConcept = async (oldName, i) => {
+  const body = { old_name: oldName, name: $(`#cn-${i}`).value.trim(), terms: $(`#ct-${i}`).value, franchise: $(`#cf-${i}`).value.trim(), strategic_weight: $(`#cw-${i}`).value.trim() };
+  if (!body.name) return;
+  await fetch("/api/wh/topic", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  await refreshTopics();
+};
+window.addConcept = async () => {
+  const name = $("#cn-new").value.trim(); if (!name) return;
+  await fetch("/api/wh/topic", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name, terms: $("#ct-new").value, franchise: $("#cf-new").value.trim() || "Emerging", strategic_weight: $("#cw-new").value.trim() || 1 }) });
+  await refreshTopics();
+};
+window.delConcept = async (name) => { await fetch(`/api/wh/topic/${encodeURIComponent(name)}/delete`, { method: "POST" }); await refreshTopics(); };
 
 // TalentMind simulation — synthetic data path (prefilled filters + NLP prompt)
 window.talentmindSim = async () => {
