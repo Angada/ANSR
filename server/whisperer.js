@@ -9,10 +9,27 @@ const jsonFrom = (text) => { const m = String(text || "").match(/\{[\s\S]*\}/); 
 const enabled = (id) => { try { return !!publicIntegrations()[id]?.enabled && !!getIntegrationKey(id); } catch { return false; } };
 const timeout = (p, ms = 9000) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms))]);
 
+// ---- Business rules per integration (editable in Settings; "80% no code") ---
+// Each: how we query it (collection) + the AI prompt + a model override
+// (""=use the pipeline default) + a gate. Stored in wh_business_rule(name=id).
+const RULE_DEFAULTS = {
+  youtube:    { pipeline: "trend-detect", collection: { regionCode: "IN", relevanceLanguage: "en", publishedDays: 30, maxResults: 20, commentsTopVideos: 5, commentsPerVideo: 20 }, prompt: "Classify each YouTube item → demand topic (1–6 / Emerging), 1Up franchise, 4-register distribution, and the underlying question. Comments carry the real feeling — weight them.", model: "", enabled: true },
+  reddit:     { pipeline: "trend-detect", collection: { subreddits: ["developersIndia", "IndianWorkplace", "IndiaCareers", "cscareerquestions", "leetcode"], topPosts: 50, timeframe: "month", commentTrees: 10, commentsPerPost: 100 }, prompt: "Classify each Reddit post/comment → topic, franchise, registers, underlying question. Comment trees are the highest-value signal.", model: "", enabled: true },
+  newsapi:    { pipeline: "trend-detect", collection: { language: "en", pageSize: 20, sortBy: "publishedAt" }, prompt: "Summarise each article's relevance to the demand topics.", model: "", enabled: true },
+  serpapi:    { pipeline: "trend-detect", collection: { gl: "in", hl: "en" }, prompt: "Extract trending headlines relevant to the demand topics.", model: "", enabled: true },
+  tavily:     { pipeline: "feedstory-generate", collection: { max_results: 5, search_depth: "basic", include_answer: true }, prompt: "Use for VALIDATION — pull facts + cite source URLs. Flag claims that conflict with the feed.", model: "", enabled: true },
+  serper:     { pipeline: "feedstory-generate", collection: { gl: "in", hl: "en" }, prompt: "Use for grounding + validation; cite links.", model: "", enabled: true },
+  perplexity: { pipeline: "feedstory-generate", collection: { model: "sonar", max_tokens: 500 }, prompt: "Research + validate with citations; India English context.", model: "", enabled: true },
+};
+const mergeRule = (id, r) => { const d = RULE_DEFAULTS[id] || {}; return { ...d, ...(r || {}), collection: { ...(d.collection || {}), ...((r || {}).collection || {}) } }; };
+async function getRule(id) { try { const r = (await q(`select rule from wh_business_rule where name=$1`, [id])).rows?.[0]?.rule; return mergeRule(id, r); } catch { return mergeRule(id, null); } }
+
 // ---- Feed collection (real when a source's key is enabled; else []) ---------
 async function fetchYouTube(topic) {
   const key = getIntegrationKey("youtube"); if (!key) return [];
-  const r = await timeout(fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=4&regionCode=IN&relevanceLanguage=en&q=${encodeURIComponent(topic)}&key=${encodeURIComponent(key)}`));
+  const c = (await getRule("youtube")).collection || {};
+  const publishedAfter = new Date(Date.now() - (c.publishedDays || 30) * 864e5).toISOString();
+  const r = await timeout(fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=${Math.min(c.maxResults || 10, 20)}&regionCode=${c.regionCode || "IN"}&relevanceLanguage=${c.relevanceLanguage || "en"}&order=viewCount&publishedAfter=${encodeURIComponent(publishedAfter)}&q=${encodeURIComponent(topic)}&key=${encodeURIComponent(key)}`));
   const j = await r.json(); return (j.items || []).map((i) => ({ source: "youtube", external_id: i.id?.videoId, title: i.snippet?.title, url: `https://youtube.com/watch?v=${i.id?.videoId}`, body: i.snippet?.description }));
 }
 async function fetchReddit(topic) {
@@ -294,6 +311,20 @@ export function mountWhisperer(app, slug) {
   });
   // set a topic's franchise routing
   app.post("/api/wh/topic/route", async (req, res) => { await wq(`update wh_demand_topic set franchise=$2, format_home=coalesce($3,format_home) where name=$1`, [req.body?.topic, req.body?.franchise, req.body?.format_home || null]); res.json({ ok: true }); });
+
+  // Business rules per integration — collection params + prompt + model + gate.
+  app.get("/api/wh/rules", async (_req, res) => {
+    const saved = {}; for (const r of (await wq(`select name, rule from wh_business_rule`)).rows) saved[r.name] = r.rule;
+    const out = {}; for (const id of Object.keys(RULE_DEFAULTS)) out[id] = mergeRule(id, saved[id]);
+    res.json({ rules: out });
+  });
+  app.post("/api/wh/rules/:id", async (req, res) => {
+    const id = req.params.id; if (!RULE_DEFAULTS[id]) return res.status(404).json({ error: "unknown integration" });
+    const merged = mergeRule(id, req.body || {});
+    await wq(`insert into wh_business_rule(name, rule) values($1,$2::jsonb) on conflict(name) do update set rule=excluded.rule`, [id, JSON.stringify(merged)]);
+    q(`insert into audit_log(actor,action,object_type,object_id,detail) values('admin','raydar.rule','integration',$1,$2::jsonb)`, [id, JSON.stringify({ model: merged.model, enabled: merged.enabled })]).catch(() => {});
+    res.json({ ok: true, rule: merged });
+  });
 
   // SEO research workspace — a 2nd write source (paste keyword/GSC/competitor/trend research)
   app.get("/api/wh/seo", async (_req, res) => res.json({ inputs: (await wq(`select id, kind, content, created_at from wh_seo_input order by id desc limit 50`)).rows }));

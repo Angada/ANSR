@@ -24,6 +24,9 @@ alter table wh_feed_story add column if not exists score_breakdown jsonb;
 alter table wh_feed_story add column if not exists feedback text;          -- used | rejected | saved
 alter table wh_feed_story add column if not exists reject_reason text;     -- off-brand | not interesting | already covered | wrong timing
 
+-- business rules keyed by integration name (upsertable)
+create unique index if not exists wh_business_rule_name on wh_business_rule(name);
+
 -- 1Up franchises (routing targets) — editable in settings, config not code
 create table if not exists wh_franchise (
   id serial primary key, name text not null unique, stage text, format_home text, active boolean default true );

@@ -7,8 +7,46 @@ let CFG = null;
 async function load() {
   CFG = await (await fetch("/api/config")).json();
   renderAiWriteup(); renderConnectors(); renderProducts();
-  renderIntegrations(); renderVault(); renderAccounts(); wireTabs();
+  renderIntegrations(); renderRules(); renderVault(); renderAccounts(); wireTabs();
 }
+
+// ---- Business Rules: per-integration collection rules + prompt + model gate ---
+async function renderRules() {
+  const host = document.getElementById("rules"); if (!host) return;
+  const { rules } = await (await fetch("/api/wh/rules")).json();
+  const cfg = CFG || (CFG = await (await fetch("/api/config")).json());
+  const modelOpts = `<option value="">Default (pipeline model)</option>` + Object.entries(cfg.providers).flatMap(([id, p]) => (p.models || []).map((m) => `<option value="${id}::${m}">${p.label} · ${m}</option>`)).join("");
+  host.innerHTML = `<p class="lbl" style="color:var(--ansr-gray)">How RayDar queries each external API (business rules), the AI prompt that processes it, its model (default pipeline model or a custom one), and the gate. All config — no deploy needed.</p>` +
+    Object.entries(rules || {}).map(([id, r]) => `
+    <section class="pipe" data-rule="${id}">
+      <div class="pipe-head" onclick="this.parentElement.classList.toggle('open')">
+        <b>${id}</b>
+        <span class="chip">${esc(r.pipeline || "")}</span>
+        <span class="chip ${r.model ? "chip--approved" : "chip--draft"}">${r.model ? esc(r.model.split("::")[1] || r.model) : "default model"}</span>
+        <span class="chip ${r.enabled ? "chip--approved" : "chip--draft"}" style="margin-left:auto">${r.enabled ? "on" : "off"}</span>
+        <span class="caret">⌄</span>
+      </div>
+      <div class="pipe-body">
+        <label class="lbl">Collection rules (how we query it)</label>
+        <textarea id="rc-${id}" rows="4" style="font-family:ui-monospace,monospace;font-size:12px">${esc(JSON.stringify(r.collection || {}, null, 2))}</textarea>
+        <label class="lbl" style="margin-top:8px">Processing prompt</label>
+        <textarea id="rp-${id}" rows="3">${esc(r.prompt || "")}</textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
+          <div style="flex:1;min-width:200px"><label class="lbl">Model</label><select id="rm-${id}">${modelOpts.replace(`value="${r.model || ""}"`, `value="${r.model || ""}" selected`)}</select></div>
+          <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="re-${id}" ${r.enabled ? "checked" : ""} style="width:auto;min-height:auto"> Enabled (gate)</label>
+          <button class="btn" onclick="saveRule('${id}')">Save</button>
+          <span id="rmsg-${id}" class="lbl"></span>
+        </div>
+      </div>
+    </section>`).join("");
+}
+window.saveRule = async (id) => {
+  let collection = {}; try { collection = JSON.parse(document.getElementById(`rc-${id}`).value || "{}"); } catch { document.getElementById(`rmsg-${id}`).textContent = "invalid JSON in collection rules"; return; }
+  const body = { collection, prompt: document.getElementById(`rp-${id}`).value, model: document.getElementById(`rm-${id}`).value, enabled: document.getElementById(`re-${id}`).checked };
+  const r = await fetch(`/api/wh/rules/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  document.getElementById(`rmsg-${id}`).textContent = r.ok ? "saved ✓" : "error";
+  renderRules();
+};
 
 // ---- RayDar admin: Integrations (key-based) + Vault + Accounts ---------------
 // Real connectable integrations for the Whisperer supply / research / validation

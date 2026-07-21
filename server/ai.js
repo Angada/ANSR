@@ -28,28 +28,31 @@ function stubReply(id, user) {
   return `(${id} · no key) ${user ? `Re "${user.slice(0, 80)}": ` : ""}I'd answer with evidence + the calc trail + a clause reference. Add a provider key in Admin → AI Skills & Pipelines to switch on live answers.`;
 }
 
-export async function runPipeline(pipelineId, { system = "", user = "", maxTokens = 800 } = {}) {
+// override (optional): { provider, model } lets a caller (e.g. a RayDar business
+// rule's custom model dropdown) run this pipeline on a different model/provider.
+export async function runPipeline(pipelineId, { system = "", user = "", maxTokens = 800, provider, model } = {}) {
   const cfg = loadConfig();
   const p = cfg.pipelines[pipelineId];
   if (!p) return { mode: "error", text: `unknown pipeline: ${pipelineId}` };
   if (p.kind === "deterministic") return { mode: "deterministic", pipeline: p.id, text: "" };
   if (!p.enabled) return { mode: "disabled", pipeline: p.id, text: "This AI step is disabled in Admin." };
 
-  const prov = cfg.providers[p.provider] || {};
-  const key = getApiKey(p.provider);
-  const anthropicCompat = p.provider === "anthropic" || !!prov.baseURL;
+  const useProvider = provider || p.provider, useModel = model || p.model;
+  const prov = cfg.providers[useProvider] || {};
+  const key = getApiKey(useProvider);
+  const anthropicCompat = useProvider === "anthropic" || !!prov.baseURL;
   if (!key || !anthropicCompat) {
-    return { mode: "stub", pipeline: p.id, provider: p.provider, model: p.model, text: stubReply(p.id, user) };
+    return { mode: "stub", pipeline: p.id, provider: useProvider, model: useModel, text: stubReply(p.id, user) };
   }
   try {
     const client = new Anthropic({ apiKey: key, baseURL: prov.baseURL || undefined });
     const r = await client.messages.create({
-      model: p.model, max_tokens: maxTokens,
+      model: useModel, max_tokens: maxTokens,
       system: [p.prompt || "", system].filter(Boolean).join("\n\n"),
       messages: [{ role: "user", content: user || "" }],
     });
     const text = (r.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
-    return { mode: "ai", pipeline: p.id, provider: p.provider, model: p.model, text };
+    return { mode: "ai", pipeline: p.id, provider: useProvider, model: useModel, text };
   } catch (e) {
     return { mode: "error", pipeline: p.id, provider: p.provider, model: p.model, text: `AI error: ${String(e.message || e).slice(0, 140)}`, fallback: stubReply(p.id, user) };
   }
