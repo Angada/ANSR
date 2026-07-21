@@ -318,18 +318,31 @@ function renderStepper(doneUpTo, active = -1) {
   }).join("");
 }
 
+// RayDar-style sweep meter — a filling orange→teal bar + steps checking off.
+async function sweepMeter(steps, host, doneMsg) {
+  if (!host) return;
+  host.innerHTML = `<div class="rd-meter"><div class="rd-bar"><div class="rd-fill" id="rdfill"></div></div><div class="rd-now" id="rdnow"></div><div id="rdlist"></div></div>`;
+  const fill = host.querySelector("#rdfill"), now = host.querySelector("#rdnow"), list = host.querySelector("#rdlist");
+  const dot = (typeof ic === "function") ? ic("target", 13) : "◎";
+  const done = (typeof ic === "function") ? ic("check", 13) : "✓";
+  for (let i = 0; i < steps.length; i++) {
+    now.innerHTML = `${dot} ${esc(steps[i])}`;
+    fill.style.width = Math.round(((i + 1) / steps.length) * 100) + "%";
+    list.insertAdjacentHTML("beforeend", `<div class="rd-ms on" id="rdms-${i}">${esc(steps[i])} …</div>`);
+    await new Promise((r) => setTimeout(r, 560));
+    const el = host.querySelector(`#rdms-${i}`); if (el) { el.className = "rd-ms done"; el.innerHTML = `${done} ${esc(steps[i])}`; }
+  }
+  if (doneMsg) now.innerHTML = `${done} ${esc(doneMsg)}`;
+}
+
 async function generate() {
   $("#gen").disabled = true; $("#result").innerHTML = "";
-  // kick off the run (returns instantly on stub); animate steps over it
+  // kick off the run (returns instantly on stub); sweep over it, RayDar-style
   const runP = fetch("/api/mint/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, sowDocId: SOW[$("#client").value] }) }).then((r) => r.json());
   DATA = await runP; // need steps list to render
   $("#stepwrap").style.display = "block";
-  for (let i = 0; i < DATA.steps.length; i++) {
-    renderStepper(i, i);
-    await new Promise((r) => setTimeout(r, 650));
-  }
-  renderStepper(DATA.steps.length);                       // every step ✓
-  await new Promise((r) => setTimeout(r, 500));           // hold on the finished meter
+  await sweepMeter(DATA.steps, $("#stepper"), "Analysis complete");
+  await new Promise((r) => setTimeout(r, 400));           // hold on the finished sweep
   render();                                               // fill content (hidden)
   await revealFlowSequence();                             // then block 1, block 2, … (once)
   await loadRuns(false, true); $("#run").value = DATA.run_no; // refresh dropdown only — no re-open/re-reveal
