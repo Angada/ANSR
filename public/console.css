@@ -1,0 +1,107 @@
+/* ============================================================================
+   console.css — light super-CPU theme layered over app.css.
+   Loaded AFTER app.css on Mint & Atlas to redesign the whole body into the
+   Q&ANSR CORE console look: mono readouts, deep-orange accent, technical grid,
+   LED chips. Only these pages link it, so Admin/others keep their own styling.
+   ========================================================================== */
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap");
+
+:root{
+  --c-mono:'Space Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --c-sans:'Space Grotesk',system-ui,-apple-system,Segoe UI,sans-serif;
+  --c-org:#CE4502; --c-orgbr:#FF5400; --c-tint:#FFF1E9; --c-tintline:#F3D6C2;
+  --c-navy:#00242E; --c-teal:#005465; --c-grn:#2E7D4F;
+  --c-line:#E7E3DC; --c-line2:#D9D3C8; --c-dim:#77726B; --c-dim2:#A79F93;
+}
+
+/* technical grid canvas */
+body{
+  font-family:var(--c-sans);
+  background:
+    radial-gradient(1000px 640px at 88% -12%, rgba(206,69,2,.05), transparent 60%),
+    radial-gradient(880px 640px at 4% 112%, rgba(0,84,101,.04), transparent 55%),
+    linear-gradient(rgba(0,36,46,.03) 1px, transparent 1px) 0 0/100% 48px,
+    linear-gradient(90deg, rgba(0,36,46,.024) 1px, transparent 1px) 0 0/48px 100%,
+    var(--ansr-bg,#F4F3EF);
+}
+
+/* ---- hero → console boot panel ---- */
+.hero{position:relative;background:#fff;border:1px solid var(--c-line);border-radius:14px;
+  padding:20px 22px 18px !important;overflow:hidden;margin-top:16px;
+  box-shadow:0 12px 34px -26px rgba(0,36,46,.35)}
+.hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,var(--c-orgbr),var(--c-org))}
+.hero::after{content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(rgba(0,36,46,.02) 1px,transparent 1px) 0 0/100% 26px}
+.eyebrow{font-family:var(--c-mono);font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--c-org)}
+.hero h1{font-family:var(--c-mono);font-weight:700;letter-spacing:.03em;color:var(--c-navy)}
+.hero p{color:var(--c-dim)}
+
+/* ---- section titles → mono ---- */
+h2,h3{font-family:var(--c-mono);letter-spacing:.02em}
+.lbl{font-family:var(--c-mono);letter-spacing:.04em;color:var(--c-dim)}
+
+/* ---- panels ---- */
+.band{border:1px solid var(--c-line);border-radius:14px;background:#fff}
+.band.grad-soft{background:linear-gradient(180deg,#fff,var(--ansr-surface,#F9FAFB))}
+.band.grad-accent{background:linear-gradient(120deg,var(--c-tint),#fff 70%)}
+.band.grad-teal{background:linear-gradient(120deg,#E7F0F1,#fff 70%)}
+.section,.pipe{border:1px solid var(--c-line);border-radius:12px;background:#fff}
+
+/* ---- buttons ---- */
+.btn,.btn--ghost{font-family:var(--c-mono);letter-spacing:.1em;text-transform:uppercase;font-size:11px;
+  border-radius:9px;border:1px solid var(--c-line2);background:#fff;color:var(--c-navy);transition:.16s}
+.btn:hover,.btn--ghost:hover{border-color:var(--c-org);color:var(--c-org)}
+.btn-ai{font-family:var(--c-mono);letter-spacing:.1em;text-transform:uppercase;font-weight:700;font-size:12px;
+  border-radius:999px;background:linear-gradient(90deg,var(--c-orgbr),var(--c-org)) !important;color:#fff !important;
+  box-shadow:0 10px 30px -14px rgba(206,69,2,.6)}
+.btn-recal,.btn-recal.dirty{font-family:var(--c-mono);letter-spacing:.12em;text-transform:uppercase}
+
+/* ---- chips → console pills ---- */
+.chip{font-family:var(--c-mono);font-size:11px;letter-spacing:.02em;border-radius:999px;
+  background:var(--c-tint);color:var(--c-org);border:1px solid var(--c-tintline)}
+.chip--approved{background:#E7F2EC;color:var(--c-grn);border-color:#CDE6D8}
+.chip--draft{background:#F4F1EC;color:var(--c-dim);border-color:var(--c-line)}
+.chip--role{background:var(--c-navy);color:#fff;border-color:var(--c-navy)}
+.chip--flag{background:var(--c-tint);color:var(--c-org);border-color:var(--c-tintline)}
+
+/* ---- flow / stepper ---- */
+.flow-num{font-family:var(--c-mono);border:2px solid var(--c-line2);color:var(--c-org);background:#fff}
+.flowstep.focus-step .flow-num{border-color:var(--c-org);box-shadow:0 0 0 3px rgba(206,69,2,.12)}
+.flowstep.done .flow-num{background:#E7F2EC;border-color:var(--c-grn);color:var(--c-grn)}
+.flow-title{font-family:var(--c-mono);letter-spacing:.02em;color:var(--c-navy);font-weight:700}
+.flow-body{border:1px solid var(--c-line);border-radius:12px;background:#fff}
+.flowstep.focus-step .flow-body{border-color:var(--c-org);box-shadow:0 0 0 3px rgba(206,69,2,.1)}
+.node .dot{font-family:var(--c-mono)}
+.node.active .dot{border-color:var(--c-org);box-shadow:0 0 0 4px rgba(206,69,2,.16)}
+.node.done .dot{background:#E7F2EC;border-color:var(--c-grn);color:var(--c-grn)}
+
+/* ---- section head band ---- */
+.sectionhead{background:linear-gradient(100deg,var(--c-tint),#fff 70%);border-left:3px solid var(--c-org)}
+.sectionhead.teal{background:linear-gradient(100deg,#E7F0F1,#fff 70%);border-left-color:var(--c-teal)}
+
+/* ---- box cards ---- */
+.boxcard{border:1px solid var(--c-line);border-radius:12px;background:#fff;transition:.18s}
+.boxcard:hover{transform:translateY(-3px);border-color:var(--c-org);box-shadow:0 18px 40px -26px rgba(206,69,2,.45)}
+.boxcard:hover .bc-head b{color:var(--c-org)}
+
+/* ---- tables ---- */
+table.grid th,.inv thead th,.scroll-x thead th{font-family:var(--c-mono);letter-spacing:.05em;background:var(--c-navy)}
+
+/* ---- agent / archetype cards (Atlas grid) ---- */
+.agent{border:1px solid var(--c-line);border-radius:14px;background:#fff;transition:.2s}
+.agent.live{border-color:var(--c-line);background:#fff}
+.agent.live:hover{border-color:var(--c-org);transform:translateY(-3px);box-shadow:0 18px 40px -26px rgba(206,69,2,.45)}
+.agent .nm b{font-family:var(--c-mono);letter-spacing:.06em;color:var(--c-navy)}
+.agent.live .nm b{color:var(--c-navy)}
+.agent .role{font-family:var(--c-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--c-org)}
+.agent .badge{border-radius:10px;background:var(--c-tint);color:var(--c-org);font-family:var(--c-mono)}
+.agent.live .badge{background:var(--c-org);color:#fff}
+.agent .go{color:var(--c-org)}
+
+/* ---- inputs ---- */
+input,select,textarea{border-radius:8px}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--c-org);box-shadow:0 0 0 3px rgba(206,69,2,.1)}
+
+/* ---- tabs strip ---- */
+.tab{font-family:var(--c-mono);letter-spacing:.06em}
+.tab[aria-selected="true"],.tab.active{color:var(--c-org);border-bottom-color:var(--c-org)}
