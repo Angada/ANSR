@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RayDar — an approach note by The Kettle Black</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ---------- ANSR / RayDar brand tokens ---------- */
+:root{
+  --orange:#FF5400; --orange-deep:#CE4502; --orange-tint:#FFF1E9; --orange-soft:#FFBC7D;
+  --teal:#005465; --navy:#00242E; --navy-2:#03323d; --slate:#1E293B;
+  --ink:#1E1E1E; --gray:#6b6b6b; --gray-mid:#94A3B8; --line:#E4E0D8; --line-2:#d8d6cf;
+  --bg:#F4F3EF; --surface:#FFFFFF; --tint:#FFF1E9;
+  --f-disp:'Space Grotesk',-apple-system,system-ui,sans-serif;
+  --f-body:'Inter',-apple-system,system-ui,sans-serif;
+  --nav-w:260px; --wrap:1120px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-weight:400;line-height:1.6;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:var(--f-disp);font-weight:600;line-height:1.12;letter-spacing:-.02em;margin:0}
+p{margin:0 0 14px}
+a{color:var(--orange);text-decoration:none}
+.accent{color:var(--orange)}
+.mono{font-variant-numeric:tabular-nums}
+
+/* ---------- scroll progress ---------- */
+#bar{position:fixed;top:0;left:0;height:3px;width:0;background:var(--orange);z-index:120;transition:width .1s linear}
+
+/* ---------- side nav ---------- */
+.nav{position:fixed;top:0;left:0;width:var(--nav-w);height:100vh;background:var(--navy);color:#dfe7e9;display:flex;flex-direction:column;padding:26px 22px;z-index:100}
+.nav .maker{display:flex;align-items:center;gap:9px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#7fa0a8;margin-bottom:4px}
+.nav .maker img{height:16px;opacity:.92}
+.rmark{font-family:var(--f-disp);font-weight:700;letter-spacing:.16em;font-size:21px;display:flex;align-items:center;gap:7px;margin:8px 0 2px}
+.rmark .dot{width:9px;height:9px;border-radius:50%;background:var(--orange);box-shadow:0 0 0 4px rgba(255,84,0,.22)}
+.rmark .ray{color:#fff}.rmark .dar{color:var(--orange)}
+.nav .tag{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:#6f9098;margin:0 0 26px 16px}
+.nav .links{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:1px;flex:1}
+.nav .links a{display:flex;gap:10px;align-items:center;color:#a9c0c6;font-size:13.5px;padding:8px 10px;border-radius:8px;transition:.15s;font-weight:400}
+.nav .links a .n{font-family:var(--f-disp);font-size:11px;color:#5f838c;width:16px}
+.nav .links a:hover{background:rgba(255,255,255,.05);color:#fff}
+.nav .links a.on{background:rgba(255,84,0,.14);color:#fff}
+.nav .links a.on .n{color:var(--orange)}
+.nav .foot{font-size:11px;color:#5f838c;line-height:1.5;border-top:1px solid rgba(255,255,255,.1);padding-top:14px}
+
+/* ---------- layout ---------- */
+.main{margin-left:var(--nav-w)}
+.s{padding:88px 6vw;max-width:calc(var(--wrap) + 12vw);margin:0 auto}
+.s.tinted{background:var(--tint)}
+.s.dk{background:var(--navy);color:#e7eef0}
+.s.dk h2,.s.dk h3{color:#fff}
+.eyebrow{font-family:var(--f-disp);font-size:12px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--orange);margin-bottom:14px}
+.s.dk .eyebrow{color:var(--orange-soft)}
+.lead{font-size:19px;color:var(--gray);max-width:60ch}
+.s.dk .lead{color:#b7cace}
+h2.big{font-size:clamp(30px,4.2vw,46px);margin-bottom:18px}
+.sub{font-size:15px;color:var(--gray);max-width:62ch;margin-top:2px}
+
+/* ---------- cover ---------- */
+.cover{margin-left:var(--nav-w);min-height:100vh;display:grid;grid-template-columns:1.15fr .85fr}
+.cover .l{background:var(--navy);color:#fff;padding:7vh 5vw;display:flex;flex-direction:column;justify-content:center}
+.cover .r{background:linear-gradient(160deg,#FF6a1e,#FF5400 45%,#CE4502);color:#fff;padding:7vh 4vw;display:flex;flex-direction:column;justify-content:center;gap:22px}
+.cover .maker{display:flex;align-items:center;gap:10px;color:#9fb9bf;font-size:12px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:30px}
+.cover .maker img{height:18px}
+.cover h1{font-size:clamp(34px,4.8vw,60px);letter-spacing:-.03em;margin-bottom:20px}
+.cover h1 em{font-style:italic;color:var(--orange-soft);font-weight:500}
+.cover .benefit{font-size:18px;color:#c4d6da;max-width:46ch;margin-bottom:34px}
+.cover .meta{font-size:12.5px;letter-spacing:.04em;color:#7fa0a8;text-transform:uppercase}
+.cover .rmark-big{font-family:var(--f-disp);font-weight:700;letter-spacing:.14em;font-size:clamp(30px,4vw,44px);display:flex;align-items:center;gap:12px}
+.cover .rmark-big .dot{width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 0 0 6px rgba(255,255,255,.28)}
+.cover .rtag{font-size:12px;letter-spacing:.3em;text-transform:uppercase;color:rgba(255,255,255,.82);margin-top:-10px}
+.ochip{display:flex;gap:11px;align-items:flex-start;background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.22);border-radius:12px;padding:13px 15px;backdrop-filter:blur(2px)}
+.ochip svg{flex:none;margin-top:1px}
+.ochip b{display:block;font-family:var(--f-disp);font-size:14.5px;font-weight:600}
+.ochip span{font-size:12.5px;color:rgba(255,255,255,.85)}
+.cover .values{font-size:12.5px;letter-spacing:.04em;color:rgba(255,255,255,.75);border-top:1px solid rgba(255,255,255,.25);padding-top:16px}
+
+/* ---------- cards ---------- */
+.grid{display:grid;gap:18px}
+.g2{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px}
+.s.dk .card{background:var(--navy-2);border-color:rgba(255,255,255,.1)}
+.card .ico{width:38px;height:38px;border-radius:10px;background:var(--tint);color:var(--orange-deep);display:flex;align-items:center;justify-content:center;margin-bottom:14px}
+.s.dk .card .ico{background:rgba(255,84,0,.16);color:var(--orange-soft)}
+.card h3{font-size:17px;margin-bottom:7px}
+.card p{font-size:13.7px;color:var(--gray);margin:0}
+.s.dk .card p{color:#a9c0c6}
+
+/* story slips */
+.slip{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--orange);border-radius:12px;padding:20px 22px;margin-bottom:16px}
+.slip .who{font-family:var(--f-disp);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--teal);margin-bottom:8px}
+.slip p{font-size:15px;color:var(--slate);margin:0}
+.slip p em{color:var(--orange-deep);font-style:normal;font-weight:600}
+
+/* pull quote */
+.pq{font-family:var(--f-disp);font-weight:500;font-size:clamp(21px,2.7vw,30px);line-height:1.32;letter-spacing:-.02em;max-width:22ch;margin:6px 0}
+.pq .accent{color:var(--orange)}
+
+/* ---------- the sweep — shimmering pipeline ---------- */
+.flow{display:flex;flex-direction:column;gap:0;margin-top:26px}
+.stage{display:grid;grid-template-columns:64px 1fr;gap:20px;align-items:stretch}
+.stage .rail{display:flex;flex-direction:column;align-items:center}
+.stage .num{width:46px;height:46px;border-radius:50%;flex:none;background:var(--navy);color:#fff;font-family:var(--f-disp);font-weight:600;font-size:16px;display:flex;align-items:center;justify-content:center;position:relative;z-index:2}
+.stage .num.acc{background:var(--orange)}
+.stage .line{width:2px;flex:1;background:linear-gradient(var(--line-2),var(--line-2));min-height:10px}
+.stage:last-child .line{display:none}
+.reveal-card{background:var(--surface);border:1.5px solid var(--line-2);border-radius:12px;padding:18px 20px;margin-bottom:16px;transition:border-color .55s ease,box-shadow .25s ease,transform .18s ease}
+.reveal-card:hover{transform:translateY(-3px);border-color:var(--teal);box-shadow:0 12px 30px rgba(0,40,53,.10)}
+.reveal-card .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:7px}
+.reveal-card h3{font-size:17px}
+.reveal-card .pill{font-family:var(--f-disp);font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:100px;background:var(--tint);color:var(--orange-deep)}
+.reveal-card .pill.teal{background:#e2eef0;color:var(--teal)}
+.reveal-card p{font-size:13.7px;color:var(--gray);margin:0}
+.reveal-card .apis{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
+.tagi{font-size:11.5px;font-weight:500;padding:3px 10px;border-radius:100px;border:1px solid var(--line);color:var(--slate);background:#fbfaf7}
+.tagi.on{border-color:var(--orange);color:var(--orange-deep);background:var(--tint)}
+
+/* generate-motion (shimmer) */
+@keyframes gen-shimmer{0%{background-position:-150% 0}100%{background-position:250% 0}}
+@keyframes gen-pop{0%{opacity:0;transform:translateY(10px) scale(.985)}100%{opacity:1;transform:none}}
+@keyframes gen-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,84,0,0)}50%{box-shadow:0 0 0 6px rgba(255,84,0,.16)}}
+.gen{position:relative;border-style:dashed !important;border-color:var(--line-2) !important}
+.gen>*{opacity:.22;filter:blur(.5px);transition:opacity .4s ease,filter .4s ease}
+.gen::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:3;
+  background:linear-gradient(100deg,transparent 30%,rgba(255,84,0,.12) 48%,rgba(0,84,101,.10) 58%,transparent 74%);
+  background-size:220% 100%;animation:gen-shimmer 1.05s linear infinite}
+.gen--in{animation:gen-pop .44s cubic-bezier(.22,1,.36,1) both}
+.reveal-card.gen--in{border-color:var(--navy)}
+.stage.pulsing .num{animation:gen-pulse 1.1s ease-in-out infinite}
+
+/* ---------- API section ---------- */
+.apicat{font-family:var(--f-disp);font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--teal);margin:30px 0 14px;display:flex;align-items:center;gap:10px}
+.apicat::after{content:"";flex:1;height:1px;background:var(--line)}
+.api{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px}
+.api .hd{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.api h4{font-size:15px}
+.api .role{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:100px}
+.role.demand{background:var(--tint);color:var(--orange-deep)}
+.role.valid{background:#e2eef0;color:var(--teal)}
+.role.ai{background:#efe9f6;color:#6b3fa0}
+.api p{font-size:13px;color:var(--gray);margin:0}
+.api .m{font-family:var(--f-disp);font-size:11.5px;color:var(--slate);margin-top:9px;padding-top:9px;border-top:1px dashed var(--line);letter-spacing:.01em}
+.api .m b{color:var(--orange-deep);font-weight:600}
+.byok{display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:100px;padding:7px 15px;font-size:12.5px;color:var(--slate);margin-top:8px}
+.byok svg{color:var(--teal)}
+
+/* ---------- screens window ---------- */
+.win{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 20px 50px rgba(0,40,53,.10);margin-bottom:14px}
+.win .bar{display:flex;align-items:center;gap:7px;padding:11px 15px;background:#faf8f4;border-bottom:1px solid var(--line)}
+.win .bar i{width:11px;height:11px;border-radius:50%;background:#e0ddd5}
+.win .bar i:nth-child(1){background:#ff5f57}.win .bar i:nth-child(2){background:#febc2e}.win .bar i:nth-child(3){background:#28c840}
+.win .bar span{margin-left:10px;font-size:12px;color:var(--gray);font-family:var(--f-disp)}
+.win img{display:block;width:100%;height:auto}
+.cap{font-size:13px;color:var(--gray);margin:0 4px 30px;display:flex;gap:9px}
+.cap b{color:var(--orange-deep);font-weight:600}
+
+/* ---------- score ---------- */
+.formula{background:var(--navy);color:#fff;border-radius:16px;padding:26px 28px;margin:6px 0 26px;overflow-x:auto}
+.formula .eq{font-family:var(--f-disp);font-size:clamp(15px,2vw,21px);font-weight:500;letter-spacing:.01em;display:flex;flex-wrap:wrap;align-items:center;gap:8px;line-height:1.9}
+.formula .term{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:9px;padding:5px 11px}
+.formula .w{color:var(--orange-soft);font-weight:700}
+.formula .op{color:#7fa0a8}
+.formula .note{font-family:var(--f-body);font-size:12.5px;color:#9fb9bf;margin-top:14px}
+.sig{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--orange);border-radius:12px;padding:18px}
+.sig .w{font-family:var(--f-disp);font-size:26px;font-weight:700;color:var(--orange-deep)}
+.sig h4{font-size:15px;margin:2px 0 6px}
+.sig p{font-size:12.8px;color:var(--gray);margin:0}
+.sig .src{font-size:11px;color:var(--teal);margin-top:9px;font-weight:600;letter-spacing:.03em;text-transform:uppercase}
+.sig:nth-child(2){border-top-color:var(--teal)}.sig:nth-child(2) .w{color:var(--teal)}
+.sig:nth-child(3){border-top-color:var(--slate)}.sig:nth-child(3) .w{color:var(--slate)}
+.sig:nth-child(4){border-top-color:#6b3fa0}.sig:nth-child(4) .w{color:#6b3fa0}
+
+/* worked example — the "why this ranks" panel */
+.why{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px 26px;margin-top:26px}
+.why .row{display:grid;grid-template-columns:130px 1fr 78px 70px;gap:12px;align-items:center;padding:11px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+.why .row.h{font-family:var(--f-disp);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--gray);border-bottom:1px solid var(--line)}
+.why .row b{font-family:var(--f-disp)}
+.why .bar2{height:8px;border-radius:100px;background:var(--line);overflow:hidden}
+.why .bar2 i{display:block;height:100%;background:var(--orange);border-radius:100px}
+.why .contrib{font-family:var(--f-disp);font-weight:600;text-align:right;color:var(--slate)}
+.why .total{display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:14px}
+.why .total .big{font-family:var(--f-disp);font-size:40px;font-weight:700;color:var(--orange)}
+.why .total .lab{font-size:13px;color:var(--gray)}
+.stat{display:flex;gap:20px;flex-wrap:wrap;margin-top:16px}
+.stat div{font-size:12.5px;color:var(--gray)}
+.stat div b{font-family:var(--f-disp);color:var(--navy);font-size:16px;display:block}
+
+/* query bubbles */
+.qbub{background:var(--surface);border:1px solid var(--line);border-radius:14px 14px 14px 4px;padding:14px 18px;font-size:15px;color:var(--slate);margin-bottom:12px;max-width:60ch}
+.qbub::before{content:"“";color:var(--orange);font-family:var(--f-disp);font-weight:700;margin-right:2px}
+.qbub::after{content:"”";color:var(--orange);font-family:var(--f-disp);font-weight:700}
+
+/* before / after table */
+.tbl{width:100%;border-collapse:collapse;background:var(--surface);border-radius:12px;overflow:hidden;border:1px solid var(--line);font-size:14px}
+.tbl th{background:var(--navy);color:#fff;font-family:var(--f-disp);font-weight:600;font-size:12px;letter-spacing:.06em;text-transform:uppercase;text-align:left;padding:13px 16px}
+.tbl td{padding:13px 16px;border-top:1px solid var(--line);vertical-align:top}
+.tbl td:first-child{font-weight:600;color:var(--navy);width:24%}
+.tbl td.today{color:var(--gray)}
+.tbl td.with{color:var(--orange-deep);font-weight:500}
+
+/* close */
+.close{text-align:center;padding:96px 6vw}
+.close .emb{height:56px;margin-bottom:22px}
+.close h2{font-size:clamp(26px,3.4vw,38px);margin-bottom:10px}
+.close .sign{font-family:var(--f-disp);font-size:15px;letter-spacing:.02em;color:var(--teal);margin-bottom:34px}
+.footer{border-top:1px solid var(--line);margin-top:40px;padding-top:26px;display:flex;flex-direction:column;align-items:center;gap:9px}
+.footer img{height:30px;opacity:.9}
+.footer p{font-size:12.5px;color:var(--gray);margin:0}
+
+/* reveal on scroll */
+.rv{opacity:0;transform:translateY(22px);transition:opacity .7s ease,transform .7s ease}
+.rv.in{opacity:1;transform:none}
+
+/* ---------- responsive ---------- */
+@media(max-width:1000px){
+  .nav{display:none}.main,.cover{margin-left:0}
+  .cover{grid-template-columns:1fr}
+  .s{padding:64px 7vw}
+  .g3,.g4,.g2{grid-template-columns:1fr}
+  .why .row{grid-template-columns:96px 1fr 60px 56px;font-size:12px}
+}
+@media(prefers-reduced-motion:reduce){
+  .gen,.gen::after,.gen--in{animation:none !important}
+  .gen>*{opacity:1 !important;filter:none !important}
+  .rv{opacity:1;transform:none;transition:none}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+<div id="bar"></div>
+
+<!-- ============ SIDE NAV ============ -->
+<nav class="nav">
+  <div class="maker"><span>An approach note by</span><img src="assets/tkb-white.png" alt="The Kettle Black"></div>
+  <div class="rmark"><span class="dot"></span><span class="ray">RAY</span><span class="dar">DAR</span></div>
+  <div class="tag">Talent Trend Radar</div>
+  <ul class="links">
+    <li><a href="#idea" class="on"><span class="n">01</span> The idea</a></li>
+    <li><a href="#helps"><span class="n">02</span> How it helps</a></li>
+    <li><a href="#sweep"><span class="n">03</span> The sweep</a></li>
+    <li><a href="#apis"><span class="n">04</span> The APIs</a></li>
+    <li><a href="#inside"><span class="n">05</span> A peek inside</a></li>
+    <li><a href="#score"><span class="n">06</span> How the score works</a></li>
+    <li><a href="#ask"><span class="n">07</span> Ask in plain English</a></li>
+    <li><a href="#heart"><span class="n">08</span> The heart of it</a></li>
+  </ul>
+  <div class="foot">An AI product by<br>The Kettle Black · 2026</div>
+</nav>
+
+<!-- ============ COVER ============ -->
+<header class="cover">
+  <div class="l">
+    <div class="maker"><span>An approach note by</span><img src="assets/tkb-white.png" alt="The Kettle Black"></div>
+    <div class="eyebrow" style="color:var(--orange-soft)">Content intelligence · for &amp;ANSR · Talent500</div>
+    <h1>Know what to publish <em>before</em> your audience asks.</h1>
+    <p class="benefit">RayDar reads what Indian job seekers are searching, watching and complaining about right now — and hands your team a ranked list of briefed content ideas, each with the evidence for why it will land.</p>
+    <div class="meta">Prepared for &amp;ANSR &nbsp;·&nbsp; by The Kettle Black &nbsp;·&nbsp; July 2026</div>
+  </div>
+  <div class="r">
+    <div class="rmark-big"><span class="dot"></span>RAYDAR</div>
+    <div class="rtag">Talent&nbsp;Trend&nbsp;Radar</div>
+    <div style="display:flex;flex-direction:column;gap:12px;margin-top:6px">
+      <div class="ochip"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 12l5-3"/><circle cx="12" cy="12" r="1.4" fill="#fff"/></svg><div><b>Demand, sensed live</b><span>YouTube + Reddit, in the audience's own words</span></div></div>
+      <div class="ochip"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7"><path d="M4 18V9m5 9V5m5 13v-6m5 6V8"/></svg><div><b>Ideas, ranked by signal</b><span>a composite score you can open and audit</span></div></div>
+      <div class="ochip"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.7"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg><div><b>Grounded, never guessed</b><span>every idea validated + cited before it ships</span></div></div>
+    </div>
+    <div class="values">A prompt for your editors — never a verdict. Humans still decide.</div>
+  </div>
+</header>
+
+<div class="main">
+
+<!-- ============ 01 THE IDEA ============ -->
+<section class="s" id="idea">
+  <div class="rv">
+    <div class="eyebrow">01 — The idea</div>
+    <h2 class="big">We help the people who already know your audience.</h2>
+    <p class="lead">Your content team doesn't lack ideas — it lacks a reliable read on <em>which</em> idea is worth making this week, and the proof to back it. RayDar is that read: a monthly radar sweep over live demand that turns noise into a short, ranked, briefed list.</p>
+  </div>
+  <div class="pq rv" style="margin:30px 0 34px">It isn't about chasing what's viral. It's about hearing <span class="accent">what your audience is quietly asking</span> — and answering it first.</div>
+  <div class="grid g3">
+    <div class="card rv"><div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg></div><h3>For whom</h3><p>Content, brand and community teams at &amp;ANSR / Talent500 who publish for Indian job seekers and GCC-tech talent.</p></div>
+    <div class="card rv"><div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h18M3 6h18M3 18h18"/></svg></div><h3>Built on what already exists</h3><p>No new data to collect. It listens to public signal — YouTube, Reddit, news — that your audience is already generating, every day.</p></div>
+    <div class="card rv"><div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3.2"/></svg></div><h3>A brief, never the copy</h3><p>RayDar hands your writer a heading and a topic guide — the angle, the evidence, the audience. Your team writes the words.</p></div>
+  </div>
+</section>
+
+<!-- ============ 02 HOW IT HELPS ============ -->
+<section class="s tinted" id="helps">
+  <div class="rv">
+    <div class="eyebrow">02 — How it helps</div>
+    <h2 class="big">A Monday that used to take a day, done before coffee.</h2>
+    <p class="lead">The same team, the same brand — but now every idea arrives with its reason attached.</p>
+  </div>
+  <div style="margin-top:30px">
+    <div class="slip rv"><div class="who">The content lead · planning the month</div><p>Instead of a blank calendar and a gut feel, she opens a sweep: <em>18 ideas, ranked</em>. The top one isn't the loudest topic — it's the one where thousands are asking and almost no one is answering well. The gap is the opportunity, and RayDar found it.</p></div>
+    <div class="slip rv"><div class="who">The writer · picking up a brief</div><p>He doesn't start cold. The brief already names the angle, quotes the real Reddit thread it came from, and flags the popular belief to push against — <em>"campus protest hurts your career"</em> — with the counter-signal to prove it wrong.</p></div>
+    <div class="slip rv"><div class="who">The head of brand · defending the plan</div><p>When asked "why this, why now?", she clicks one idea and reads its score: demand strength, momentum, strategic fit, and how well past ideas like it performed. <em>The plan is auditable</em> — not a hunch.</p></div>
+  </div>
+</section>
+
+<!-- ============ 03 THE SWEEP (shimmering pipeline) ============ -->
+<section class="s" id="sweep">
+  <div class="rv">
+    <div class="eyebrow">03 — The sweep</div>
+    <h2 class="big">One input — <span class="accent">hunger</span> — flows through eight stages to a ranked idea.</h2>
+    <p class="sub">Watch it build. Each stage below is exactly what runs, in order, when you press <b>Run the sweep</b>. Every step is editable in-app under Business Rules — no code, no deploy.</p>
+  </div>
+
+  <div class="flow" id="flow">
+    <div class="stage"><div class="rail"><div class="num acc">01</div><div class="line"></div></div>
+      <div class="reveal-card"><div class="top"><h3>Hunger — where demand comes from</h3><span class="pill">Input</span></div>
+        <p>You arm one or more feeds: <b>Trend Spotting</b> (pick the demand concepts your audience hungers for), <b>SEO Inputs</b> (paste keyword / GSC / competitor research), and — soon — <b>TalentMind</b> (seed demand from each job seeker's own profile). Each concept carries its own search terms and routes to a 1Up franchise.</p>
+        <div class="apis"><span class="tagi on">Trend Spotting</span><span class="tagi on">SEO Inputs</span><span class="tagi">TalentMind · soon</span></div></div></div>
+
+    <div class="stage"><div class="rail"><div class="num">02</div><div class="line"></div></div>
+      <div class="reveal-card"><div class="top"><h3>Collect — cast the net wide</h3><span class="pill teal">Live web</span></div>
+        <p>Each concept's search terms are fired at the open web: fresh YouTube videos (with view counts and the <b>comments</b> — the real feeling), and Reddit posts with their <b>comment trees</b> — the highest-value signal there is. News and Google headlines add context.</p>
+        <div class="apis"><span class="tagi on">YouTube Data API</span><span class="tagi on">Reddit</span><span class="tagi">NewsAPI</span><span class="tagi">SerpAPI</span></div></div></div>
+
+    <div class="stage"><div class="rail"><div class="num">03</div><div class="line"></div></div>
+      <div class="reveal-card"><div class="top"><h3>Classify — tag every item</h3><span class="pill">AI</span></div>
+        <p>An LLM reads each item and tags it: which <b>demand topic</b> (1–6 or Emerging), which <b>1Up franchise</b> it belongs to, the <b>emotional register</b> (FOMO · Anxiety · Optimism · Ambition), and the underlying <b>question</b> the person is really asking.</p>
+        <div class="apis"><span class="tagi on">raydar-classify</span></div></div></div>
+
+    <div class="stage"><div class="rail"><div class="num">04</div><div class="line"></div></div>
+      <div class="reveal-card"><div class="top"><h3>Signal — measure the gap</h3><span class="pill teal">Statistics</span></div>
+        <p>Per topic, RayDar computes the numbers that decide rank: <b>demand</b> (how many are asking), <b>supply</b> (how much good content exists), <b>velocity</b> (views per day, the momentum), and the <b>gap</b> between demand and supply. It also names the gap type — emerging, unanswered, thin or stale.</p>
+        <div class="apis"><span class="tagi on">topicSignals()</span><span class="tagi">gap · velocity · demand ÷ supply</span></div></div></div>
+
+    <div class="stage"><div class="rail"><div class="num">05</div><div class="line"></div></div>
+      <div class="reveal-card"><div class="top"><h3>Ideate — write the brief</h3><span class="pill">AI</span></div>
+        <p>For each topic the engine drafts three angles — <b>core</b>, <b>contrarian</b> and <b>insider-data</b> (one always pushes against a popular-but-wrong belief). Each becomes a <b>heading + topic-guide brief</b>, grounded in the real feed, under your editable guardrails (India-English voice, never finished copy), routed to a 1Up + register.</p>
+        <div class="apis"><span class="tagi on">feedstory-generate</span><span class="tagi">Claude / GPT / Gemini — swappable</span></div></div></div>
+
+    <div class="stage"><div class="rail"><div class="num">06</div><div class="line"></div></div>
+      <div class="reveal-card"><div class="top"><h3>Validate — ground &amp; fact-check</h3><span class="pill teal">Evidence</span></div>
+        <p>Before an idea is trusted, research APIs pull supporting facts and <b>cite the source URLs</b>, and flag anything that <b>contradicts</b> the claim. The rule is absolute: RayDar <b>proposes, it never asserts</b> — a contradiction is raised for a human to verify, never stated as fact.</p>
+        <div class="apis"><span class="tagi on">Tavily</span><span class="tagi on">Serper</span><span class="tagi on">Perplexity</span><span class="tagi">Exa · Brave · Fact Check</span></div></div></div>
+
+    <div class="stage"><div class="rail"><div class="num">07</div><div class="line"></div></div>
+      <div class="reveal-card"><div class="top"><h3>Rank — the composite score</h3><span class="pill">Scoring</span></div>
+        <p>Every idea gets one number: a weighted blend of gap, velocity, strategic weight and how well past ideas from its franchise performed. The list sorts by it — the strongest signal on top. <b>The weights are yours to edit.</b> (Full breakdown in §06.)</p>
+        <div class="apis"><span class="tagi on">raydar-rank</span><span class="tagi">0.35·gap + 0.25·vel + 0.20·strat + 0.20·hist</span></div></div></div>
+
+    <div class="stage"><div class="rail"><div class="num acc">08</div><div class="line"></div></div>
+      <div class="reveal-card"><div class="top"><h3>Ideas — routed to 1Up, ready to review</h3><span class="pill">Output</span></div>
+        <p>The ranked ideas land as cards, each routed to its franchise with a trend report and an <b>explainable "why this ranks"</b> popup. Your team marks each <b>Used · Saved · Rejected · Edit · Build</b> — and that feedback teaches the next sweep which franchises to trust.</p>
+        <div class="apis"><span class="tagi on">Human-in-the-loop</span><span class="tagi">Used → feeds back into rank</span></div></div></div>
+  </div>
+</section>
+
+<!-- ============ 04 THE APIS ============ -->
+<section class="s dk" id="apis">
+  <div class="rv">
+    <div class="eyebrow">04 — The engine room</div>
+    <h2 class="big">Every API, and exactly what it does.</h2>
+    <p class="lead">RayDar orchestrates three kinds of service: feeds that <em>sense demand</em>, research that <em>validates</em>, and AI pipelines that <em>reason</em>. Every key is bring-your-own, encrypted, and gated per-source in Business Rules — query params, prompt, model and on/off, all editable.</p>
+    <div class="byok"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg> BYOK · you own and fund every key · usage billed to your accounts</div>
+  </div>
+
+  <div class="apicat">Demand feeds — sensing what the audience wants</div>
+  <div class="grid g2">
+    <div class="api rv"><div class="hd"><h4>YouTube Data API v3</h4><span class="role demand">Demand</span></div><p>Searches fresh videos (India, English, last 30 days, by view count), then pulls each video's statistics and its top comment threads. The views give momentum; the comments give the raw, unfiltered voice.</p><div class="m">signal → <b>velocity</b> (views ÷ day) + demand (comment questions)</div></div>
+    <div class="api rv"><div class="hd"><h4>Reddit API</h4><span class="role demand">Demand</span></div><p>OAuth into the career subreddits — developersIndia, IndianWorkplace, IndiaCareers, cscareerquestions, leetcode — and reads top posts <em>with their comment trees</em>. The candid back-and-forth is the highest-value demand signal RayDar has.</p><div class="m">treated as a <b>leading indicator</b>, not a census</div></div>
+    <div class="api rv"><div class="hd"><h4>NewsAPI</h4><span class="role demand">Demand</span></div><p>Recent English articles on each topic — context and timing, so an idea can ride a real news moment rather than float free.</p><div class="m">role → <b>context</b> + "why now"</div></div>
+    <div class="api rv"><div class="hd"><h4>SerpAPI · Google News</h4><span class="role demand">Demand</span></div><p>Pulls trending India headlines for a topic — a mainstream cross-check that a niche signal is actually surfacing more broadly.</p><div class="m">role → <b>trend confirmation</b></div></div>
+  </div>
+
+  <div class="apicat">Research &amp; validation — grounding, evidence, contradiction</div>
+  <div class="grid g3">
+    <div class="api rv"><div class="hd"><h4>Tavily</h4><span class="role valid">Validate</span></div><p>The primary validator — searches, returns a direct answer plus cited sources, and flags claims that conflict with the feed. This is what turns an idea from "plausible" into "evidenced".</p><div class="m">pulls facts + <b>cites URLs</b></div></div>
+    <div class="api rv"><div class="hd"><h4>Serper</h4><span class="role valid">Validate</span></div><p>Google-grade grounding with answer boxes and knowledge-graph snippets, each with a link — a second, independent check on any claim.</p><div class="m">grounding + <b>citations</b></div></div>
+    <div class="api rv"><div class="hd"><h4>Perplexity · Sonar</h4><span class="role valid">Validate</span></div><p>Research-and-cite in one call, tuned to India-English context — good for the "is this actually true?" pass with references attached.</p><div class="m">research + <b>citations</b></div></div>
+    <div class="api rv"><div class="hd"><h4>Exa &amp; Brave</h4><span class="role valid">Validate</span></div><p>Optional neural + web search for a wider net of corroborating sources when a claim needs more triangulation. Off by default.</p><div class="m">extra <b>corroboration</b> · opt-in</div></div>
+    <div class="api rv"><div class="hd"><h4>Google Fact Check</h4><span class="role valid">Validate</span></div><p>Checks a claim against published fact-checks and flags anything contradicted — it never asserts on its own, only surfaces for a human.</p><div class="m">flags <b>contradictions</b> · opt-in</div></div>
+    <div class="api rv"><div class="hd"><h4>Wikidata</h4><span class="role valid">Validate</span></div><p>Grounds entities and definitions against Wikipedia / Wikidata — keeps names, facts and figures honest.</p><div class="m">entity <b>grounding</b> · opt-in</div></div>
+  </div>
+
+  <div class="apicat">AI pipelines — the reasoning layer (BYOK · model-swappable per skill)</div>
+  <div class="grid g3">
+    <div class="api rv"><div class="hd"><h4>hunger-generate</h4><span class="role ai">AI</span></div><p>Frames the cohort's hunger from Trend Spotting or SEO inputs — what they search, watch and complain about — and returns the demand topics to sweep.</p></div>
+    <div class="api rv"><div class="hd"><h4>raydar-classify</h4><span class="role ai">AI</span></div><p>Tags every collected item: demand topic, 1Up franchise, the four emotional registers, and the underlying question.</p></div>
+    <div class="api rv"><div class="hd"><h4>feedstory-generate</h4><span class="role ai">AI</span></div><p>Writes each idea — heading + topic-guide brief — grounded in the feed and research, under your editable audience/voice guardrails.</p></div>
+    <div class="api rv"><div class="hd"><h4>raydar-rank</h4><span class="role ai">AI</span></div><p>Computes the composite score from the four signals and orders the ideas. Weights live in an editable business rule.</p></div>
+    <div class="api rv"><div class="hd"><h4>raydar-contradiction</h4><span class="role ai">AI</span></div><p>The validation pass — reconciles an idea against research, attaches evidence, and raises contradictions for human review.</p></div>
+    <div class="api rv"><div class="hd"><h4>cohort-nl-query</h4><span class="role ai">AI</span></div><p>TalentMind (Phase 2) — parses each job seeker's own corpus into chips, cohorts them, and reads their hunger directly.</p></div>
+  </div>
+  <p class="lead" style="margin-top:26px;font-size:15px">Any anthropic-compatible LLM plugs in — Claude, GPT, Gemini, Z.AI, DeepSeek, x.AI. Without feed keys RayDar still produces real ideas from your concepts + brief; demand simply shows as <em>config</em> rather than <em>live</em>.</p>
+</section>
+
+<!-- ============ 05 A PEEK INSIDE ============ -->
+<section class="s" id="inside">
+  <div class="rv">
+    <div class="eyebrow">05 — A peek inside</div>
+    <h2 class="big">The whole sweep, on two screens.</h2>
+    <p class="sub">Arm the feeds, run the sweep, read the ranked ideas — each one openable to its reasoning.</p>
+  </div>
+  <div style="margin-top:28px">
+    <div class="win rv"><div class="bar"><i></i><i></i><i></i><span>RayDar · New Sweep</span></div><img src="assets/screen-sweep.png" alt="RayDar New Sweep — arming the Hunger feeds"></div>
+    <p class="cap rv"><b>01 · Hunger.</b> Three feeds — Trend Spotting (concept chips, each with its own search terms), SEO Inputs (paste raw research), and TalentMind (demand seeded from the talent themselves). Add a brief, then run the sweep.</p>
+    <div class="win rv" style="margin-top:26px"><div class="bar"><i></i><i></i><i></i><span>RayDar · Ideas</span></div><img src="assets/screen-ideas.png" alt="RayDar Ideas — ranked stories with trend report and scores"></div>
+    <p class="cap rv"><b>03 · Ideas.</b> A trend report sits above the batch — audience, concepts, what's being discussed, the signals (avg gap, velocity), and routing. Below it, ideas ranked by composite score, each with a franchise tag, an emotional register, and a <b>"why this ranks — click to expand"</b>.</p>
+  </div>
+</section>
+
+<!-- ============ 06 THE SCORE ============ -->
+<section class="s tinted" id="score">
+  <div class="rv">
+    <div class="eyebrow">06 — How the score works</div>
+    <h2 class="big">One number, and you can open every part of it.</h2>
+    <p class="lead">RayDar never asks you to trust a black box. The rank is a plain weighted sum of four signals — each one measured, each one editable, each one shown back to you on the idea.</p>
+  </div>
+
+  <div class="formula rv">
+    <div class="eq">
+      <span class="term"><span style="color:#fff">score</span></span><span class="op">=</span>
+      <span class="term"><span class="w">0.35</span><span class="op">×</span>gap</span><span class="op">+</span>
+      <span class="term"><span class="w">0.25</span><span class="op">×</span>velocity</span><span class="op">+</span>
+      <span class="term"><span class="w">0.20</span><span class="op">×</span>strategic</span><span class="op">+</span>
+      <span class="term"><span class="w">0.20</span><span class="op">×</span>historical</span>
+    </div>
+    <div class="note">Each signal is normalised 0–1; the score is shown ×100. Weights are an editable business rule — dial them to your strategy at any time, no deploy.</div>
+  </div>
+
+  <div class="grid g4">
+    <div class="sig rv"><div class="w">0.35</div><h4>Gap</h4><p>Demand ÷ supply-quality. How many are asking versus how much good content already answers them. A high gap = loud demand, thin supply — the real opportunity.</p><div class="src">from YouTube + Reddit</div></div>
+    <div class="sig rv"><div class="w">0.25</div><h4>Velocity</h4><p>Momentum — top views per day across matched videos, log-normalised (~100k/day → 1.0). Rewards a topic that's accelerating now. Directional, not precise.</p><div class="src">from YouTube stats</div></div>
+    <div class="sig rv"><div class="w">0.20</div><h4>Strategic</h4><p>Your priority weight for the topic, from an editable map (e.g. "Keywords &amp; resume" 0.90, "Which coding tool" 0.60). This is where business strategy enters the maths.</p><div class="src">from your rules</div></div>
+    <div class="sig rv"><div class="w">0.20</div><h4>Historical</h4><p>How often past ideas from this 1Up franchise were marked <b>Used</b>. The feedback loop: what your team actually publishes teaches the next sweep what to trust.</p><div class="src">from your feedback</div></div>
+  </div>
+
+  <!-- worked example -->
+  <div class="why rv">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--orange-deep)" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5l3 2"/></svg><b style="font-family:var(--f-disp);font-size:15px">Why this ranks — worked example</b></div>
+    <p style="font-size:13.5px;color:var(--gray);margin-bottom:14px">The exact panel a reviewer opens on an idea. Signals in, weighted, summed.</p>
+    <div class="row h"><span>Signal</span><span>Measured</span><span style="text-align:right">× weight</span><span style="text-align:right">= adds</span></div>
+    <div class="row"><b>Gap</b><span><span class="bar2"><i style="width:60%"></i></span></span><span style="text-align:right" class="mono">0.60 × .35</span><span class="contrib mono">0.210</span></div>
+    <div class="row"><b>Velocity</b><span><span class="bar2"><i style="width:40%;background:var(--teal)"></i></span></span><span style="text-align:right" class="mono">0.40 × .25</span><span class="contrib mono">0.100</span></div>
+    <div class="row"><b>Strategic</b><span><span class="bar2"><i style="width:85%;background:var(--slate)"></i></span></span><span style="text-align:right" class="mono">0.85 × .20</span><span class="contrib mono">0.170</span></div>
+    <div class="row"><b>Historical</b><span><span class="bar2"><i style="width:2%;background:#6b3fa0"></i></span></span><span style="text-align:right" class="mono">0.00 × .20</span><span class="contrib mono">0.000</span></div>
+    <div class="total"><div><div class="lab">Composite signal (×100)</div><div style="font-family:var(--f-disp);font-size:13px;color:var(--gray)">a brand-new franchise with no track record yet — historical sits at zero</div></div><div class="big mono">48</div></div>
+    <div class="stat">
+      <div><b>3</b>demand — questions found</div>
+      <div><b>3</b>supply — items live</div>
+      <div><b>thin</b>gap type</div>
+      <div><b>LLM-only</b>sources this run</div>
+    </div>
+  </div>
+  <p class="sub rv" style="margin-top:18px">The same object is stored on every idea (<span class="mono">gap · velocity · strategic · historical · weights · demand · supply · live · sources</span>) — so the score is reproducible, and "why this ranks" is never a story we tell after the fact.</p>
+</section>
+
+<!-- ============ 07 ASK IN PLAIN ENGLISH ============ -->
+<section class="s" id="ask">
+  <div class="rv">
+    <div class="eyebrow">07 — Ask in plain English</div>
+    <h2 class="big">The questions RayDar is really answering.</h2>
+    <p class="lead">No dashboards to learn. Behind every sweep are the questions your team already asks each month.</p>
+  </div>
+  <div style="margin-top:26px;max-width:70ch">
+    <div class="qbub rv">What are Indian job seekers asking this month that nobody is answering well?</div>
+    <div class="qbub rv">Which topic is accelerating right now — and which is already saturated?</div>
+    <div class="qbub rv">Give me a contrarian angle on salary negotiation, with the belief to push against.</div>
+    <div class="qbub rv">Which 1Up franchise has been earning the most "Used" ideas lately?</div>
+    <div class="qbub rv">Show me the evidence — where did this claim come from, and does anything contradict it?</div>
+  </div>
+</section>
+
+<!-- ============ 08 THE HEART OF IT ============ -->
+<section class="s dk" id="heart">
+  <div class="rv">
+    <div class="eyebrow">08 — The heart of it</div>
+    <h2 class="big">&amp;ANSR built its name on reading talent. RayDar reads what talent wants to hear.</h2>
+    <p class="lead">The same instinct that makes &amp;ANSR trusted with people's careers — listen first, then act — is what RayDar puts to work on content. It's not a trend chaser. It's the discipline of hearing demand clearly, and answering it with evidence.</p>
+  </div>
+  <div style="margin-top:28px;overflow-x:auto">
+    <table class="tbl rv">
+      <thead><tr><th>For your team</th><th>Today</th><th>With RayDar</th></tr></thead>
+      <tbody>
+        <tr><td>Choosing the month's topics</td><td class="today">Gut feel, a scan of what's trending, a blank calendar.</td><td class="with">A ranked list where the top idea is the biggest demand-supply gap, not the loudest noise.</td></tr>
+        <tr><td>Backing a decision</td><td class="today">"I think this will do well."</td><td class="with">An openable score — demand, momentum, strategy, track record — you can defend in a review.</td></tr>
+        <tr><td>Finding an angle</td><td class="today">Whatever everyone else is already saying.</td><td class="with">A contrarian, evidence-backed take that pushes against a popular-but-wrong belief.</td></tr>
+        <tr><td>Trusting a claim</td><td class="today">Hope it's right.</td><td class="with">Validated and cited before it ships — a proposal for a human, never an assertion.</td></tr>
+        <tr><td>Getting better over time</td><td class="today">Every month starts from scratch.</td><td class="with">What you mark "Used" feeds back into the ranking — the radar tunes to you.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============ CLOSE ============ -->
+<section class="close">
+  <img class="emb" src="assets/q-emblem.png" alt="&ANSR">
+  <h2>Hear the demand. Answer it first.</h2>
+  <div class="sign">RayDar · Talent Trend Radar · for &amp;ANSR</div>
+  <div class="footer">
+    <img src="assets/tkb-black.png" alt="The Kettle Black">
+    <p>An AI product by The Kettle Black.</p>
+    <p style="color:var(--gray-mid)">Approach note · July 2026</p>
+  </div>
+</section>
+
+</div><!-- /main -->
+
+<script>
+/* progress bar */
+const bar=document.getElementById('bar');
+addEventListener('scroll',()=>{const h=document.documentElement;const sc=h.scrollTop/(h.scrollHeight-h.clientHeight);bar.style.width=(sc*100)+'%';},{passive:true});
+
+/* reveal on scroll */
+const rio=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');rio.unobserve(e.target);}});},{threshold:.12,rootMargin:'0px 0px -8% 0px'});
+document.querySelectorAll('.rv').forEach(el=>rio.observe(el));
+
+/* scroll-spy nav */
+const links=[...document.querySelectorAll('.nav .links a')];
+const secs=links.map(a=>document.querySelector(a.getAttribute('href')));
+const spy=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){const id='#'+e.target.id;links.forEach(a=>a.classList.toggle('on',a.getAttribute('href')===id));}});},{rootMargin:'-45% 0px -50% 0px'});
+secs.forEach(s=>s&&spy.observe(s));
+
+/* the shimmering pipeline — stages generate one by one when in view */
+function sequenceReveal(root,sel='.reveal-card',step=240,start=120){
+  const els=[...(root||document).querySelectorAll(sel)];
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(reduce){els.forEach(el=>el.classList.add('gen--in'));return;}
+  els.forEach(el=>el.classList.add('gen'));
+  els.forEach((el,i)=>setTimeout(()=>{el.classList.remove('gen');el.classList.add('gen--in');
+    const st=el.closest('.stage'); if(st){st.classList.add('pulsing');setTimeout(()=>st.classList.remove('pulsing'),step+400);}
+  },start+i*step));
+}
+const flow=document.getElementById('flow');
+let swept=false;
+const flowIO=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting&&!swept){swept=true;sequenceReveal(flow,'.reveal-card',240);flowIO.disconnect();}});},{threshold:.18});
+flowIO.observe(flow);
+</script>
+</body>
+</html>
