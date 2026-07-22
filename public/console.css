@@ -194,3 +194,19 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--c-org);b
 .mchip-h b{color:var(--c-navy);font-family:ui-monospace,monospace;font-size:13px}
 .mchip-v{font-family:ui-monospace,monospace;font-size:12px;color:var(--c-dim);margin:7px 0;word-break:break-word;line-height:1.45;max-height:64px;overflow:auto}
 .mchip-a{display:flex;gap:6px}
+
+/* ---- Rule book (plain-English rules) ---- */
+.rb-list{display:flex;flex-direction:column;gap:8px}
+.rb-row{display:flex;align-items:center;gap:12px;justify-content:space-between;flex-wrap:wrap;background:#fff;border:1px solid var(--c-line);border-radius:10px;padding:11px 14px}
+.rb-row.ok{border-color:var(--c-grn);background:#F6FBF8}
+.rb-main{flex:1;min-width:220px}
+.rb-rule{font-weight:600;color:var(--c-navy);font-size:13px}
+.rb-val{font-size:12.5px;color:var(--c-dim);margin-top:3px;line-height:1.45}
+.rb-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rb-clause{font-family:ui-monospace,monospace;font-size:10.5px;color:var(--c-dim2)}
+/* rotating Pot spinner (global AI working indicator) */
+.qspin{animation:qspin 1s linear infinite}
+@keyframes qspin{to{transform:rotate(360deg)}}
+.rd-fill.indet,.rd-meter .rd-fill.indet{background:linear-gradient(90deg,var(--c-org),var(--c-teal),var(--c-org));background-size:200% 100%;animation:indet 1.1s linear infinite}
+@keyframes indet{to{background-position:-200% 0}}
+.rd-now .potspin{width:20px;height:20px;vertical-align:-.35em;margin-right:8px;display:inline-block;animation:qspin 1s linear infinite}

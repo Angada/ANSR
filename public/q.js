@@ -120,7 +120,7 @@ window.aiSpin = (on, label) => {
   if (_aiN > 0) {
     if (!el) {
       el = document.createElement("div"); el.id = "aispin"; el.className = "aispin";
-      el.innerHTML = `<img src="/brand/assets/logos/q-emblem.png" alt="" class="qspin"><span class="aispin-l">AI working…</span>`;
+      el.innerHTML = `<img src="/brand/assets/logos/pot.png" alt="" class="qspin"><span class="aispin-l">AI working…</span>`;
       document.body.appendChild(el);
     }
     if (label) el.querySelector(".aispin-l").textContent = label;

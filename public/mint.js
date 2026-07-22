@@ -749,6 +749,32 @@ window.mTab = (t) => {
   if (t === "rulebook") renderRulebook();
 };
 // Rule book — the executable rule-chips Munshi captured (calc runs from these)
+// ---- Rule book — turn atomic chips into plain-English rules -----------------
+const BOX_NAMES = { billing_rules: "Billing rules & formulas", commercial_terms: "Commercial terms", payment_terms: "Payment terms", company: "Company", legal: "Legal terms", caveats: "Caveats", flags: "Flags to resolve" };
+const titleCase = (s) => String(s || "").replace(/[_:|]+/g, " ").replace(/\s+/g, " ").trim().replace(/\b\w/g, (c) => c.toUpperCase());
+function readableValue(v) {
+  if (v == null) return "—";
+  if (typeof v !== "object") return String(v);
+  if (v.text) return v.text;
+  if (v.ta_pct !== undefined) return `${v.ta_pct}% of Total Annual CTC`;
+  if (v.rate !== undefined) return [v.rate ? `$${Number(v.rate).toLocaleString()}` : "", v.logic ? `(${v.logic})` : ""].filter(Boolean).join(" ");
+  if (v.scenario !== undefined) return `${v.scenario} → expected ${v.expected}`;
+  if (v.trigger !== undefined) return [v.trigger, v.tech ? `tech $${v.tech}` : "", v.nontech ? `non-tech $${v.nontech}` : "", v.amount || ""].filter(Boolean).join(" · ");
+  if (v.value !== undefined) return typeof v.value === "object" ? readableValue(v.value) : String(v.value);
+  return Object.entries(v).map(([k, val]) => `${titleCase(k)}: ${typeof val === "object" ? JSON.stringify(val) : val}`).join(" · ");
+}
+function ruleLabel(box, key, v) {
+  v = v || {};
+  if (box === "billing_rules") {
+    if (key.startsWith("ta_rate")) return `TA fee rate — ${v.band || "?"} headcount · ${titleCase(v.level) || "?"} · ${v.referral ? "referral" : "non-referral"}`;
+    if (key.startsWith("milestone")) return `Milestone billing — ${titleCase(v.code || key.split(":")[1] || "")}`;
+    if (key.startsWith("oss_slab")) return `OSS fee slab — ${v.hc || "?"} active headcount`;
+    if (key === "ctc_definition") return "How Total Annual CTC is defined";
+    if (key === "fx_rule") return "Currency / FX conversion";
+    if (key.startsWith("example")) return "Worked example (trust test)";
+  }
+  return titleCase(key);
+}
 async function renderRulebook() {
   const host = $("#rulebook"); if (!host) return;
   const client = $("#client")?.value; if (!client || client === "__new__") return;
@@ -758,12 +784,18 @@ async function renderRulebook() {
   chips = (chips || []).slice().sort((a, b) => order.indexOf(a.box_type) - order.indexOf(b.box_type));
   const total = chips.reduce((n, g) => n + g.chips.length, 0);
   const confirmed = chips.reduce((n, g) => n + g.chips.filter((c) => c.status === "confirmed").length, 0);
-  host.innerHTML = `<div class="band grad-soft"><h3 style="margin:0 0 4px;color:var(--ansr-navy)">Rule book — what Munshi captured</h3>
-      <p class="lbl" style="margin:0">${total} atomic rule-chips · ${confirmed} confirmed. The calc engine runs from <b>these</b> — every number traces to its clause. Confirm a chip to lock it against re-parse.</p></div>` +
-    chips.map((g) => `<div class="grp" style="margin:16px 0 6px;font-weight:600;color:var(--ansr-navy);text-transform:capitalize">${esc(g.box_type.replace(/_/g, " "))} <span class="lbl" style="font-weight:400">· ${g.chips.length}</span></div>
-      <div class="scroll-x"><table class="grid"><thead><tr><th>rule</th><th>value</th><th>clause</th><th>status</th></tr></thead><tbody>
-      ${g.chips.map((c) => `<tr><td style="font-family:ui-monospace,monospace">${esc(c.key)}</td><td style="font-family:ui-monospace,monospace;font-size:11px;max-width:320px">${esc(JSON.stringify(c.value))}</td><td>${esc(c.clause_ref || "")}</td><td><span class="chip ${c.status === "confirmed" ? "chip--approved" : "chip--draft"}">${esc(c.status)}</span></td></tr>`).join("")}
-      </tbody></table></div>`).join("");
+  host.innerHTML = `<div class="band grad-soft"><h3 style="margin:0 0 4px;color:var(--ansr-navy)">Rule book</h3>
+      <p class="lbl" style="margin:0">The contract's billing rules, read out in plain English — ${total} rules, ${confirmed} confirmed. Mint's calc engine bills from <b>exactly these</b>, and every one traces back to its clause. Confirm a rule to lock it; re-parsing an amendment won't overwrite it.</p></div>` +
+    chips.map((g) => `<div class="grp" style="margin:18px 0 8px;font-weight:600;font-size:15px;color:var(--ansr-navy)">${esc(BOX_NAMES[g.box_type] || titleCase(g.box_type))} <span class="lbl" style="font-weight:400">· ${g.chips.length}</span></div>
+      <div class="rb-list">${g.chips.map((c) => {
+        const v = c.value || {};
+        return `<div class="rb-row ${c.status === "confirmed" ? "ok" : ""}">
+          <div class="rb-main"><div class="rb-rule">${esc(ruleLabel(g.box_type, c.key, v))}</div>
+            <div class="rb-val">${esc(readableValue(v))}</div></div>
+          <div class="rb-meta">${c.clause_ref ? `<span class="rb-clause">${esc(c.clause_ref)}</span>` : ""}
+            <span class="chip ${c.status === "confirmed" ? "chip--approved" : "chip--draft"}">${esc(c.status)}</span></div>
+        </div>`;
+      }).join("")}</div>`).join("");
 }
 window.amendChip = (id, cur) => appPrompt("Amend rule chip", "Value (JSON)", async (v) => { if (!v) return; await fetch(`/api/mint/chip/${id}/amend`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ client: $("#client").value, value: v }) }); renderChips(); }, { value: cur });
 

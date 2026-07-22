@@ -201,8 +201,8 @@ window.onProcess = async () => {
   const body = TM ? { talentmind_cohort_id: TM.cohortId, name: TM.name, prompt } : { trend_topics: ROUTES.trend ? TOPICS : [], seo: ROUTES.seo, prompt };
   const b = await (await fetch("/api/wh/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
   BATCH = { id: b.id, name: b.name };
-  await meter(["Collecting feed · YouTube + Reddit", "Classifying → topic · franchise · registers", "Gap analysis + velocity", "Writing headings + briefs", "Composite ranking"], "procMeter", "◎ Signal locked");
-  await fetch(`/api/wh/feedstories/${BATCH.id}`, { method: "POST" });
+  const gen = fetch(`/api/wh/feedstories/${BATCH.id}`, { method: "POST" });   // kick off the real AI work
+  await meter(["Collecting feed", "Classifying → topic · franchise · registers", "Signals · velocity", "Writing headings + briefs", "Composite ranking"], "procMeter", "◎ Signal locked", gen);
   await loadIdeas();
   STAGE = 3; toIdeas(); renderBatchPick();
 };
@@ -364,7 +364,7 @@ window.setLibFR = (v) => { LIB_FR = v; loadLibrary(); };
 window.setLibFB = (v) => { LIB_FB = v; loadLibrary(); };
 
 // ---- radar sweep meter ------------------------------------------------------
-async function meter(steps, hostId, doneMsg) {
+async function meter(steps, hostId, doneMsg, waitFor) {
   const host = document.getElementById(hostId); if (!host) return;
   host.innerHTML = `<div class="meter"><div class="bar"><div class="fill" id="mf-${hostId}"></div></div><div class="now" id="mn-${hostId}"></div><div id="ml-${hostId}"></div></div>`;
   const fill = $(`#mf-${hostId}`), now = $(`#mn-${hostId}`), list = $(`#ml-${hostId}`);
@@ -373,6 +373,13 @@ async function meter(steps, hostId, doneMsg) {
     list.insertAdjacentHTML("beforeend", `<div class="ms" id="ms-${hostId}-${i}">· ${esc(steps[i])}…</div>`);
     await new Promise((r) => setTimeout(r, 480));
     const el = $(`#ms-${hostId}-${i}`); el.className = "ms done"; el.textContent = "✓ " + steps[i];
+  }
+  // real AI work — keep the rotating Pot logo running until it resolves
+  if (waitFor) {
+    fill.style.width = "100%"; fill.classList.add("indet");
+    now.innerHTML = `<img class="potspin" src="/brand/assets/logos/pot.png" alt="">Generating ideas through the LLM — this can take up to a minute…`;
+    try { await waitFor; } catch { /* surfaced by caller */ }
+    fill.classList.remove("indet");
   }
   if (doneMsg) now.textContent = doneMsg;
 }
