@@ -303,17 +303,156 @@ function trendReport(stories) {
     </div></div>`;
 }
 
+// ---- STORY BOARDS · group a concept's 3 angles into one board -------------
+// Each board = one demand concept: a lead idea (strongest angle) + alternatives.
+// Three nested "why" layers: why this concept · why this angle · why this story.
+const ANGLE_META = {
+  "core": { cls: "angle-core", why: "the direct, safe lead — it answers the question head-on and carries the lowest contradiction risk." },
+  "contrarian": { cls: "angle-contrarian", why: "flips a popular but shaky belief for a higher engagement ceiling — more contradiction risk, so the claim must be verified before publishing." },
+  "insider-data": { cls: "angle-insider-data", why: "an authority play built on real numbers — strongest when a dataset or TalentMind cohort backs it (flagged when none exists yet)." },
+};
+const angleMeta = (s) => ANGLE_META[s.angle] || { cls: "", why: "a distinct take on the same concept." };
+let TOPIC_Q = {}, LEAD_OVERRIDE = {}, _RENDER = { stories: null, franchises: [] };
+
+function angleWhy(s) {
+  const m = angleMeta(s);
+  return `<b>${esc(s.angle || "angle")}</b> — ${m.why} Register “${esc(s.emotional_register || "—")}”, routed to <b>${esc(s.franchise)}</b>${s.one_up ? ` · 1Up ${esc(s.one_up)}` : ""}.${s.contradiction ? ` Flags a contradiction against ${esc(s.contradiction_of || "popular belief")} — we propose, we never assert.` : ""}`;
+}
+function conceptWhy(board) {
+  const lead = board.lead, b = lead.score_breakdown || {}, n = board.all.length;
+  const aud = GUARD ? [GUARD.region, GUARD.language, GUARD.audience].filter(Boolean).join(" · ") : "—";
+  return `Picked because <b>demand</b> — ${b.demand ?? 0} audience questions — outweighs <b>supply</b> — ${b.supply ?? 0} existing items${lead.gap_type ? ` — a <b>${esc(lead.gap_type)}</b> gap` : ""}. Signal is ${b.live ? "<b>live feed</b>" : "config fallback (add YouTube / Reddit keys for a live signal)"}${b.velocity !== undefined ? ` · velocity <b>${(Number(b.velocity) || 0).toFixed(2)}</b>` : ""}. Audience: <b>${esc(aud)}</b>, from your guardrails. ${n} angle${n === 1 ? "" : "s"} generated for this concept through the gated RayDar pipelines.`;
+}
+function storyReason(s) {
+  const g = s.topic_guide || {}, brd = s.score_breakdown || {}, w = brd.weights || {};
+  const bar = (l, v) => `<div class="sbar"><span>${l}</span><span class="track2"><span class="fill2" style="width:${Math.round((Number(v) || 0) * 100)}%"></span></span><span>${(Number(v) || 0).toFixed(2)}</span></div>`;
+  return `${g.take ? `<div class="why"><b>Take:</b> ${esc(g.take)}</div>${(g.beats || []).length ? `<ul>${(g.beats || []).map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}` : ""}
+    <div class="why"><b>Why now:</b> ${esc(s.why_now || "—")}</div>
+    ${s.why_relevant ? `<div class="why"><b>Why relevant:</b> ${esc(s.why_relevant)}</div>` : ""}
+    <div class="why"><b>Evidence:</b> ${esc(s.evidence || "—")}</div>
+    ${s.contradiction ? `<div class="why"><b>Contradicts:</b> ${esc(s.contradiction_of || "popular belief")}</div>` : ""}
+    <div class="g-l" style="margin-top:10px;font-family:var(--mono);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim2)">Composite ${(Number(s.score) * 100).toFixed(0)}${w.gap ? ` · weights ${w.gap}·${w.velocity}·${w.strategic}·${w.historical}` : ""}</div>
+    ${bar("gap", brd.gap)}${bar("velocity", brd.velocity)}${bar("strategic", brd.strategic)}${bar("historical", brd.historical)}
+    ${brd.live !== undefined ? `<div class="why" style="font-family:var(--mono);font-size:10.5px;color:var(--dim2)">signal: ${brd.live ? "live feed" : "config fallback"} · demand ${brd.demand ?? 0} Qs · supply ${brd.supply ?? 0} items</div>` : ""}`;
+}
+// box-in-box: the actual sources we pulled, each opens in a new window
+function sourcesBox(s) {
+  const refs = (s.source_refs || []).filter((r) => r && r.url);
+  return `<div class="srcbox">
+    <div class="srcbox-h">${ic("external")} Sources gathered${refs.length ? ` · ${refs.length}` : ""}</div>
+    ${refs.length ? refs.map((r) => `<a class="srclink" href="${esc(r.url)}" target="_blank" rel="noopener">
+        <span class="stag">${esc(r.source || "web")}</span>
+        <span class="stt">${esc(r.title || r.url)}</span>
+        <span class="sgo">open ↗</span></a>`).join("")
+      : `<div class="srcbox-empty">LLM only — no external sources for this idea yet. Add YouTube / Reddit / Tavily / Serper keys in the Vault to ground it with links.</div>`}
+  </div>`;
+}
+function ideaChips(s, franchises) {
+  const tag = FR_TAG[frIndexIn(franchises, s.franchise) % FR_TAG.length];
+  return `<span class="chip ${tag}">${ic("target")} ${esc(s.franchise)}</span>
+    ${s.one_up ? `<span class="chip">${esc(s.one_up)}</span>` : ""}
+    ${s.emotional_register ? `<span class="chip">${esc(s.emotional_register)}</span>` : ""}
+    ${s.platform ? `<span class="chip">${ic("monitor")} ${esc(s.platform)}</span>` : ""}`;
+}
+function ideaActs(s) {
+  return `<div class="acts">
+    <button class="btn small" onclick="idea(${s.id},'used')">${ic("check")} Used</button>
+    <button class="btn small" onclick="idea(${s.id},'saved')">${ic("save")} Save</button>
+    <button class="btn small" onclick="rejectIdea(${s.id})">${ic("x")} Reject</button>
+    <button class="btn small" onclick="editIdea(${s.id},'${esc(s.heading).replace(/'/g, "\\'")}')">${ic("edit")} Edit</button>
+    <label class="build"><input type="checkbox" ${s.selected ? "checked" : ""} onchange="idea(${s.id},'select')"> build</label>
+  </div>`;
+}
+function leadIdea(s, franchises) {
+  const m = angleMeta(s);
+  return `<div class="lead">
+    <div class="idea-topline">
+      <span class="chip ${m.cls}" style="cursor:default">${esc(s.angle || "core")}</span>
+      ${ideaChips(s, franchises)}
+      <span class="idea-score">score ${(Number(s.score) * 100).toFixed(0)}</span>
+    </div>
+    <div class="idea-h">${esc(s.heading)}</div>
+    <div class="why-pair">
+      <details class="whyx"><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
+      <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
+    </div>
+    ${sourcesBox(s)}
+    ${ideaActs(s)}
+  </div>`;
+}
+function altIdea(s, franchises, topicKey) {
+  const m = angleMeta(s);
+  return `<details class="alt" id="card-${s.id}">
+    <summary>
+      <span class="caret">▸</span>
+      <span class="chip ${m.cls}" style="cursor:default">${esc(s.angle || "angle")}</span>
+      <span class="ah">${esc(s.heading)}</span>
+      <span class="alt-score">score ${(Number(s.score) * 100).toFixed(0)}</span>
+      <button class="mklead" onclick="event.preventDefault();event.stopPropagation();promoteLead('${topicKey}',${s.id})" title="Make this the lead idea">↑ make lead</button>
+    </summary>
+    <div class="alt-body">
+      <div class="chips" style="margin:12px 0 0">${ideaChips(s, franchises)}</div>
+      <details class="whyx" open><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
+      <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
+      ${sourcesBox(s)}
+      ${ideaActs(s)}
+    </div>
+  </details>`;
+}
+function storyBoard(board, i, franchises) {
+  const lead = board.lead, fb = lead.feedback, q = TOPIC_Q[board.topic];
+  return `<article class="board ${fb || ""}" id="board-${board.key}">
+    <div class="board-top">
+      <span class="board-rank">#${i + 1}<span class="pct">${(Number(lead.score) * 100).toFixed(0)}</span></span>
+      <span class="exp" title="Explainable AI — the maths behind the lead idea" onclick="explainIdea(${lead.id})">e</span>
+      ${lead.gap_type ? `<span class="chip tag-cyan" style="cursor:default">${esc(lead.gap_type)}</span>` : ""}
+      ${board.all.some((x) => x.contradiction) ? `<span class="chip flag" style="cursor:default">${ic("bolt")} contradiction</span>` : ""}
+      ${fb ? `<span class="chip ${fb === "used" ? "tag-grn" : fb === "saved" ? "tag-amber" : "tag-mag"}" style="cursor:default">${esc(fb)}</span>` : ""}
+      <span class="board-kind" style="margin-left:auto">Story board · ${board.all.length} angle${board.all.length === 1 ? "" : "s"}</span>
+    </div>
+    <h3 class="board-q">${esc(board.topic)}</h3>
+    ${q ? `<div class="board-qq"><b>Concept</b> ${esc(q)}</div>` : ""}
+    <p class="board-sum"><span class="lede">Summary</span>${esc(lead.summary || "")}</p>
+    <details class="whyx"><summary><span class="q">e</span> why this concept</summary><div class="whyx-b">${conceptWhy(board)}</div></details>
+
+    <div class="lead-label">Lead idea · ${esc(lead.angle || "core")} angle</div>
+    ${leadIdea(lead, franchises)}
+
+    ${board.alts.length ? `<div class="alts-label">Alternatives · ${board.alts.length} other angle${board.alts.length === 1 ? "" : "s"}</div>
+      ${board.alts.map((a) => altIdea(a, franchises, board.key)).join("")}` : ""}
+  </article>`;
+}
+function groupBoards(stories) {
+  const map = new Map();
+  for (const s of stories) { _STORIES[s.id] = s; const k = s.demand_topic || "—"; if (!map.has(k)) map.set(k, []); map.get(k).push(s); }
+  const boards = [];
+  for (const [topic, arr] of map) {
+    arr.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
+    const key = String(topic).replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+    let lead = arr[0];
+    const ov = LEAD_OVERRIDE[key];
+    if (ov) { const f = arr.find((x) => x.id === ov); if (f) lead = f; }
+    boards.push({ topic, key, all: arr, lead, alts: arr.filter((x) => x.id !== lead.id) });
+  }
+  boards.sort((a, b) => (Number(b.lead.score) || 0) - (Number(a.lead.score) || 0));
+  return boards;
+}
+window.promoteLead = (key, id) => { LEAD_OVERRIDE[key] = id; renderIdeas(_RENDER.stories, _RENDER.franchises); };
+
 function renderIdeas(stories, franchises) {
   const host = $("#stageIdeas");
-  if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each a heading + brief routed to a 1Up franchise, ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
+  if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each concept becomes a <b>story board</b>: a lead idea plus alternative angles, all ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
+  _RENDER = { stories, franchises };
+  TOPIC_Q = Object.fromEntries((ALL_TOPICS || []).map((t) => [t.name, t.question]));
+  const boards = groupBoards(stories);
   const filter = `<div class="ideas-head">
       <span class="chip tag-grn" style="cursor:default">${ic("box")} ${esc(BATCH?.name || "batch")}</span>
       <span class="chip" style="border:none;background:none;padding:0">franchise</span>
       <select onchange="setFR(this.value)"><option value="all" ${FR === "all" ? "selected" : ""}>all</option>${(franchises || []).map((f) => `<option ${FR === f.name ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
-      <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${stories.length} ideas · ranked</span>
+      <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${boards.length} concept${boards.length === 1 ? "" : "s"} · ${stories.length} angles</span>
     </div>`;
-  host.innerHTML = `<p class="intro"><b>IDEAS</b> — ranked by composite signal. Click a story to expand its reasoning; then mark Used, Save, Reject, Edit, or tick <b>build</b>.</p>` +
-    trendReport(stories) + filter + (stories.length ? `<div class="grid">${stories.map((s, i) => ideaCard(s, i, franchises)).join("")}</div>` : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`);
+  host.innerHTML = `<p class="intro"><b>IDEAS</b> — grouped into <b>story boards</b> by concept. Each board leads with the strongest angle; open the <b>alternatives</b> or the <b>why</b> chips (concept · angle · story) to see the reasoning and the sources we pulled.</p>` +
+    trendReport(stories) + filter + (boards.length ? `<div class="boards">${boards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>` : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`);
 }
 window.setFR = (v) => { FR = v; loadIdeas(); };
 function refreshCurrent() { if (VIEW === "library") loadLibrary(); else loadIdeas(); }

@@ -240,6 +240,73 @@
   .report-grid .rk{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim2);margin-bottom:3px}
   .report-grid .rv{font-size:13px;color:var(--txt);line-height:1.45}
 
+  /* ============ STORY BOARDS (grouped: concept → lead idea + alternatives) === */
+  .boards{display:flex;flex-direction:column;gap:18px}
+  .board{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px 20px 18px;box-shadow:0 1px 2px rgba(0,36,46,.04);transition:.16s}
+  .board:hover{border-color:var(--line2)}
+  .board.used{border-color:var(--grn);box-shadow:0 0 0 1px rgba(206,69,2,.2)}
+  .board.saved{border-color:var(--amber)}
+  .board-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .board-rank{font-family:var(--mono);font-weight:700;font-size:13px;color:var(--grn);display:inline-flex;align-items:baseline;gap:5px}
+  .board-rank .pct{font-size:20px}
+  .board-kind{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim2)}
+  .board-q{margin:2px 0 3px;font-size:20px;font-weight:700;line-height:1.28;color:var(--txt)}
+  .board-qq{font-size:14px;color:var(--cyan);line-height:1.45;margin:0 0 7px}
+  .board-qq b{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim2);font-weight:400;margin-right:6px}
+  .board-sum{font-size:15px;color:var(--dim);line-height:1.55;margin:0 0 6px}
+  .board-sum .lede{color:var(--dim2);font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;margin-right:6px}
+
+  /* inline "why" expanders — used at concept, angle, and story level */
+  .whyx{margin:6px 0 0}
+  .whyx>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;color:var(--grn);padding:3px 9px;border:1px solid var(--line2);border-radius:999px;transition:.14s;user-select:none}
+  .whyx>summary::-webkit-details-marker{display:none}
+  .whyx>summary:hover{border-color:var(--grn-dim);background:var(--bg2)}
+  .whyx>summary .q{display:inline-grid;place-items:center;width:14px;height:14px;border-radius:50%;border:1px solid var(--grn);font-size:9px;font-style:italic;font-weight:700}
+  .whyx[open]>summary{background:var(--grn);color:#fff;border-color:var(--grn)}
+  .whyx[open]>summary .q{border-color:#fff}
+  .whyx-b{margin:8px 0 2px;padding:11px 13px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;font-size:13.5px;color:var(--dim);line-height:1.6}
+  .whyx-b b{color:var(--txt);font-weight:600}
+
+  /* lead idea block */
+  .lead-label,.alts-label{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim2);margin:16px 0 8px}
+  .lead-label{color:var(--grn)}
+  .lead{border:1px solid rgba(206,69,2,.3);border-left:3px solid var(--grn);border-radius:12px;padding:14px 15px;background:linear-gradient(180deg,#FFFBF8,#fff)}
+  .idea-topline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:7px}
+  .idea-h{font-size:16px;font-weight:600;line-height:1.35;margin:2px 0 8px}
+  .idea-score{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--grn);font-weight:700}
+  .why-pair{display:flex;gap:8px;flex-wrap:wrap}
+
+  /* alternatives */
+  .alt{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-bottom:8px;overflow:hidden;transition:.14s}
+  .alt:hover{border-color:var(--line2)}
+  .alt>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:12px 14px;user-select:none}
+  .alt>summary::-webkit-details-marker{display:none}
+  .alt>summary .caret{font-family:var(--mono);color:var(--dim2);transition:.2s;flex:0 0 auto}
+  .alt[open]>summary .caret{transform:rotate(90deg)}
+  .alt>summary .ah{font-size:14px;font-weight:600;color:var(--txt);flex:1;min-width:120px;line-height:1.35}
+  .alt-score{font-family:var(--mono);font-size:12px;color:var(--dim);font-weight:700}
+  .alt-body{padding:0 14px 14px;border-top:1px solid var(--line)}
+  .mklead{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--grn);background:none;border:1px solid var(--line2);border-radius:999px;padding:5px 10px;cursor:pointer;transition:.14s;flex:0 0 auto}
+  .mklead:hover{border-color:var(--grn-dim);background:var(--bg2)}
+  .board .acts{border-top:1px solid var(--line);padding-top:12px;margin-top:14px}
+  .angle-core{color:var(--grn);border-color:rgba(206,69,2,.4)}
+  .angle-contrarian{color:var(--amber);border-color:rgba(199,123,43,.45)}
+  .angle-insider-data{color:var(--mag);border-color:rgba(181,49,110,.45)}
+  .board .why{font-size:14px;color:var(--dim);margin-top:6px;line-height:1.5}
+  .board .why b{color:var(--txt)}
+  .board .whyx-b ul{margin:6px 0 0;padding-left:16px;line-height:1.5}
+
+  /* box-in-box: the actual sources we gathered, each opens in a new window */
+  .srcbox{margin:12px 0 2px;border:1px solid var(--line);border-radius:10px;background:var(--bg2);padding:11px 13px}
+  .srcbox-h{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim2);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .srclink{display:flex;align-items:center;gap:9px;text-decoration:none;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#fff;margin-bottom:6px;transition:.14s}
+  .srclink:last-child{margin-bottom:0}
+  .srclink:hover{border-color:var(--grn-dim);background:#FFFBF8}
+  .srclink .stag{font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--cyan);border:1px solid rgba(0,84,101,.3);border-radius:5px;padding:2px 6px;flex:0 0 auto}
+  .srclink .stt{font-size:13px;color:var(--txt);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
+  .srclink .sgo{font-family:var(--mono);font-size:11px;color:var(--grn);flex:0 0 auto}
+  .srcbox-empty{font-family:var(--mono);font-size:11px;color:var(--dim2);line-height:1.5}
+
   /* the user's free-text sweep brief box */
   .sweepbox{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:6px 0 0}
   .sweepbox textarea{margin-top:6px;color:var(--txt)}
