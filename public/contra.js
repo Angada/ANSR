@@ -10,7 +10,12 @@ let SUB = { archetypes: "maker", contracts: "review" };
 let ARCH = null;          // the archetype currently open in the editor
 let EDIT_IN = null;       // "maker" | "library" — where the editor is shown
 let ARCHES = [];          // library list
+let BATCH = null;         // current review batch { batch, reviews:[...] }
+let CFILES = [];          // dropped File objects, index-aligned with BATCH.reviews
+let RVOPEN = null;        // opened reviewed contract { review, changes }
+let RVTAB = "report";     // report | timeline
 const VIEWS = { maker: "#view-maker", library: "#view-library", review: "#view-review", reviewed: "#view-reviewed" };
+function meterHtml(msg) { return `<div class="meter"><div class="now"><img class="potspin" src="/brand/assets/logos/pot.png" alt="">${esc(msg)}</div><div class="track"><div class="fill indet"></div></div></div>`; }
 
 function renderNav() {
   const saved = ARCHES.filter((a) => a.status === "saved").length;
@@ -166,16 +171,136 @@ window.editArch = async (id) => {
 };
 window.delArch = (id, name) => rdConfirm("Delete archetype?", `“${name}” will be removed.`, async () => { await fetch(`/api/contra/archetype/${id}`, { method: "DELETE" }); if (ARCH?.id === id) { ARCH = null; EDIT_IN = null; } await loadArches(); renderNav(); renderView(SUB[AREA]); });
 
-// ---- Contracts (Phase 2 placeholders) --------------------------------------
+// ---- Contracts · Review (drop → detect → select → review) ------------------
 function renderReview() {
+  const host = $("#view-review");
   const saved = ARCHES.filter((a) => a.status === "saved");
-  $("#view-review").innerHTML = `<p class="intro"><b>REVIEW</b> — drop one or many contracts; each auto-detects its archetype, then Contra runs a holistic review (section boxes + whole-contract findings) against your rules. Coming next.</p>`
-    + (saved.length
-      ? `<div class="drop" style="cursor:default"><span class="ic">⇊</span><div><div class="t">Coming next — Phase 2</div><div class="s">${saved.length} archetype${saved.length === 1 ? "" : "s"} ready to detect against: ${saved.map((a) => esc(a.name)).join(" · ")}</div></div></div>`
-      : `<div class="empty">// save an archetype in the Archetype Maker first //</div>`);
+  const drop = `<div class="drop" id="cdrop" onclick="document.getElementById('cfile').click()"
+        ondragover="dzOver(event)" ondragenter="dzOver(event)" ondragleave="dzLeave(event)" ondrop="cDrop(event)">
+      <span class="ic">⇊</span>
+      <div><div class="t">Drop contracts — or select files</div>
+        <div class="s">PDF / DOCX · Munshi3 vision-OCR for scans · each auto-detects its archetype</div></div>
+      <input type="file" id="cfile" accept=".pdf,.docx,.doc,.txt,.md" multiple onchange="cUpload(this.files)">
+    </div>`;
+  let body = "";
+  if (!saved.length) body = `<div class="empty">// save an archetype in the Archetype Maker first — Review detects against it //</div>`;
+  else if (BATCH) body = BATCH.reviews.map((rv, i) => reviewRow(rv, i)).join("");
+  host.innerHTML = `<p class="intro"><b>REVIEW</b> — drop a contract; Contra detects its type and <b>recommends archetypes</b>. Confirm or pick up to 3, then Review. Overlapping points are deduped.</p>`
+    + drop + `<div id="cproc"></div>` + body;
 }
+function reviewRow(rv, i) {
+  if (rv.status === "done") {
+    return `<div class="crow"><div class="crow-h"><span class="cn">${esc(rv.contract_name)}</span>
+      <span class="chip saved">reviewed</span><span class="am">${rv.issue_count} issue${rv.issue_count === 1 ? "" : "s"}</span>
+      <button class="btn small" style="margin-left:auto" onclick="openReviewed(${rv.id})">Open review ▸</button></div></div>`;
+  }
+  const saved = ARCHES.filter((a) => a.status === "saved");
+  const detIds = (rv.detected || []).map((d) => d.archetype_id);
+  if (!rv.selected) rv.selected = detIds.slice(0, 3);
+  const detTop = (rv.detected || [])[0];
+  const ranked = [...saved].sort((a, b) => (detIds.includes(b.id) ? 1 : 0) - (detIds.includes(a.id) ? 1 : 0));
+  const chips = ranked.map((a) => {
+    const on = rv.selected.includes(a.id);
+    const det = (rv.detected || []).find((d) => d.archetype_id === a.id);
+    const tag = det ? (det.archetype_id === detTop?.archetype_id ? "detected" : "recommended") : "";
+    return `<div class="achip ${on ? "on" : ""}" onclick="toggleArch(${i},${a.id})">
+      <span class="tick">${on ? "✓" : ""}</span>
+      <div><div class="an">${esc(a.name)}${det ? ` <span class="detbadge">${tag} · ${Math.round((det.confidence || 0) * 100)}%</span>` : ""}</div>
+        <div class="ad">${a.sections} sections${det?.why ? ` · <span class="aex">${esc(det.why)}</span>` : ""}</div></div></div>`;
+  }).join("");
+  const sel = rv.selected.length;
+  const detName = detTop ? (saved.find((a) => a.id === detTop.archetype_id) || {}).name : null;
+  return `<div class="crow">
+    <div class="crow-h"><span class="cn">${esc(rv.contract_name)}</span>
+      ${detName ? `<span class="detbadge">detected: ${esc(detName)} · ${Math.round((detTop.confidence || 0) * 100)}%</span>` : `<span class="chip">no confident match</span>`}</div>
+    <div class="rlbl">Review against · ${sel} of 3 selected</div>
+    <div style="display:flex;flex-direction:column;gap:8px">${chips}</div>
+    ${sel > 1 ? `<div class="dedupnote"><b style="color:var(--txt)">Dedup:</b> overlapping sections & rules across the ${sel} archetypes are merged — reviewed once, tagged by source.</div>` : ""}
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px">
+      <button class="btn btn--org" onclick="runReview(${i})" ${sel ? "" : "disabled"}>Review ▸</button>
+      <span class="createlink" onclick="createFromFile(${i})">No archetype fits? Create one from this file →</span>
+    </div></div>`;
+}
+window.cDrop = (e) => { e.preventDefault(); e.currentTarget.classList.remove("over"); const fs = e.dataTransfer?.files; if (fs && fs.length) cUpload(fs); };
+window.cUpload = async (files) => {
+  if (!files || !files.length) return;
+  const proc = $("#cproc"); proc.innerHTML = meterHtml("Reading & detecting archetypes…");
+  CFILES = [...files];
+  const fd = new FormData(); CFILES.forEach((f) => fd.append("files", f));
+  try {
+    const r = await fetch("/api/contra/batch", { method: "POST", body: fd });
+    const j = await r.json(); proc.innerHTML = "";
+    if (!r.ok) return rdAlert("Couldn't read that", j.error || "");
+    BATCH = j; renderReview();
+  } catch (e) { proc.innerHTML = ""; rdAlert("Upload failed", String(e.message || e)); }
+};
+window.toggleArch = (i, id) => {
+  const rv = BATCH.reviews[i]; rv.selected = rv.selected || [];
+  const k = rv.selected.indexOf(id);
+  if (k >= 0) rv.selected.splice(k, 1);
+  else { if (rv.selected.length >= 3) return rdAlert("Max 3", "Review against up to 3 archetypes at once."); rv.selected.push(id); }
+  renderReview();
+};
+window.runReview = async (i) => {
+  const rv = BATCH.reviews[i]; if (!rv.selected?.length) return;
+  const proc = $("#cproc"); proc.innerHTML = meterHtml(`Reviewing ${esc(rv.contract_name)} — sections · rules · findings…`);
+  try {
+    const r = await fetch(`/api/contra/review/${rv.id}/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archetype_ids: rv.selected }) });
+    const j = await r.json(); proc.innerHTML = "";
+    if (!r.ok) return rdAlert("Review failed", j.error || "");
+    rv.status = "done"; rv.issue_count = j.review.issue_count;
+    renderReview(); openReviewed(rv.id);
+  } catch (e) { proc.innerHTML = ""; rdAlert("Review failed", String(e.message || e)); }
+};
+window.createFromFile = (i) => { const f = CFILES[i]; if (!f) return rdAlert("No file", "Re-drop the contract."); setArea("archetypes"); setSub("maker"); uploadSample(f); };
+
+// ---- Contracts · Reviewed (report · timeline) ------------------------------
 function renderReviewed() {
-  $("#view-reviewed").innerHTML = `<p class="intro"><b>REVIEWED</b> — the legal report, the marked-up document, and the change timeline for every reviewed contract. Coming next.</p><div class="empty">// nothing reviewed yet //</div>`;
+  const host = $("#view-reviewed");
+  if (!RVOPEN) {
+    host.innerHTML = `<p class="intro"><b>REVIEWED</b> — open a reviewed contract from the Review tab to see its legal report, findings and change timeline.</p><div class="empty">// run a review first //</div>`;
+    return;
+  }
+  const tabs = `<div class="rvtabs">
+      <span class="rvtab ${RVTAB === "report" ? "on" : ""}" onclick="setRvTab('report')">Legal report</span>
+      <span class="rvtab ${RVTAB === "timeline" ? "on" : ""}" onclick="setRvTab('timeline')">Timeline</span>
+      <span class="backlnk" style="margin-left:auto;margin-bottom:0" onclick="closeReviewed()">‹ back to review</span></div>`;
+  host.innerHTML = tabs + (RVTAB === "report" ? reportView(RVOPEN.review) : timelineView(RVOPEN.changes || []));
+}
+window.setRvTab = (t) => { RVTAB = t; renderReviewed(); };
+window.closeReviewed = () => { RVOPEN = null; setSub("review"); };
+window.openReviewed = async (id) => {
+  RVOPEN = await (await fetch(`/api/contra/review/${id}`)).json();
+  RVTAB = "report"; AREA = "contracts"; SUB.contracts = "reviewed"; renderNav();
+  Object.values(VIEWS).forEach((v) => ($(v).hidden = true)); $("#view-reviewed").hidden = false;
+  renderReviewed(); window.scrollTo({ top: 0, behavior: "smooth" });
+};
+const VCLASS = { present: "v-present", non_standard: "v-non_standard", risky: "v-risky", missing: "v-missing" };
+function refs(arr) { return (arr || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" "); }
+function reportView(r) {
+  const rep = r.report || {};
+  const verdicts = rep.verdicts || [], checks = rep.rule_checks || [], findings = rep.findings || [];
+  const rc = checks.length ? `<div class="rlbl">Your rule checks</div>${checks.map((c) => `<div class="rcheck rc-${c.result || "check"}"><span class="rcbadge" style="color:${c.result === "breach" ? "#C0392B" : c.result === "pass" ? "#2E7D4F" : "#8a6d1f"}">${String(c.result || "check").toUpperCase()}</span><span>${esc(c.rule || c.section_key || "")} — ${esc(c.note || c.found || "")} ${refs(c.refs)}</span></div>`).join("")}` : "";
+  const fnd = findings.length ? `<div class="fband"><div style="font-weight:700;font-size:13.5px;color:#8a5410;margin-bottom:9px">⚠ Whole-contract findings</div>${findings.map((f) => `<div class="fitem"><b style="color:#141414">${esc(String(f.kind || "finding").replace(/_/g, " "))}</b> — ${esc(f.note || "")} ${refs(f.refs)}</div>`).join("")}</div>` : "";
+  const boxes = verdicts.length ? `<div class="rlbl" style="margin-top:14px">Section review</div><div class="grid">${verdicts.map((v) => `<div class="rbox"><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:600;font-size:14px">${esc(String(v.key || "").replace(/_/g, " "))}</span><span class="vchip ${VCLASS[v.verdict] || "v-non_standard"}" style="margin-left:auto">${String(v.verdict || "").replace(/_/g, " ").toUpperCase()}</span></div><div class="q">${esc(v.note || "—")} ${refs(v.evidence_refs)}</div></div>`).join("")}</div>` : "";
+  const summary = rep.summary ? `<div class="rlbl">Summary</div><p style="margin:0 0 16px;font-size:13.5px;color:var(--dim);line-height:1.6">${esc(rep.summary)}</p>` : "";
+  return `<div class="report-doc"><div class="rd-head"><div class="rd-emb">Q</div>
+      <div style="flex:1"><div class="rd-title">Contract Review</div>
+        <div class="rd-ref">Ref: ${esc(r.contract_name)} · ${esc((rep.archetypes || []).join(" + "))} · ${new Date(rep.generated_at || Date.now()).toLocaleDateString()} · contra-review</div></div>
+      ${r.issue_count ? `<span class="chip" style="color:var(--red);background:#FBECEB;border-color:#F0CFCF">${r.issue_count} issues</span>` : `<span class="chip saved">clean</span>`}</div>
+    <div style="padding:16px 24px 22px">${summary}${rc}${fnd}${boxes}
+      <div style="margin-top:18px;padding-top:12px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;color:#A79F93;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><span>Prepared by Contra</span><span>an AI product by The Kettle Black</span></div>
+    </div></div>`;
+}
+function timelineView(changes) {
+  if (!changes.length) return `<div class="empty">// no timeline yet //</div>`;
+  return `<div class="tl">${changes.map((c) => {
+    const ai = c.actor_type === "ai";
+    return `<div class="tl-item tl-${ai ? "ai" : "human"}"><span class="tl-dot"></span>
+      <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><span class="tl-badge" style="color:${ai ? "#6b3fa0" : "#005465"};background:${ai ? "#F1EBFA" : "#E6EEF0"};border:1px solid ${ai ? "#DDCCF3" : "#cde"}">${ai ? "✦ AI" : "👤 Human"} · ${esc(c.actor_id || "")}</span><span style="font-size:13px;font-weight:600">${esc(String(c.kind || "").replace(/_/g, " "))}</span></div>
+      <div style="font-size:12.5px;color:var(--dim);margin-top:4px;line-height:1.5">${esc(c.body || "")}${c.reasoning ? ` — ${esc(c.reasoning)}` : ""} ${refs(c.refs)}</div>
+      <div class="tl-stamp">${c.created_at ? new Date(c.created_at).toLocaleString() : ""}</div></div>`;
+  }).join("")}</div>`;
 }
 
 // ---- modals ----------------------------------------------------------------

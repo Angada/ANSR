@@ -170,4 +170,127 @@ export function mountContra(app, upload) {
     await q(`delete from contra_archetype where id=$1`, [Number(req.params.id)]);
     res.json({ ok: true });
   });
+
+  // ---- Contract Review: drop → detect → select → review → reviewed ---------
+
+  // Merge 1-3 archetype outlines into one (dedup sections by key/label, union
+  // rules, tag which archetype requires each). Deterministic.
+  function dedupOutlines(archetypes) {
+    const bykey = new Map();
+    for (const a of archetypes) {
+      for (const s of (a.review_outline || [])) {
+        const k = (s.key || slugify(s.label)).toLowerCase();
+        if (!bykey.has(k)) bykey.set(k, { key: k, label: s.label, what_to_check: s.what_to_check, required: false, rules: [], from: [] });
+        const m = bykey.get(k);
+        m.required = m.required || s.required !== false;
+        if (!m.from.includes(a.name)) m.from.push(a.name);
+        const seen = new Set(m.rules.map((r) => r.text.toLowerCase()));
+        for (const r of (s.rules || [])) { const t = String(r.text || "").trim(); if (t && !seen.has(t.toLowerCase())) { m.rules.push({ text: t, from: a.name }); seen.add(t.toLowerCase()); } }
+      }
+    }
+    const globals = [];
+    const gseen = new Set();
+    for (const a of archetypes) for (const r of (a.global_rules || [])) { const t = String(r.text || "").trim(); if (t && !gseen.has(t.toLowerCase())) { globals.push({ text: t, from: a.name }); gseen.add(t.toLowerCase()); } }
+    return { sections: [...bykey.values()], globals };
+  }
+
+  // Drop contracts → extract → contra-detect recommends archetypes → persist.
+  app.post("/api/contra/batch", upload.array("files", 10), async (req, res) => {
+    const files = req.files || [];
+    if (!files.length) return res.status(400).json({ error: "no files" });
+    try {
+      const archetypes = (await q(`select id, name, review_outline from contra_archetype where status='saved'`)).rows;
+      const bname = req.body.name || `Batch ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+      const b = (await q(`insert into contra_batch(name,status,contract_count) values($1,'detecting',$2) returning id, name`, [bname, files.length])).rows[0];
+      const reviews = [];
+      for (const f of files) {
+        const extract = await extractFile(f.path, f.originalname);
+        const text = String(extract.text || "").slice(0, 60000);
+        let detected = [];
+        if (archetypes.length) {
+          const dout = await runPipeline("contra-detect", {
+            user: `Contract:\n${text.slice(0, 20000)}\n\nSaved archetypes:\n${JSON.stringify(archetypes.map((a) => ({ id: a.id, name: a.name, sections: (a.review_outline || []).map((s) => s.label) })))}`,
+            maxTokens: 500,
+          });
+          await logRun(dout, { ref_type: "batch", ref_id: b.id, input: f.originalname, output: "detect" });
+          const dp = jparse(dout.text);
+          const arr = dp?.matches || (dp?.archetype_id != null ? [dp] : []);
+          detected = (arr || []).filter((m) => m && m.archetype_id != null)
+            .map((m) => ({ archetype_id: Number(m.archetype_id), confidence: Number(m.confidence) || 0, why: String(m.why || "").slice(0, 160) }))
+            .sort((x, y) => y.confidence - x.confidence);
+        }
+        const top = detected[0];
+        const rrow = (await q(
+          `insert into contra_review(batch_id,contract_name,extract_md,detected,archetype_id,detect_confidence,status)
+           values($1,$2,$3,$4::jsonb,$5,$6,'detected') returning id, contract_name, archetype_id, detect_confidence`,
+          [b.id, f.originalname, text, JSON.stringify(detected), top?.archetype_id || null, top?.confidence || null]
+        )).rows[0];
+        reviews.push({ ...rrow, detected });
+        try { rmSync(f.path); } catch { /* ignore */ }
+      }
+      await q(`update contra_batch set status='detected' where id=$1`, [b.id]);
+      res.json({ batch: b, reviews, archetypes: archetypes.map((a) => ({ id: a.id, name: a.name })) });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
+  });
+
+  // Run the holistic review of one contract against the selected archetype(s).
+  app.post("/api/contra/review/:id/run", async (req, res) => {
+    const id = Number(req.params.id);
+    const ids = (req.body?.archetype_ids || []).slice(0, 3).map(Number).filter(Boolean);
+    if (!ids.length) return res.status(400).json({ error: "pick at least one archetype" });
+    try {
+      const rev = (await q(`select * from contra_review where id=$1`, [id])).rows[0];
+      if (!rev) return res.status(404).json({ error: "not found" });
+      const archetypes = (await q(`select id, name, review_outline, global_rules from contra_archetype where id = any($1)`, [ids])).rows;
+      const merged = dedupOutlines(archetypes);
+      await q(`update contra_review set status='reviewing', archetype_ids=$2::jsonb, archetype_id=$3 where id=$1`, [id, JSON.stringify(ids), ids[0]]);
+
+      const outlineForPrompt = merged.sections.map((s) => ({ key: s.key, label: s.label, what_to_check: s.what_to_check, required: s.required, rules: s.rules.map((r) => r.text) }));
+      const rout = await runPipeline("contra-review", {
+        user: `Contract:\n${(rev.extract_md || "").slice(0, 50000)}\n\nReview outline (deduped from ${archetypes.map((a) => a.name).join(", ")}):\n${JSON.stringify(outlineForPrompt)}\n\nWhole-contract rules:\n${JSON.stringify(merged.globals.map((g) => g.text))}`,
+        maxTokens: 3000,
+      });
+      await logRun(rout, { ref_type: "review", ref_id: id, rules_applied: merged.sections.flatMap((s) => s.rules.map((r) => r.text)), input: rev.contract_name, output: "review" });
+      const rp = jparse(rout.text) || {};
+      const verdicts = Array.isArray(rp.verdicts) ? rp.verdicts : [];
+      const rule_checks = Array.isArray(rp.rule_checks) ? rp.rule_checks : [];
+      const findings = Array.isArray(rp.findings) ? rp.findings : [];
+      const issue_count = verdicts.filter((v) => ["risky", "missing", "non_standard"].includes(v.verdict)).length
+        + rule_checks.filter((c) => c.result === "breach" || c.result === "check").length + findings.length;
+      const report = { title: "Contract Review", generated_at: new Date().toISOString(), archetypes: archetypes.map((a) => a.name), summary: rp.summary || "", verdicts, rule_checks, findings, sections: outlineForPrompt };
+      await q(`update contra_review set status='done', verdicts=$2::jsonb, rule_checks=$3::jsonb, findings=$4::jsonb, report=$5::jsonb, issue_count=$6, updated_at=now() where id=$1`,
+        [id, JSON.stringify(verdicts), JSON.stringify(rule_checks), JSON.stringify(findings), JSON.stringify(report), issue_count]);
+
+      // timeline (newest-first on read): the review event + one row per finding
+      let seq = 0;
+      await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning) values($1,$2,'ai','contra-review','review',$3,$4)`,
+        [id, seq++, `Reviewed against ${archetypes.map((a) => a.name).join(" + ")}`, String(rp.summary || "").slice(0, 400)]);
+      for (const fnd of findings) {
+        await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning,refs) values($1,$2,'ai','contra-review',$3,$4,'',$5::jsonb)`,
+          [id, seq++, fnd.kind || "finding", String(fnd.note || "").slice(0, 300), JSON.stringify(fnd.refs || [])]);
+      }
+      const pend = (await q(`select count(*) c from contra_review where batch_id=$1 and status<>'done'`, [rev.batch_id])).rows[0];
+      if (Number(pend.c) === 0) await q(`update contra_batch set status='done' where id=$1`, [rev.batch_id]);
+      res.json({ review: { id, status: "done", issue_count, report } });
+    } catch (e) {
+      await q(`update contra_review set status='error' where id=$1`, [id]).catch(() => {});
+      res.status(500).json({ error: String(e.message || e).slice(0, 200) });
+    }
+  });
+
+  app.get("/api/contra/batches", async (_req, res) => {
+    res.json({ batches: (await q(`select id, name, status, contract_count, created_at from contra_batch order by id desc limit 50`)).rows });
+  });
+  app.get("/api/contra/batch/:id", async (req, res) => {
+    const b = (await q(`select * from contra_batch where id=$1`, [Number(req.params.id)])).rows[0];
+    if (!b) return res.status(404).json({ error: "not found" });
+    const reviews = (await q(`select id, contract_name, archetype_id, archetype_ids, detected, detect_confidence, status, issue_count from contra_review where batch_id=$1 order by id`, [b.id])).rows;
+    res.json({ batch: b, reviews });
+  });
+  app.get("/api/contra/review/:id", async (req, res) => {
+    const r = (await q(`select * from contra_review where id=$1`, [Number(req.params.id)])).rows[0];
+    if (!r) return res.status(404).json({ error: "not found" });
+    const changes = (await q(`select * from contra_change where review_id=$1 order by seq desc`, [r.id])).rows;
+    res.json({ review: r, changes });
+  });
 }

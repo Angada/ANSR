@@ -53,6 +53,9 @@ alter table contra_review add column if not exists detect_confidence real;
 alter table contra_review add column if not exists rule_checks jsonb not null default '[]';
 alter table contra_review add column if not exists report jsonb not null default '{}';
 alter table contra_review add column if not exists marked_doc_path text;
+alter table contra_review add column if not exists extract_md text;              -- the read contract (for review)
+alter table contra_review add column if not exists detected jsonb not null default '[]';    -- contra-detect recommendations
+alter table contra_review add column if not exists archetype_ids jsonb not null default '[]'; -- selected archetypes (multi, ≤3)
 create index if not exists contra_review_batch on contra_review(batch_id);
 
 -- CHANGE — append-only audit timeline for a review (AI · human · comment · redline).
