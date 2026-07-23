@@ -232,13 +232,29 @@
   .gateslink{margin-left:auto;font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--grn);text-decoration:none;border:1px solid var(--line2);border-radius:999px;padding:7px 13px;transition:.16s}
   .gateslink:hover{border-color:var(--grn-dim);background:var(--bg2)}
 
-  /* Trend Spotting report (above the idea cards) */
-  .report{border:1px solid var(--line);border-left:3px solid var(--grn);border-radius:var(--r);background:#fff;padding:16px 18px;margin:0 0 18px;box-shadow:0 12px 34px -26px rgba(0,36,46,.35)}
-  .report-h{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;color:var(--txt);margin-bottom:12px}
-  .report-b{font-family:var(--mono);font-size:11px;font-weight:400;color:var(--dim2);letter-spacing:.06em}
-  .report-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px 20px}
-  .report-grid .rk{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim2);margin-bottom:3px}
-  .report-grid .rv{font-size:13px;color:var(--txt);line-height:1.45}
+  /* Trend Spotting report — clean sectioned blocks (above the idea cards) */
+  .tsr{border:1px solid var(--line);border-radius:var(--r);background:#fff;margin:0 0 18px;overflow:hidden;box-shadow:0 12px 34px -26px rgba(0,36,46,.35)}
+  .tsr-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#FFFBF8,#fff)}
+  .tsr-top .ic-wrap{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--grn);color:#fff;flex:0 0 auto}
+  .tsr-title{font-weight:700;font-size:15px;color:var(--txt)}
+  .tsr-sub{font-family:var(--mono);font-size:11px;color:var(--dim2);letter-spacing:.04em;margin-left:auto}
+  .tsr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(228px,1fr));gap:12px;padding:16px 18px}
+  .tsr-block{border:1px solid var(--line);border-radius:12px;background:var(--bg2);padding:13px 14px;min-width:0}
+  .tsr-block.span2{grid-column:span 2}
+  @media(max-width:560px){.tsr-block.span2{grid-column:auto}}
+  .tsr-k{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim2);margin-bottom:10px}
+  .tsr-k .n{margin-left:auto;color:var(--grn);font-weight:700}
+  .tsr-chips{display:flex;flex-wrap:wrap;gap:7px}
+  .tsr-chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--txt);background:#fff;border:1px solid var(--line2);border-radius:999px;padding:4px 6px 4px 11px;line-height:1;max-width:100%}
+  .tsr-chip span.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tsr-chip b{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#FFF1E9;color:var(--grn);font-size:11px;font-weight:700;flex:0 0 auto}
+  .tsr-chip.mut{color:var(--dim2);border-style:dashed}
+  .tsr-tiles{display:flex;gap:9px;flex-wrap:wrap}
+  .tsr-tile{flex:1;min-width:64px;background:#fff;border:1px solid var(--line2);border-radius:10px;padding:9px 11px}
+  .tsr-tile .v{font-size:20px;font-weight:700;color:var(--txt);line-height:1}
+  .tsr-tile .l{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim2);margin-top:5px}
+  .tsr-note{font-size:12px;color:var(--dim);line-height:1.5;margin-top:9px}
+  .tsr-note b{color:var(--txt)}
 
   /* ============ STORY BOARDS (grouped: concept → lead idea + alternatives) === */
   .boards{display:flex;flex-direction:column;gap:18px}

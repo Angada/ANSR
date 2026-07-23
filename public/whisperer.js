@@ -274,12 +274,22 @@ window.toggleCard = (id) => { document.getElementById(`card-${id}`)?.classList.t
 
 // Trend Spotting report — sits above the article titles; aggregates the sweep:
 // which trends, which audience, what's being discussed, signals, sources.
+// a valid emotional register is a short label ("Anxiety", "FOMO", "Quiet confidence").
+// The LLM sometimes leaks a whole framework paragraph into this field — reject those.
+function shortReg(r) {
+  if (typeof r !== "string") return null;
+  const t = r.trim();
+  return /^[A-Za-z][A-Za-z /&+.-]{0,20}$/.test(t) ? t : null;
+}
+
 function trendReport(stories) {
   if (!stories || !stories.length) return "";
-  const topics = {}, regs = {}, fr = {}, gaps = {}, srcs = new Set(); let contra = 0, vsum = 0, gsum = 0, live = false;
+  const topics = {}, regs = {}, fr = {}, gaps = {}, srcs = new Set();
+  let contra = 0, vsum = 0, gsum = 0, live = false, regDropped = 0;
   for (const s of stories) {
     topics[s.demand_topic] = (topics[s.demand_topic] || 0) + 1;
-    if (s.emotional_register) regs[s.emotional_register] = (regs[s.emotional_register] || 0) + 1;
+    const r = shortReg(s.emotional_register);
+    if (r) regs[r] = (regs[r] || 0) + 1; else if (s.emotional_register) regDropped++;
     fr[s.franchise] = (fr[s.franchise] || 0) + 1;
     if (s.gap_type) gaps[s.gap_type] = (gaps[s.gap_type] || 0) + 1;
     const b = s.score_breakdown || {}; vsum += Number(b.velocity) || 0; gsum += Number(b.gap) || 0; if (b.live) live = true;
@@ -287,20 +297,37 @@ function trendReport(stories) {
     if (s.contradiction) contra++;
   }
   const n = stories.length;
-  const aud = GUARD ? [GUARD.region, GUARD.language, GUARD.audience].filter(Boolean).join(" · ") : "—";
-  const regList = Object.entries(regs).sort((a, b) => b[1] - a[1]).map(([r, c]) => `${esc(r)} <b>${c}</b>`).join(" · ") || "—";
-  const topFr = Object.entries(fr).sort((a, b) => b[1] - a[1])[0];
-  const cell = (k, v) => `<div><div class="rk">${k}</div><div class="rv">${v}</div></div>`;
-  return `<div class="report">
-    <div class="report-h">${ic("target", 15)} Trend Spotting report <span class="report-b">${esc(BATCH?.name || "batch")} · ${n} ideas</span></div>
-    <div class="report-grid">
-      ${cell("Audience", esc(aud) + (BATCH && BATCH.cohortId ? "" : " <span style='color:var(--dim2)'>· no cohort (nil)</span>"))}
-      ${cell(`Trends · ${Object.keys(topics).length} concepts`, Object.keys(topics).map((t) => esc(t)).join(" · "))}
-      ${cell("What's being discussed", regList)}
-      ${cell("Signals", `avg gap <b>${(gsum / n).toFixed(2)}</b> · velocity <b>${(vsum / n).toFixed(2)}</b> · ${live ? "live feed" : "config"} · gap types ${Object.entries(gaps).map(([g, c]) => `${esc(g)}(${c})`).join(" ") || "—"}`)}
-      ${cell("Routed to", `${topFr ? esc(topFr[0]) + " leads · " + Object.keys(fr).length + " franchises" : "—"} · ${contra} contradiction${contra === 1 ? "" : "s"}`)}
-      ${cell("Sources", srcs.size ? [...srcs].map((x) => `<span class="src">${esc(x)}</span>`).join("") : `<span class="src src-llm">LLM only</span>`)}
-    </div></div>`;
+  const audParts = GUARD ? [GUARD.region, GUARD.language, GUARD.audience].filter(Boolean) : [];
+  const sortEnt = (o) => Object.entries(o).sort((a, b) => b[1] - a[1]);
+  const chip = (label, count) => `<span class="tsr-chip"><span class="t">${esc(label)}</span>${count != null ? `<b>${count}</b>` : ""}</span>`;
+  const tile = (v, l) => `<div class="tsr-tile"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+
+  const audBlock = `<div class="tsr-block"><div class="tsr-k">${ic("target", 12)} Audience</div><div class="tsr-chips">
+    ${audParts.length ? audParts.map((p) => chip(p)).join("") : chip("—")}
+    <span class="tsr-chip mut"><span class="t">${BATCH && BATCH.cohortId ? "cohort set" : "no cohort · nil"}</span></span></div></div>`;
+
+  const conceptBlock = `<div class="tsr-block span2"><div class="tsr-k">${ic("pin", 12)} Concepts on the radar <span class="n">${Object.keys(topics).length}</span></div>
+    <div class="tsr-chips">${sortEnt(topics).map(([t, c]) => chip(t, c)).join("")}</div></div>`;
+
+  const regBlock = `<div class="tsr-block"><div class="tsr-k">${ic("bolt", 12)} What's being discussed</div>
+    <div class="tsr-chips">${sortEnt(regs).length ? sortEnt(regs).map(([r, c]) => chip(r, c)).join("") : chip("—")}</div>
+    ${regDropped ? `<div class="tsr-note" style="color:var(--dim2)">${regDropped} idea${regDropped === 1 ? "" : "s"} had no clean register label</div>` : ""}</div>`;
+
+  const signalBlock = `<div class="tsr-block"><div class="tsr-k">${ic("monitor", 12)} Signals <span class="n">${live ? "live feed" : "config"}</span></div>
+    <div class="tsr-tiles">${tile((gsum / n).toFixed(2), "avg gap")}${tile((vsum / n).toFixed(2), "velocity")}${tile(n, "ideas")}</div>
+    <div class="tsr-chips" style="margin-top:9px">${sortEnt(gaps).length ? sortEnt(gaps).map(([g, c]) => chip(g, c)).join("") : chip("—")}</div></div>`;
+
+  const routeBlock = `<div class="tsr-block"><div class="tsr-k">${ic("target", 12)} Routed to <span class="n">${Object.keys(fr).length}</span></div>
+    <div class="tsr-chips">${sortEnt(fr).map(([f, c]) => chip(f, c)).join("")}</div>
+    <div class="tsr-note">${contra} contradiction${contra === 1 ? "" : "s"} flagged for human review</div></div>`;
+
+  const srcBlock = `<div class="tsr-block"><div class="tsr-k">${ic("external", 12)} Sources</div>
+    <div class="tsr-chips">${srcs.size ? [...srcs].map((x) => `<span class="src">${esc(x)}</span>`).join("") : `<span class="src src-llm">LLM only — add feed / research keys in the Vault</span>`}</div></div>`;
+
+  return `<div class="tsr">
+    <div class="tsr-top"><span class="ic-wrap">${ic("target", 15)}</span><span class="tsr-title">Trend Spotting report</span><span class="tsr-sub">${esc(BATCH?.name || "batch")} · ${n} ideas</span></div>
+    <div class="tsr-grid">${audBlock}${conceptBlock}${regBlock}${signalBlock}${routeBlock}${srcBlock}</div>
+  </div>`;
 }
 
 // ---- STORY BOARDS · group a concept's 3 angles into one board -------------
@@ -351,7 +378,7 @@ function ideaChips(s, franchises) {
   const tag = FR_TAG[frIndexIn(franchises, s.franchise) % FR_TAG.length];
   return `<span class="chip ${tag}">${ic("target")} ${esc(s.franchise)}</span>
     ${s.one_up ? `<span class="chip">${esc(s.one_up)}</span>` : ""}
-    ${s.emotional_register ? `<span class="chip">${esc(s.emotional_register)}</span>` : ""}
+    ${shortReg(s.emotional_register) ? `<span class="chip">${esc(shortReg(s.emotional_register))}</span>` : ""}
     ${s.platform ? `<span class="chip">${ic("monitor")} ${esc(s.platform)}</span>` : ""}`;
 }
 function ideaActs(s) {
