@@ -33,3 +33,23 @@ export async function q(text, params) {
   if (!p) return { rows: [] };
   return p.query(text, params);
 }
+
+// Run fn inside one transaction (BEGIN/COMMIT, ROLLBACK on throw) so multi-step
+// writes are all-or-nothing. If PG is unreachable, fn runs with the no-op q()
+// (each call returns {rows:[]}) — same best-effort/json-only behaviour as q().
+export async function withTx(fn) {
+  const p = getPool();
+  if (!p) return fn(q);
+  const c = await p.connect();
+  try {
+    await c.query("begin");
+    const out = await fn((text, params) => c.query(text, params));
+    await c.query("commit");
+    return out;
+  } catch (e) {
+    try { await c.query("rollback"); } catch { /* already broken */ }
+    throw e;
+  } finally {
+    c.release();
+  }
+}

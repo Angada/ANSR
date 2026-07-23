@@ -67,6 +67,7 @@ export async function putExtract(customer, docId, md) {
 }
 
 export async function getExtract(customer, docId) {
+  docId = String(docId || "").replace(/[^A-Za-z0-9._-]/g, "").replace(/\.\.+/g, "."); // no path traversal
   const c = await client();
   if (c) {
     const { data, error } = await c.storage.from(BUCKET).download(`${customer}/extracts/${docId}.md`);

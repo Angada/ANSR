@@ -1,6 +1,6 @@
 // Orchestrates the calc run: stage ledger → normalize (with decisions) →
 // compute → persist (ta_calc/oss_calc/trace/exception/statement/run).
-import { q } from "../db/client.js";
+import { q, withTx } from "../db/client.js";
 import { getExtract } from "../storage.js";
 import { stubAnalysis } from "../stub.js";
 import { getRate } from "../fx.js";
@@ -13,7 +13,6 @@ import { getRuleSet } from "./ruleset.js";
 import { useChips } from "../munshi/flag.js";
 import { ruleBookFromChips } from "../munshi/engine.js";
 
-const cid = (client) => `(select id from customer where code='${client.replace(/'/g, "")}')`;
 export const federation = createFederation(q);
 export const epidemiology = createEpidemiology(q);
 
@@ -99,12 +98,6 @@ export async function computeAndPersist(client, month, opts = {}) {
   try {
     if (runNo == null) runNo = (await q(`select coalesce(max(run_no),0)+1 n from run where customer_id=(select id from customer where code=$1)`, [client])).rows[0].n;
   } catch { runNo = runNo ?? 1; }
-  // wipe prior facts for this run before re-inserting (idempotent recompute)
-  try {
-    const rid = (await q(`select id from run where customer_id=(select id from customer where code=$1) and run_no=$2`, [client, runNo])).rows?.[0]?.id;
-    if (rid) { for (const tbl of ["ta_calc", "oss_calc", "trace", "exception_item"]) await q(`delete from ${tbl} where run_id=$1`, [rid]).catch(() => {}); await q(`delete from statement where run_id=$1`, [rid]).catch(() => {}); }
-  } catch { /* */ }
-
   const manifest = {
     client, run_no: runNo, invoice_month: month, currency: ruleBook.base_currency, source: "engine",
     steps: ["Normalising rows", "Active headcount", "TA rate lookup + FX", "Milestone split", "Statement"],
@@ -115,28 +108,34 @@ export async function computeAndPersist(client, month, opts = {}) {
     computed: res.ta.length, clarifications,
   };
 
-  // persist run + facts (best-effort)
+  // persist run + facts atomically: wipe prior facts + re-insert in ONE transaction,
+  // so a partial failure rolls back to the previous run instead of corrupting it.
+  // Best-effort overall: any error → json-only (nothing half-written).
   try {
-    const runId = (await q(`insert into run(customer_id, run_no, invoice_month, currency, label, status, manifest, started_at, finished_at)
-      values((select id from customer where code=$1),$2,$3,$4,'engine','complete',$5::jsonb,now(),now())
-      on conflict (customer_id, run_no) do update set manifest=excluded.manifest, finished_at=now() returning id`,
-      [client, runNo, month, ruleBook.base_currency, JSON.stringify(manifest)])).rows[0].id;
-    if (res.oss) await q(`insert into oss_calc(run_id, invoice_month, opening_hc, new_joiners, exits, closing_active_hc, fee_type, rate, oss_amount, ccy, base_ccy, clause_ref, explain)
-      values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12)`,
-      [runId, month, res.oss.opening_hc, res.oss.new_joiners, res.oss.exits, res.oss.closing_active_hc, res.oss.fee_type, res.oss.rate, res.oss.oss_amount, res.oss.ccy, res.oss.clause_ref, JSON.stringify(res.oss.calc_steps)]).catch(() => {});
-    for (const t of res.ta) await q(`insert into ta_calc(run_id, invoice_month, referral, tech, level, total_ctc, ta_pct, gross_ta_fee, sourcing_billed, acceptance_billed, balance_billed, invoice_value, ccy, base_ccy, clause_ref, explain)
-      values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
-      [runId, month, t.referral, t.tech, t.level, t.total_ctc, t.ta_pct, t.gross_ta_fee, t.sourcing_billed, t.acceptance_billed, t.balance_billed, t.invoice_value, t.ccy, t.base_ccy, t.clause_ref, JSON.stringify(t.calc_steps)]).catch(() => {});
-    for (const tr of res.traces) await q(`insert into trace(run_id, object_type, value_num, value_ccy, base_ccy, why, clause_ref, calc_steps) values($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
-      [runId, tr.object_type, tr.value_num, tr.value_ccy, tr.base_ccy, tr.why, tr.clause_ref, JSON.stringify(tr.calc_steps)]).catch(() => {});
-    for (const e of res.exceptions) await q(`insert into exception_item(run_id, ext_id, issue, detail, severity, status) values($1,$2,$3,$4,$5,'open')`,
-      [runId, e.ext_id || null, e.issue, e.detail, e.severity || "block"]).catch(() => {});
-    await q(`insert into statement(run_id, customer_id, invoice_month, currency, total_oss, total_ta, grand_total)
-      values($1,(select id from customer where code=$2),$3,$4,$5,$6,$7)`,
-      [runId, client, month, ruleBook.base_currency, res.totals.oss, res.totals.ta, res.totals.grand]).catch(() => {});
-    q(`insert into audit_log(actor,action,object_type,object_id,detail) values('vik','run.compute','run',$1,$2::jsonb)`,
-      [`${client}#${runNo}`, JSON.stringify({ computed: res.ta.length, exceptions: res.exceptions.length, totals: res.totals })]).catch(() => {});
-  } catch { /* json-only */ }
+    await withTx(async (qx) => {
+      const rid = (await qx(`select id from run where customer_id=(select id from customer where code=$1) and run_no=$2`, [client, runNo])).rows?.[0]?.id;
+      if (rid) { for (const tbl of ["ta_calc", "oss_calc", "trace", "exception_item"]) await qx(`delete from ${tbl} where run_id=$1`, [rid]); await qx(`delete from statement where run_id=$1`, [rid]); }
+      const runId = (await qx(`insert into run(customer_id, run_no, invoice_month, currency, label, status, manifest, started_at, finished_at)
+        values((select id from customer where code=$1),$2,$3,$4,'engine','complete',$5::jsonb,now(),now())
+        on conflict (customer_id, run_no) do update set manifest=excluded.manifest, finished_at=now() returning id`,
+        [client, runNo, month, ruleBook.base_currency, JSON.stringify(manifest)])).rows[0].id;
+      if (res.oss) await qx(`insert into oss_calc(run_id, invoice_month, opening_hc, new_joiners, exits, closing_active_hc, fee_type, rate, oss_amount, ccy, base_ccy, clause_ref, explain)
+        values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12)`,
+        [runId, month, res.oss.opening_hc, res.oss.new_joiners, res.oss.exits, res.oss.closing_active_hc, res.oss.fee_type, res.oss.rate, res.oss.oss_amount, res.oss.ccy, res.oss.clause_ref, JSON.stringify(res.oss.calc_steps)]);
+      for (const t of res.ta) await qx(`insert into ta_calc(run_id, invoice_month, referral, tech, level, total_ctc, ta_pct, gross_ta_fee, sourcing_billed, acceptance_billed, balance_billed, invoice_value, ccy, base_ccy, clause_ref, explain)
+        values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+        [runId, month, t.referral, t.tech, t.level, t.total_ctc, t.ta_pct, t.gross_ta_fee, t.sourcing_billed, t.acceptance_billed, t.balance_billed, t.invoice_value, t.ccy, t.base_ccy, t.clause_ref, JSON.stringify(t.calc_steps)]);
+      for (const tr of res.traces) await qx(`insert into trace(run_id, object_type, value_num, value_ccy, base_ccy, why, clause_ref, calc_steps) values($1,$2,$3,$4,$5,$6,$7,$8::jsonb)`,
+        [runId, tr.object_type, tr.value_num, tr.value_ccy, tr.base_ccy, tr.why, tr.clause_ref, JSON.stringify(tr.calc_steps)]);
+      for (const e of res.exceptions) await qx(`insert into exception_item(run_id, ext_id, issue, detail, severity, status) values($1,$2,$3,$4,$5,'open')`,
+        [runId, e.ext_id || null, e.issue, e.detail, e.severity || "block"]);
+      await qx(`insert into statement(run_id, customer_id, invoice_month, currency, total_oss, total_ta, grand_total)
+        values($1,(select id from customer where code=$2),$3,$4,$5,$6,$7)`,
+        [runId, client, month, ruleBook.base_currency, res.totals.oss, res.totals.ta, res.totals.grand]);
+      await qx(`insert into audit_log(actor,action,object_type,object_id,detail) values('vik','run.compute','run',$1,$2::jsonb)`,
+        [`${client}#${runNo}`, JSON.stringify({ computed: res.ta.length, exceptions: res.exceptions.length, totals: res.totals })]);
+    });
+  } catch { /* json-only — nothing partially written */ }
 
   // Atlas epidemiology: refresh this archetype's recurring-exception patterns
   await epidemiology.record(client).catch(() => {});

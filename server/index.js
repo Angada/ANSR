@@ -3,13 +3,15 @@
 // and config. The calc/normalize/assure/statement engines mount here as built.
 import express from "express";
 import multer from "multer";
-import { createHash } from "node:crypto";
-import { readFileSync, mkdirSync, existsSync } from "node:fs";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { readFileSync, mkdirSync, existsSync, rmSync } from "node:fs";
+import { lookup as dnsLookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import { dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { extractFile, toMarkdown } from "./extract.js";
 import { q } from "./db/client.js";
-import { loadConfig, saveConfig, publicConfig, encryptKey, getApiKey, initConfig, publicIntegrations, setIntegration, getIntegrationKey } from "./store.js";
+import { loadConfig, saveConfig, publicConfig, encryptKey, getApiKey, initConfig, publicIntegrations, setIntegration, getIntegrationKey, assertSecurity } from "./store.js";
 import { putOriginal, putExtract, getExtract, listExtracts, usingBucket } from "./storage.js";
 import { stubRun, stubOps, stubContracts, stubContract, stubRuns, stubAnalysis, stubInvoice } from "./stub.js";
 import Anthropic from "@anthropic-ai/sdk";
@@ -35,33 +37,57 @@ if (!existsSync(uploads)) mkdirSync(uploads, { recursive: true });
 const app = express();
 app.use(express.json({ limit: "4mb" }));
 
-// ---- soft login (prototype gate — not hardened security) --------------------
+// ---- security headers (all responses) ---------------------------------------
+const IS_PROD = process.env.NODE_ENV === "production";
+app.use((_req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (IS_PROD) res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  next();
+});
+
+// ---- soft login (single-operator gate) --------------------------------------
 const AUTH_USER = process.env.QANSR_USER || "admin";
 const AUTH_PW = process.env.QANSR_PW || "admin";
 const AUTH_TOKEN = createHash("sha256").update(`${AUTH_USER}:${AUTH_PW}:qansr-soft`).digest("hex");
 const OPEN = ["/login.html", "/login.js", "/app.css", "/favicon.png", "/apple-touch-icon.png", "/api/login", "/health"];
 const cookieToken = (req) => (req.headers.cookie || "").split(";").map((c) => c.trim()).find((c) => c.startsWith("qansr_auth="))?.slice(11);
+// constant-time compare (no login/cookie timing oracle); Secure cookie in prod only (local dev is http)
+const safeEq = (a, b) => { const x = Buffer.from(String(a || "")), y = Buffer.from(String(b || "")); return x.length === y.length && timingSafeEqual(x, y); };
+const authed = (req) => safeEq(cookieToken(req), AUTH_TOKEN);
+const setSession = (res) => res.setHeader("Set-Cookie", `qansr_auth=${AUTH_TOKEN}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax${IS_PROD ? "; Secure" : ""}`);
+
+// in-memory login throttle (per-IP sliding window) — blunts brute force
+const LOGIN_HITS = new Map();
+const loginThrottled = (ip) => {
+  const now = Date.now(), win = 5 * 60_000, max = 12;
+  const hits = (LOGIN_HITS.get(ip) || []).filter((t) => now - t < win);
+  hits.push(now); LOGIN_HITS.set(ip, hits);
+  if (LOGIN_HITS.size > 5000) LOGIN_HITS.clear();
+  return hits.length > max;
+};
 
 app.post("/api/login", (req, res) => {
+  const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.ip || "?";
+  if (loginThrottled(ip)) return res.status(429).json({ error: "too many attempts — wait a few minutes" });
   const { user, pw } = req.body || {};
-  if (user === AUTH_USER && pw === AUTH_PW) {
-    res.setHeader("Set-Cookie", `qansr_auth=${AUTH_TOKEN}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax`);
-    return res.json({ ok: true });
-  }
+  const provided = createHash("sha256").update(`${user}:${pw}:qansr-soft`).digest("hex");
+  if (safeEq(provided, AUTH_TOKEN)) { setSession(res); return res.json({ ok: true }); }
   res.status(401).json({ error: "wrong login or password" });
 });
 app.get("/api/me", (req, res) => {
-  if (cookieToken(req) !== AUTH_TOKEN) return res.status(401).json({ error: "auth required" });
+  if (!authed(req)) return res.status(401).json({ error: "auth required" });
   res.json({ user: AUTH_USER, role: "Admin" });
 });
 app.post("/api/logout", (_req, res) => {
-  res.setHeader("Set-Cookie", "qansr_auth=; HttpOnly; Path=/; Max-Age=0");
+  res.setHeader("Set-Cookie", `qansr_auth=; HttpOnly; Path=/; Max-Age=0${IS_PROD ? "; Secure" : ""}`);
   res.json({ ok: true });
 });
 
 app.use((req, res, next) => {
   if (OPEN.some((p) => req.path === p) || req.path.startsWith("/brand/") || req.path.startsWith("/raydar-approach-note") || req.path.startsWith("/raydar-engine")) return next(); // public: shareable client approach note + engine pipeline doc
-  if (cookieToken(req) === AUTH_TOKEN) return next();
+  if (authed(req)) return next();
   if (req.path.startsWith("/api/")) return res.status(401).json({ error: "auth required" });
   return res.redirect("/login.html");
 });
@@ -73,6 +99,28 @@ const upload = multer({ dest: uploads, limits: { fileSize: MAX_UPLOAD } });
 mountContra(app, upload); // Contra — contract review (archetype maker + review)
 
 const slug = (s) => String(s || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
+// docId must be a bare token — never a path (blocks ../ traversal into the docstore)
+const safeDocId = (s) => String(s || "").replace(/[^A-Za-z0-9._-]/g, "").replace(/\.\.+/g, ".").slice(0, 120);
+
+// SSRF guard: only http(s), and refuse hosts that resolve to private / link-local /
+// metadata ranges (blocks 169.254.169.254, RFC1918, localhost, …) + no redirects.
+const isBlockedIp = (ip) => {
+  if (!ip) return true;
+  if (isIP(ip) === 6) { const l = ip.toLowerCase(); return l === "::1" || l.startsWith("fc") || l.startsWith("fd") || l.startsWith("fe80") || l.startsWith("::ffff:"); }
+  const p = ip.split(".").map(Number); if (p.length !== 4 || p.some((n) => Number.isNaN(n))) return true;
+  const [a, b] = p;
+  return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
+};
+async function safeFetchJson(raw) {
+  let u; try { u = new URL(String(raw)); } catch { throw new Error("bad url"); }
+  if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("blocked scheme");
+  const host = u.hostname.replace(/^\[|\]$/g, "");
+  if (/^(localhost|metadata\.google\.internal)$/i.test(host)) throw new Error("blocked host");
+  const addrs = isIP(host) ? [{ address: host }] : await dnsLookup(host, { all: true });
+  if (!addrs.length || addrs.some((a) => isBlockedIp(a.address))) throw new Error("blocked host");
+  const r = await fetch(u, { redirect: "error", signal: AbortSignal.timeout(8000) });
+  return r.json();
+}
 
 app.get("/health", (_req, res) => res.json({ ok: true, service: "qansr", ts: Date.now() }));
 
@@ -102,13 +150,16 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
 
     res.json({ ok: true, customer, docId, docType, kind: extract.kind, sheets: extract.sheets?.map((s) => s.name) || [], mdPath: `/api/doc/${customer}/${docId}` });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error("upload:", e.message);
+    res.status(500).json({ error: "upload failed" });
+  } finally {
+    if (req.file?.path) rmSync(req.file.path, { force: true }); // never leave multer temp files behind
   }
 });
 
 // ---- the "doc x api switch": serve the MD extract, never the original --------
 app.get("/api/doc/:customer/:docId", async (req, res) => {
-  const md = await getExtract(slug(req.params.customer), req.params.docId);
+  const md = await getExtract(slug(req.params.customer), safeDocId(req.params.docId));
   if (md == null) return res.status(404).send("Document extract not found.");
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.send(md);
@@ -407,7 +458,7 @@ app.post("/api/mint/roster/api", async (req, res) => {
     const client = slug(req.body?.client || "ANSR-KENVUE");
     let rows = req.body?.rows;
     if (!rows && req.body?.url) {
-      const j = await (await fetch(req.body.url)).json();
+      const j = await safeFetchJson(req.body.url);
       rows = Array.isArray(j) ? j : (j.rows || j.data || j.records);
     }
     if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: "no rows — provide rows[] or a url returning an array" });
@@ -423,7 +474,7 @@ app.post("/api/mint/roster/api", async (req, res) => {
       [client, sha, `/api/doc/${client}/${docId}`, JSON.stringify({ source: "api", rows: rows.length, url: req.body?.url || null })]).catch(() => {});
     res.json({ filename: `API feed (${rows.length} rows)`, docId, apiUrl: `/api/doc/${client}/${docId}`, source: "api",
       sheet: "api", headers, canonical: CANONICAL, mapping, rowCount: rows.length, rows: rows.slice(0, 25), issues, summary: summarizeIssues(issues) });
-  } catch (e) { res.status(400).json({ error: e.message }); }
+  } catch (e) { console.error("roster/api:", e.message); res.status(400).json({ error: /^(bad url|blocked)/.test(e.message) ? e.message : "could not load feed rows" }); }
 });
 
 app.post("/api/mint/roster/confirm", async (req, res) => {

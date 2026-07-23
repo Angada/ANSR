@@ -10,6 +10,11 @@ import { runPipeline } from "./ai.js";
 import { buildReviewDocx } from "./contra-docx.js";
 import { markupDocx } from "./contra-redline.js";
 
+// Every column of contra_review EXCEPT the heavy/raw blobs (original_file bytea,
+// contract_doc) — used for reads that don't need the original bytes, so we never
+// serialise the uploaded file into a JSON response. The /docx route still SELECT *s.
+const REVIEW_COLS = "id, batch_id, contract_name, archetype_id, archetype_ids, status, verdicts, findings, rule_checks, report, issue_count, detect_confidence, detected, marked_doc_path, extract_md, original_ext, party1, party2, created_at, updated_at";
+
 // snap LLM verdict keys onto the archetype's section keys (model-adherence safety)
 function snapKeys(verdicts, keys, labels) {
   const set = new Set(keys);
@@ -279,7 +284,7 @@ export function mountContra(app, upload) {
     const ids = (req.body?.archetype_ids || []).slice(0, 3).map(Number).filter(Boolean);
     if (!ids.length) return res.status(400).json({ error: "pick at least one archetype" });
     try {
-      const rev = (await q(`select * from contra_review where id=$1`, [id])).rows[0];
+      const rev = (await q(`select ${REVIEW_COLS} from contra_review where id=$1`, [id])).rows[0];
       if (!rev) return res.status(404).json({ error: "not found" });
       const archetypes = (await q(`select id, name, review_outline, global_rules from contra_archetype where id = any($1)`, [ids])).rows;
       const merged = dedupOutlines(archetypes);
@@ -357,7 +362,7 @@ export function mountContra(app, upload) {
     res.json({ batch: b, reviews });
   });
   app.get("/api/contra/review/:id", async (req, res) => {
-    const r = (await q(`select * from contra_review where id=$1`, [Number(req.params.id)])).rows[0];
+    const r = (await q(`select ${REVIEW_COLS}, (original_file is not null) as has_original from contra_review where id=$1`, [Number(req.params.id)])).rows[0];
     if (!r) return res.status(404).json({ error: "not found" });
     const changes = (await q(`select * from contra_change where review_id=$1 order by seq desc`, [r.id])).rows;
     res.json({ review: r, changes });
@@ -372,7 +377,7 @@ export function mountContra(app, upload) {
     const id = Number(req.params.id);
     const { question, box_key } = req.body || {};
     if (!question) return res.status(400).json({ error: "no question" });
-    const rev = (await q(`select * from contra_review where id=$1`, [id])).rows[0];
+    const rev = (await q(`select ${REVIEW_COLS} from contra_review where id=$1`, [id])).rows[0];
     if (!rev) return res.status(404).json({ error: "not found" });
     try {
       const out = await runPipeline("contra-ask", {
