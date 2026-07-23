@@ -293,4 +293,8 @@ export function mountContra(app, upload) {
     const changes = (await q(`select * from contra_change where review_id=$1 order by seq desc`, [r.id])).rows;
     res.json({ review: r, changes });
   });
+  app.delete("/api/contra/batch/:id", async (req, res) => {
+    await q(`delete from contra_batch where id=$1`, [Number(req.params.id)]); // cascades reviews + changes
+    res.json({ ok: true });
+  });
 }
