@@ -299,7 +299,7 @@ function renderReviewed() {
     const tabs = `<div class="rvtabs">
         <span class="rvtab ${RVTAB === "report" ? "on" : ""}" onclick="setRvTab('report')">Legal report</span>
         <span class="rvtab ${RVTAB === "timeline" ? "on" : ""}" onclick="setRvTab('timeline')">Timeline</span>
-        <span class="rvtab" onclick="downloadDocx(${RVOPEN.review.id})">⤓ Word (.docx)</span>
+        <span class="rvtab" onclick="downloadDocx(${RVOPEN.review.id})" title="${RVOPEN.review.original_ext === ".docx" && (RVOPEN.review.report?.redlines || []).length ? "your original .docx with tracked-change redlines" : "review report — upload a .docx contract to get the marked-up original"}">⤓ ${RVOPEN.review.original_ext === ".docx" && (RVOPEN.review.report?.redlines || []).length ? "Marked-up .docx" : "Report (.docx)"}</span>
         <span class="backlnk" style="margin-left:auto;margin-bottom:0" onclick="closeReviewed()">‹ all reviews</span></div>`;
     host.innerHTML = tabs + (RVTAB === "report" ? reportView(RVOPEN.review) : timelineView(RVOPEN.changes || []));
     return;
