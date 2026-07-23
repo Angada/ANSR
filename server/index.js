@@ -25,7 +25,7 @@ import { createPreIntake } from "./atlas/preintake.js";
 import { runMigrations } from "./migrate.js";
 import { stubClauses, upsertInterpretation, getInterpretations } from "./clauses.js";
 import { registerCorpusDoc, intakeCorpus, reparse, getChipGroups, ruleBookFromChips, seedStubCorpus, mstore } from "./munshi/engine.js";
-import { parserMode, setParserMode } from "./munshi/flag.js";
+import { parserMode, setParserMode, ocrMode, setOcrMode } from "./munshi/flag.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const uploads = join(root, "uploads"); // multer temp only — persistent artifacts go to storage.js
@@ -580,6 +580,8 @@ app.get("/api/mint/trust/:client", async (req, res) => {
 // the parser flag (stub | munshi) — read + toggle
 app.get("/api/mint/parser", (_req, res) => res.json({ mode: parserMode() }));
 app.post("/api/mint/parser", (req, res) => res.json({ mode: setParserMode(req.body?.mode) }));
+app.get("/api/mint/ocr", (_req, res) => res.json({ mode: ocrMode() }));
+app.post("/api/mint/ocr", (req, res) => res.json({ mode: setOcrMode(req.body?.mode) }));
 
 // the AI write-up / mapping for the Admin tab
 app.get("/api/ai/map", (_req, res) => res.json({ pipelines: aiMap() }));

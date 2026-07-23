@@ -30,7 +30,9 @@ function stubReply(id, user) {
 
 // override (optional): { provider, model } lets a caller (e.g. a RayDar business
 // rule's custom model dropdown) run this pipeline on a different model/provider.
-export async function runPipeline(pipelineId, { system = "", user = "", maxTokens = 800, provider, model } = {}) {
+// images (optional): [{ media_type, data(base64) }] — sent as vision content
+// blocks alongside the user text (Anthropic-compatible vision, e.g. Claude).
+export async function runPipeline(pipelineId, { system = "", user = "", images = [], maxTokens = 800, provider, model } = {}) {
   const cfg = loadConfig();
   const p = cfg.pipelines[pipelineId];
   if (!p) return { mode: "error", text: `unknown pipeline: ${pipelineId}` };
@@ -46,10 +48,16 @@ export async function runPipeline(pipelineId, { system = "", user = "", maxToken
   }
   try {
     const client = new Anthropic({ apiKey: key, baseURL: prov.baseURL || undefined });
+    const content = images.length
+      ? [
+          ...images.map((im) => ({ type: "image", source: { type: "base64", media_type: im.media_type || "image/png", data: im.data } })),
+          ...(user ? [{ type: "text", text: user }] : []),
+        ]
+      : (user || "");
     const r = await client.messages.create({
       model: useModel, max_tokens: maxTokens,
       system: [p.prompt || "", system].filter(Boolean).join("\n\n"),
-      messages: [{ role: "user", content: user || "" }],
+      messages: [{ role: "user", content }],
     });
     const text = (r.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
     return { mode: "ai", pipeline: p.id, provider: useProvider, model: useModel, text };

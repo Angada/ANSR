@@ -5,6 +5,8 @@ import { extname } from "node:path";
 import { readFileSync, copyFileSync, rmSync } from "node:fs";
 import { parseOfficeAsync } from "officeparser";
 import * as XLSX from "xlsx";
+import { useOcr } from "./munshi/flag.js";
+import { ocrPdf } from "./munshi/ocr.js";
 
 const SHEET_EXT = new Set([".xlsx", ".xls", ".xlsm", ".csv", ".ods"]);
 const TEXT_EXT = new Set([".txt", ".md", ".markdown", ".json", ".text"]);
@@ -35,8 +37,14 @@ export async function extractFile(path, originalName) {
   let made = false;
   if (withExt !== path) { copyFileSync(path, withExt); made = true; }
   try {
-    const text = await parseOfficeAsync(withExt);
-    return { kind: "document", text: String(text || "") };
+    const text = String((await parseOfficeAsync(withExt)) || "");
+    // Hybrid gate: a born-digital PDF has a real text layer — use it (free, exact).
+    // A scanned / image-only PDF returns ~nothing → fall back to vision-LLM OCR.
+    if (ext === ".pdf" && useOcr() && text.replace(/\s/g, "").length < 60) {
+      const r = await ocrPdf(withExt);
+      if (r.ocr && r.text) return { kind: "document", text: r.text, ocr: true, pages: r.pages };
+    }
+    return { kind: "document", text };
   } finally {
     if (made) { try { rmSync(withExt); } catch { /* ignore */ } }
   }

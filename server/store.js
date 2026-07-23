@@ -53,6 +53,10 @@ const DEFAULT_CONFIG = {
   // Q&ANSR AI-pipeline registry, grouped by product. kind: deterministic | llm | hybrid.
   // Only enabled llm/hybrid pipelines may call a provider. Each carries an editable prompt.
   pipelines: {
+    "munshi-ocr": { id: "munshi-ocr", product: "Munshi", name: "OCR (vision) — scanned-PDF fallback", kind: "llm",
+      description: "Rasterises a scanned / image-only PDF and transcribes each page to layout Markdown via a vision LLM. Reverse-engineered from DeepSeek-OCR / Unlimited-OCR; runs on the Vault's vision models. Swappable to a self-hosted DeepSeek-OCR endpoint. Gated by the MUNSHI_OCR flag.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["munshi"], enabled: true,
+      prompt: "You are an OCR + document-layout engine. Transcribe the page image exactly to clean GitHub-Flavoured Markdown, preserving reading order, headings, lists and tables. Never invent or complete text — transcribe only what is visibly printed." },
     "contract-intake": { id: "contract-intake", product: "Mint", name: "Contract Intake", kind: "hybrid",
       description: "Read the SOW → structured rule tables (TA bands, milestone split, OSS slabs) with clause refs.",
       provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-contract-intake", "qansr-knowledge-store"], enabled: true,
