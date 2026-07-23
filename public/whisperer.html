@@ -366,7 +366,8 @@
 
   /* footer credit: an AI product by TKB (3x) */
   .foot{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;text-align:left}
-  .foot .byline{display:inline-flex;align-items:center;gap:9px;text-transform:none;letter-spacing:.02em;color:var(--dim);font-size:12px}
+  .foot .byline{display:inline-flex;align-items:center;gap:9px;text-transform:none;letter-spacing:.02em;color:var(--dim);font-size:12px;text-decoration:none;transition:.16s}
+  .foot a.byline:hover{color:var(--grn)}
   .foot .tkb{font-family:var(--sans);font-weight:800;font-size:30px;letter-spacing:.01em;color:var(--grn);line-height:1}
   .foot img.tkb{height:30px;width:auto}
 
@@ -409,9 +410,9 @@
 
     <div class="foot">
       <span>RAYDAR // demand ↔ supply // routed to 1UP franchises</span>
-      <span class="byline">an AI product by
+      <a class="byline" href="https://thekettleblack.in" target="_blank" rel="noopener">Bespoke AI by
         <img src="/brand/assets/logos/tkb-logo.png" class="tkb" alt="TKB">
-      </span>
+      </a>
     </div>
   </div>
   <script src="/q.js"></script>

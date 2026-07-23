@@ -84,7 +84,8 @@
 
   .foot{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim2);margin-top:50px;
     display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-  .foot .byline{display:inline-flex;align-items:center;gap:9px;text-transform:none;letter-spacing:.02em;color:var(--dim);font-size:13px}
+  .foot .byline{display:inline-flex;align-items:center;gap:9px;text-transform:none;letter-spacing:.02em;color:var(--dim);font-size:13px;text-decoration:none;transition:.16s}
+  .foot a.byline:hover{color:var(--org)}
   .foot .tkb{font-family:var(--sans);font-weight:800;font-size:30px;letter-spacing:.01em;color:var(--org);line-height:1}
   .foot img.tkb{height:30px;width:auto}
   </style>
@@ -112,9 +113,9 @@
 
     <div class="foot">
       <span>Q&amp;ANSR // one source of truth // every number traces to source</span>
-      <span class="byline">an AI product by
+      <a class="byline" href="https://thekettleblack.in" target="_blank" rel="noopener">Bespoke AI by
         <img src="/brand/assets/logos/tkb-logo.png" class="tkb" alt="TKB">
-      </span>
+      </a>
     </div>
   </main>
   <script src="/q.js"></script>

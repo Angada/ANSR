@@ -246,7 +246,8 @@
   .row{display:flex;gap:8px;justify-content:flex-end}
 
   .foot{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim2);margin-top:46px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
-  .foot .byline{display:inline-flex;align-items:center;gap:9px;text-transform:none;letter-spacing:.02em;color:var(--dim);font-size:13px}
+  .foot .byline{display:inline-flex;align-items:center;gap:9px;text-transform:none;letter-spacing:.02em;color:var(--dim);font-size:13px;text-decoration:none;transition:.16s}
+  .foot a.byline:hover{color:var(--org)}
   .foot img.tkb{height:26px;width:auto}
   </style>
 </head>
@@ -273,7 +274,7 @@
 
     <div class="foot">
       <span>CONTRA // holistic contract review // archetype-driven</span>
-      <span class="byline">an AI product by <img src="/brand/assets/logos/tkb-logo.png" class="tkb" alt="TKB"></span>
+      <a class="byline" href="https://thekettleblack.in" target="_blank" rel="noopener">Bespoke AI by <img src="/brand/assets/logos/tkb-logo.png" class="tkb" alt="TKB"></a>
     </div>
   </main>
   <script src="/q.js"></script>
