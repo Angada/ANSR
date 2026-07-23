@@ -92,7 +92,7 @@ export function mountContra(app, upload) {
       if (!text.trim()) return res.status(422).json({ error: "could not read any text from that file" });
 
       // STEP · propose the review sections (gated pipeline)
-      const out = await runPipeline("contra-archetype", { user: text, maxTokens: 2000 });
+      const out = await runPipeline("contra-archetype", { user: text, maxTokens: 4000 });
       await logRun(out, { ref_type: "archetype", input: f.originalname, output: "propose sections" });
       const parsed = jparse(out.text) || {};
       let outline = toOutline(parsed.sections);
@@ -103,7 +103,7 @@ export function mountContra(app, upload) {
       try {
         const rout = await runPipeline("contra-rules", {
           user: `Contract:\n${text.slice(0, 40000)}\n\nProposed sections: ${JSON.stringify(outline.map((s) => ({ key: s.key, label: s.label })))}`,
-          maxTokens: 1500,
+          maxTokens: 4000,
         });
         await logRun(rout, { ref_type: "archetype", input: `${outline.length} sections`, output: "suggest rules" });
         const rparsed = jparse(rout.text);
@@ -293,7 +293,7 @@ export function mountContra(app, upload) {
         // caller-side output contract — always applied, immune to any stored-prompt drift
         system: `Return STRICT JSON only, no prose: {"summary": string, "parties": {"a": string, "b": string}, "verdicts": [{"key","verdict","evidence_refs":[],"note"}], "rule_checks": [{"rule","section_key","result","note","refs":[]}], "findings": [{"kind","severity","note","refs":[]}], "redlines": [{"find","replace","reason","ref"}]}. parties = the two contracting parties' names. Use ONLY these section keys for verdicts (one per section): ${keys.join(", ")}. verdict ∈ present|non_standard|risky|missing. Emit exactly one rule_check for EVERY rule in the provided list; result ∈ pass|check|breach with the § evidence. findings.kind ∈ contradiction|off_archetype|commercial|unresolved_ref. redlines = concrete fixes to apply as tracked changes: "find" MUST be a short, EXACT verbatim substring copied from the contract text (so it can be located), "replace" is the corrected text, plus a one-line "reason" and the "ref". Only propose a redline where there is a clear fix (a rule breach or a risky term). Cite the § for every claim; never assert a contradiction as fact.`,
         user: `Contract:\n${(rev.extract_md || "").slice(0, 50000)}\n\nSections to verdict (use these keys):\n${JSON.stringify(outlineForPrompt)}\n\nRules to check (one rule_check each):\n${JSON.stringify(allRules)}`,
-        maxTokens: 3000,
+        maxTokens: 8000, // large archetypes (many sections/rules) produce big JSON — don't truncate
       });
       await logRun(rout, { ref_type: "review", ref_id: id, rules_applied: merged.sections.flatMap((s) => s.rules.map((r) => r.text)), input: rev.contract_name, output: "review" });
       const rp = jparse(rout.text) || {};
