@@ -16,8 +16,16 @@ let RVOPEN = null;        // opened reviewed contract { review, changes }
 let RVTAB = "report";     // report | timeline
 let ASK_LAST = null, ASK_BOXKEY = null;   // Ask Contract: last Q&A + focused box
 let REVIEWS = [], REVIEWS_LOADED = false;  // Reviewed history table
-// live filter a table's rows by a data-k attribute (no re-render → keeps focus)
-window.filterTable = (tid, v) => { const q = v.toLowerCase(); document.querySelectorAll(`#${tid} tbody tr`).forEach((tr) => { tr.style.display = (tr.dataset.k || "").includes(q) ? "" : "none"; }); };
+// filter a table by its rows' data-k (no re-render → keeps focus). With no query
+// it shows the 10 most-recent; typing searches ALL rows.
+window.filterTable = (tid, v) => {
+  const q = (v || "").toLowerCase().trim();
+  const rows = [...document.querySelectorAll(`#${tid} tbody tr`)];
+  let shown = 0;
+  rows.forEach((tr) => { const m = (tr.dataset.k || "").includes(q); const show = q ? m : shown < 10; tr.style.display = show ? "" : "none"; if (show) shown++; });
+  const note = document.getElementById(tid + "-note");
+  if (note) note.textContent = q ? `${shown} match${shown === 1 ? "" : "es"} of ${rows.length}` : `showing ${Math.min(10, rows.length)} of ${rows.length}`;
+};
 const VIEWS = { maker: "#view-maker", library: "#view-library", review: "#view-review", reviewed: "#view-reviewed" };
 function meterHtml(msg) { return `<div class="meter"><div class="now"><img class="potspin" src="/brand/assets/logos/pot.png" alt="">${esc(msg)}</div><div class="track"><div class="fill indet"></div></div></div>`; }
 // stepped meter: ticks through the REAL pipeline steps while `promise` runs,
@@ -187,18 +195,20 @@ function renderLibrary() {
     host.innerHTML = `<span class="backlnk" onclick="closeEditor()">‹ back to library</span>` + sectionEditor();
     return;
   }
-  const rows = ARCHES.map((a) => `<tr class="clk" data-k="${esc((a.name + " " + (a.description || "")).toLowerCase())}">
+  const rows = ARCHES.map((a) => `<tr class="clk" data-k="${esc((a.name + " " + (a.description || "") + " " + a.status).toLowerCase())}">
       <td onclick="editArch(${a.id})"><b>${esc(a.name)}</b>${a.status === "saved" ? `<span class="vtag">v${a.version || 1}</span>` : `<span class="chip draft" style="margin-left:6px">draft</span>`}</td>
       <td class="tdesc" onclick="editArch(${a.id})">${a.description ? esc(a.description) : "<span style='color:var(--dim2)'>—</span>"}</td>
       <td onclick="editArch(${a.id})">${a.sections}</td>
-      <td onclick="editArch(${a.id})">${a.created_at ? new Date(a.created_at).toLocaleDateString() : ""}</td>
+      <td onclick="editArch(${a.id})">${a.rules != null ? a.rules : "—"}</td>
+      <td onclick="editArch(${a.id})">${a.updated_at ? new Date(a.updated_at).toLocaleDateString() : (a.created_at ? new Date(a.created_at).toLocaleDateString() : "")}</td>
       <td class="tacts"><button class="btn small" onclick="editArch(${a.id})">Open</button> <button class="btn small" onclick="delArch(${a.id},'${esc(a.name).replace(/'/g, "\\'")}')">✕</button></td>
     </tr>`).join("");
-  host.innerHTML = `<p class="intro"><b>ARCHETYPE LIBRARY</b> — your saved contract types (title + description). Open one to edit its rules, name, and versions.</p>`
+  host.innerHTML = `<p class="intro"><b>ARCHETYPE LIBRARY</b> — your saved contract types. The 10 most recent show here; type to search all. Open one to edit its rules, name, and versions.</p>`
     + (ARCHES.length
-      ? `<div class="cfilter"><input placeholder="filter archetypes…" oninput="filterTable('libtable',this.value)"><span class="am">${ARCHES.length} archetype${ARCHES.length === 1 ? "" : "s"}</span></div>
-         <table class="ctable" id="libtable"><thead><tr><th>Archetype</th><th>Description</th><th>Sections</th><th>Created</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      ? `<div class="cfilter"><input placeholder="filter archetypes…" oninput="filterTable('libtable',this.value)"><span class="am" id="libtable-note"></span></div>
+         <table class="ctable" id="libtable"><thead><tr><th>Archetype</th><th>Description</th><th>Sections</th><th>Rules</th><th>Updated</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
       : `<div class="empty">// no archetypes yet — make one in the Archetype Maker //</div>`);
+  if (ARCHES.length) filterTable("libtable", "");
 }
 window.editArch = async (id) => {
   const j = await (await fetch(`/api/contra/archetype/${id}`)).json();
@@ -227,7 +237,7 @@ function renderReview() {
 }
 function reviewRow(rv, i) {
   if (rv.status === "done") {
-    return `<div class="crow"><div class="crow-h"><span class="cn">${esc(rv.contract_name)}</span>
+    return `<div class="crow"><div class="crow-h done"><span class="cn">${esc(rv.contract_name)}</span>
       <span class="chip saved">reviewed</span><span class="am">${rv.issue_count} issue${rv.issue_count === 1 ? "" : "s"}</span>
       <button class="btn small" style="margin-left:auto" onclick="openReviewed(${rv.id})">Open review ▸</button></div></div>`;
   }
@@ -296,12 +306,14 @@ window.createFromFile = (i) => { const f = CFILES[i]; if (!f) return rdAlert("No
 function renderReviewed() {
   const host = $("#view-reviewed");
   if (RVOPEN) {
+    const rv = RVOPEN.review;
+    const isDocx = rv.original_ext === ".docx" && (rv.report?.redlines || []).length;
     const tabs = `<div class="rvtabs">
         <span class="rvtab ${RVTAB === "report" ? "on" : ""}" onclick="setRvTab('report')">Legal report</span>
         <span class="rvtab ${RVTAB === "timeline" ? "on" : ""}" onclick="setRvTab('timeline')">Timeline</span>
-        <span class="rvtab" onclick="downloadDocx(${RVOPEN.review.id})" title="${RVOPEN.review.original_ext === ".docx" && (RVOPEN.review.report?.redlines || []).length ? "your original .docx with tracked-change redlines" : "review report — upload a .docx contract to get the marked-up original"}">⤓ ${RVOPEN.review.original_ext === ".docx" && (RVOPEN.review.report?.redlines || []).length ? "Marked-up .docx" : "Report (.docx)"}</span>
+        <span class="rvtab" onclick="downloadDocx(${rv.id})" title="${isDocx ? "your original .docx with tracked-change redlines" : "review report — upload a .docx contract to get the marked-up original"}">⤓ ${isDocx ? "Marked-up .docx" : "Report (.docx)"}</span>
         <span class="backlnk" style="margin-left:auto;margin-bottom:0" onclick="closeReviewed()">‹ all reviews</span></div>`;
-    host.innerHTML = tabs + (RVTAB === "report" ? reportView(RVOPEN.review) : timelineView(RVOPEN.changes || []));
+    host.innerHTML = contractHeader(rv) + tabs + (RVTAB === "report" ? reportView(rv) : timelineView(RVOPEN.changes || []));
     return;
   }
   // history table
@@ -310,18 +322,41 @@ function renderReviewed() {
     fetch("/api/contra/reviews").then((r) => r.json()).then((j) => { REVIEWS = j.reviews || []; REVIEWS_LOADED = true; if (!RVOPEN) renderReviewed(); });
     return;
   }
-  const rows = REVIEWS.map((r) => `<tr class="clk" data-k="${esc((r.contract_name + " " + (r.party1 || "") + " " + (r.party2 || "") + " " + (r.archetype || "")).toLowerCase())}" onclick="openReviewed(${r.id})">
+  const rows = REVIEWS.map((r) => `<tr class="clk" data-k="${esc((r.contract_name + " " + (r.contract_type || "") + " " + (r.party1 || "") + " " + (r.party2 || "") + " " + (r.archetype || "")).toLowerCase())}" onclick="openReviewed(${r.id})">
       <td><b>${esc(r.contract_name || "")}</b></td>
+      <td>${r.contract_type ? `<span class="typebadge">${esc(r.contract_type)}</span>` : "<span style='color:var(--dim2)'>—</span>"}</td>
       <td>${esc([r.party1, r.party2].filter(Boolean).join(" ⟷ ")) || "<span style='color:var(--dim2)'>—</span>"}</td>
       <td>${esc(r.archetype || "—")}</td>
       <td>${r.issue_count ? `<span style="color:var(--red);font-weight:600">${r.issue_count}</span>` : `<span style="color:var(--grn)">clean</span>`}</td>
       <td>${r.created_at ? new Date(r.created_at).toLocaleString() : ""}</td>
     </tr>`).join("");
-  host.innerHTML = `<p class="intro"><b>REVIEWED</b> — every contract you've reviewed. Filter, then open one for its report, redlines and timeline.</p>`
+  host.innerHTML = `<p class="intro"><b>REVIEWED</b> — every contract you've reviewed. The 10 most recent show here; type to search all. Click a row for its report, redlines and timeline.</p>`
     + (REVIEWS.length
-      ? `<div class="cfilter"><input placeholder="filter by contract, party, archetype…" oninput="filterTable('revtable',this.value)"><span class="am">${REVIEWS.length} review${REVIEWS.length === 1 ? "" : "s"}</span></div>
-         <table class="ctable" id="revtable"><thead><tr><th>Contract</th><th>Parties</th><th>Archetype</th><th>Issues</th><th>Reviewed</th></tr></thead><tbody>${rows}</tbody></table>`
+      ? `<div class="cfilter"><input placeholder="filter by contract, type, party, archetype…" oninput="filterTable('revtable',this.value)"><span class="am" id="revtable-note"></span></div>
+         <table class="ctable" id="revtable"><thead><tr><th>Contract</th><th>Type</th><th>Parties</th><th>Archetype</th><th>Issues</th><th>Reviewed</th></tr></thead><tbody>${rows}</tbody></table>`
       : `<div class="empty">// no reviews yet — run one in the Review tab //</div>`);
+  if (REVIEWS.length) filterTable("revtable", "");
+}
+// nice document header shown above the Reviewed tabs
+function contractHeader(r) {
+  const rep = r.report || {}, meta = rep.meta || {};
+  const title = meta.title || r.contract_name || "Contract";
+  const pa = r.party1 || rep.parties?.a, pb = r.party2 || rep.parties?.b;
+  const fact = (k, v) => v ? `<span class="cfact"><span class="cfk">${k}</span>${esc(v)}</span>` : "";
+  return `<div class="chead">
+    <div class="chead-emb">Q</div>
+    <div class="chead-body">
+      <div class="chead-titlerow"><span class="chead-title">${esc(title)}</span>${meta.type ? `<span class="typebadge">${esc(meta.type)}</span>` : ""}</div>
+      ${(pa || pb) ? `<div class="chead-parties">${esc(pa || "?")}<span class="vs">⟷</span>${esc(pb || "?")}</div>` : ""}
+      <div class="chead-facts">
+        ${fact("Effective", meta.effective_date)}${fact("Expiry", meta.expiry_date)}
+        ${fact("Archetype", (rep.archetypes || []).join(" + "))}
+        ${fact("Reviewed", new Date(rep.generated_at || Date.now()).toLocaleDateString())}
+        ${fact("File", r.contract_name)}
+      </div>
+    </div>
+    <span class="chead-issues ${r.issue_count ? "bad" : "ok"}">${r.issue_count ? `${r.issue_count} issue${r.issue_count === 1 ? "" : "s"}` : "clean"}</span>
+  </div>`;
 }
 window.setRvTab = (t) => { RVTAB = t; renderReviewed(); };
 window.closeReviewed = () => { RVOPEN = null; setSub("reviewed"); };
@@ -350,10 +385,7 @@ function reportView(r) {
   const rc = checks.length ? `<div class="rsec-lbl">Rule checks</div><div style="margin-bottom:22px">${checks.map((c) => `<div class="rcrow"><span class="rcp ${c.result || "check"}">${String(c.result || "check").toUpperCase()}</span><span style="flex:1">${esc(c.rule || c.section_key || "")} — ${esc(c.note || c.found || "")} ${refs(c.refs)}</span></div>`).join("")}</div>` : "";
   const fnd = findings.length ? `<div class="rsec-lbl">Whole-contract findings</div><div style="margin-bottom:22px">${findings.map((f) => `<div class="frow ${f.severity === "high" ? "hi" : f.severity === "med" ? "med" : ""}"><b>${esc(String(f.kind || "finding").replace(/_/g, " "))}</b> · ${esc(f.note || "")} ${refs(f.refs)}</div>`).join("")}</div>` : "";
   const secs = verdicts.length ? `<div class="rsec-lbl">Section review <span style="color:var(--dim2);font-weight:400">· click to ask</span></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${verdicts.map((v) => `<div class="schip" onclick="askBox('${esc(v.key)}')"><span style="flex:1">${esc(String(v.key || "").replace(/_/g, " "))}</span><span class="sdot" style="background:${VCOLOR[v.verdict] || "#B4B2A9"}"></span><span style="font-size:11px;font-weight:600;color:${VCOLOR[v.verdict] || "#7A7266"}">${VLABEL[v.verdict] || v.verdict || ""}</span></div>`).join("")}</div>` : "";
-  const doc = `<div class="report-doc"><div class="rd-head"><div class="rd-emb">Q</div>
-      <div style="flex:1"><div class="rd-title">Contract Review</div>
-        <div class="rd-ref">${parties ? esc(parties) + " · " : ""}${esc((rep.archetypes || []).join(" + "))} · ${new Date(rep.generated_at || Date.now()).toLocaleDateString()}</div></div></div>
-    ${glance}
+  const doc = `<div class="report-doc">${glance}
     <div style="padding:20px 26px 24px">${summary}${rc}${fnd}${secs}
       <div style="margin-top:20px;padding-top:12px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;color:#A79F93;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><span>Prepared by Contra · ${esc(r.contract_name || "")}</span><span>an AI product by The Kettle Black</span></div></div></div>`;
   const ask = `<div class="askbox" style="margin-top:16px">

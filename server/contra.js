@@ -139,8 +139,10 @@ export function mountContra(app, upload) {
   app.get("/api/contra/archetypes", async (_req, res) => {
     const { rows } = await q(
       `select id, name, slug, status, description, version, jsonb_array_length(review_outline) as sections,
+              coalesce((select sum(jsonb_array_length(coalesce(s->'rules','[]'::jsonb))) from jsonb_array_elements(review_outline) s), 0)
+                + jsonb_array_length(coalesce(global_rules,'[]'::jsonb)) as rules,
               source_doc, created_at, updated_at
-         from contra_archetype order by (status='saved') desc, updated_at desc`
+         from contra_archetype order by updated_at desc`
     );
     res.json({ archetypes: rows });
   });
@@ -291,7 +293,7 @@ export function mountContra(app, upload) {
       const keys = outlineForPrompt.map((s) => s.key);
       const rout = await runPipeline("contra-review", {
         // caller-side output contract — always applied, immune to any stored-prompt drift
-        system: `Return STRICT JSON only, no prose: {"summary": string, "parties": {"a": string, "b": string}, "verdicts": [{"key","verdict","evidence_refs":[],"note"}], "rule_checks": [{"rule","section_key","result","note","refs":[]}], "findings": [{"kind","severity","note","refs":[]}], "redlines": [{"find","replace","reason","ref"}]}. parties = the two contracting parties' names. Use ONLY these section keys for verdicts (one per section): ${keys.join(", ")}. verdict ∈ present|non_standard|risky|missing. Emit exactly one rule_check for EVERY rule in the provided list; result ∈ pass|check|breach with the § evidence. findings.kind ∈ contradiction|off_archetype|commercial|unresolved_ref. redlines = concrete fixes to apply as tracked changes: "find" MUST be a short, EXACT verbatim substring copied from the contract text (so it can be located), "replace" is the corrected text, plus a one-line "reason" and the "ref". Only propose a redline where there is a clear fix (a rule breach or a risky term). Cite the § for every claim; never assert a contradiction as fact.`,
+        system: `Return STRICT JSON only, no prose: {"summary": string, "meta": {"title": string, "type": string, "effective_date": string, "expiry_date": string}, "parties": {"a": string, "b": string}, "verdicts": [{"key","verdict","evidence_refs":[],"note"}], "rule_checks": [{"rule","section_key","result","note","refs":[]}], "findings": [{"kind","severity","note","refs":[]}], "redlines": [{"find","replace","reason","ref"}]}. meta.title = the contract's own title/name; meta.type = the contract type as a short tag (NDA, MSA, SOW, DPA, Employment, Lease, Services, Supply…); meta.effective_date / meta.expiry_date = the term start / end (or renewal) dates exactly as printed, or "" if not stated. parties = the two contracting parties' names. Use ONLY these section keys for verdicts (one per section): ${keys.join(", ")}. verdict ∈ present|non_standard|risky|missing. Emit exactly one rule_check for EVERY rule in the provided list; result ∈ pass|check|breach with the § evidence. findings.kind ∈ contradiction|off_archetype|commercial|unresolved_ref. redlines = concrete fixes to apply as tracked changes: "find" MUST be a short, EXACT verbatim substring copied from the contract text (so it can be located), "replace" is the corrected text, plus a one-line "reason" and the "ref". Only propose a redline where there is a clear fix (a rule breach or a risky term). Cite the § for every claim; never assert a contradiction as fact.`,
         user: `Contract:\n${(rev.extract_md || "").slice(0, 50000)}\n\nSections to verdict (use these keys):\n${JSON.stringify(outlineForPrompt)}\n\nRules to check (one rule_check each):\n${JSON.stringify(allRules)}`,
         maxTokens: 8000, // large archetypes (many sections/rules) produce big JSON — don't truncate
       });
@@ -302,9 +304,11 @@ export function mountContra(app, upload) {
       const findings = Array.isArray(rp.findings) ? rp.findings : [];
       const redlines = Array.isArray(rp.redlines) ? rp.redlines.filter((r) => r && r.find) : [];
       const party1 = rp.parties?.a || null, party2 = rp.parties?.b || null;
+      const m = rp.meta || {};
+      const meta = { title: m.title || "", type: m.type || "", effective_date: m.effective_date || "", expiry_date: m.expiry_date || "" };
       const issue_count = verdicts.filter((v) => ["risky", "missing", "non_standard"].includes(v.verdict)).length
         + rule_checks.filter((c) => c.result === "breach" || c.result === "check").length + findings.length;
-      const report = { title: "Contract Review", generated_at: new Date().toISOString(), archetypes: archetypes.map((a) => a.name), parties: { a: party1, b: party2 }, summary: rp.summary || "", verdicts, rule_checks, findings, redlines, sections: outlineForPrompt };
+      const report = { title: "Contract Review", generated_at: new Date().toISOString(), archetypes: archetypes.map((a) => a.name), meta, parties: { a: party1, b: party2 }, summary: rp.summary || "", verdicts, rule_checks, findings, redlines, sections: outlineForPrompt };
       await q(`update contra_review set status='done', verdicts=$2::jsonb, rule_checks=$3::jsonb, findings=$4::jsonb, report=$5::jsonb, issue_count=$6, party1=$7, party2=$8, updated_at=now() where id=$1`,
         [id, JSON.stringify(verdicts), JSON.stringify(rule_checks), JSON.stringify(findings), JSON.stringify(report), issue_count, party1, party2]);
 
@@ -336,6 +340,9 @@ export function mountContra(app, upload) {
   app.get("/api/contra/reviews", async (_req, res) => {
     const rows = (await q(
       `select r.id, r.contract_name, r.party1, r.party2, r.archetype_id, a.name as archetype,
+              r.report->'meta'->>'type' as contract_type,
+              r.report->'meta'->>'effective_date' as effective_date,
+              r.report->'meta'->>'expiry_date' as expiry_date,
               r.issue_count, r.status, r.created_at, r.updated_at
          from contra_review r left join contra_archetype a on a.id = r.archetype_id
         where r.status = 'done' order by r.id desc limit 200`
