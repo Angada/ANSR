@@ -429,6 +429,8 @@ export function mountWhisperer(app, slug) {
         // LLM-only — no dummy fallback. If the model didn't return a usable idea, skip it.
         if (!j || !j.heading) continue;
         const s = j;
+        s.topic_guide = s.topic_guide || {};
+        if (s.title && String(s.title).trim()) s.topic_guide.title = String(s.title).trim();
         s.platform = s.platform || t.format_home;
         s.emotional_register = s.emotional_register || regs[a % regs.length] || "";
         s.one_up = s.one_up || oneups[a % oneups.length];

@@ -234,10 +234,16 @@
 
   /* Trend Spotting report — clean sectioned blocks (above the idea cards) */
   .tsr{border:1px solid var(--line);border-radius:var(--r);background:#fff;margin:0 0 18px;overflow:hidden;box-shadow:0 12px 34px -26px rgba(0,36,46,.35)}
-  .tsr-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#FFFBF8,#fff)}
+  .tsr-top{display:flex;align-items:center;gap:11px;flex-wrap:wrap;padding:14px 18px;cursor:pointer;list-style:none;user-select:none;background:linear-gradient(180deg,#FFFBF8,#fff);transition:background .15s}
+  .tsr-top::-webkit-details-marker{display:none}
+  .tsr-top:hover{background:#FFF3EC}
+  .tsr[open] .tsr-top{border-bottom:1px solid var(--line)}
   .tsr-top .ic-wrap{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--grn);color:#fff;flex:0 0 auto}
-  .tsr-title{font-weight:700;font-size:15px;color:var(--txt)}
-  .tsr-sub{font-family:var(--mono);font-size:11px;color:var(--dim2);letter-spacing:.04em;margin-left:auto}
+  .tsr-title{font-weight:700;font-size:15px;color:var(--txt);flex:0 0 auto}
+  .tsr-hi{flex:1;min-width:140px;font-size:12.5px;color:var(--dim);letter-spacing:.01em;line-height:1.4}
+  .tsr-hi b{color:var(--grn);font-weight:600}
+  .tsr-chev{flex:0 0 auto;color:var(--dim2);font-size:12px;font-family:var(--mono);transition:transform .2s}
+  .tsr[open] .tsr-chev{transform:rotate(180deg)}
   .tsr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(228px,1fr));gap:12px;padding:16px 18px}
   .tsr-block{border:1px solid var(--line);border-radius:12px;background:var(--bg2);padding:13px 14px;min-width:0}
   .tsr-block.span2{grid-column:span 2}
@@ -340,6 +346,18 @@
   .tstep-row .tv a.src:hover{border-color:var(--grn-dim)}
   .tbeats{margin:2px 0 0;padding-left:15px}
   .tbeats li{margin:2px 0}
+
+  /* the deliverable — the catchy optimized title + headline, boxed & prominent */
+  .deliv{border:1px solid rgba(206,69,2,.28);background:linear-gradient(180deg,#FFF7F2,#fff);border-radius:12px;padding:12px 14px;margin:2px 0 12px}
+  .deliv-k{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--grn);margin-bottom:9px;display:flex;align-items:center;gap:6px}
+  .deliv-row{display:flex;flex-direction:column;gap:3px;padding:8px 0;border-top:1px dashed var(--line)}
+  .deliv-row:first-of-type{border-top:none;padding-top:0}
+  .deliv .dl{font-family:var(--mono);font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--dim2)}
+  .deliv .dtop{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .deliv .dv{font-size:17px;font-weight:600;line-height:1.32;color:var(--txt);flex:1;min-width:0}
+  .deliv .dv.title{font-size:15px}
+  .deliv .cpy{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--grn);background:none;border:1px solid var(--line2);border-radius:999px;padding:3px 9px;cursor:pointer;flex:0 0 auto;transition:.14s}
+  .deliv .cpy:hover{border-color:var(--grn-dim);background:var(--bg2)}
 
   /* the user's free-text sweep brief box */
   .sweepbox{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:6px 0 0}

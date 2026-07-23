@@ -324,10 +324,12 @@ function trendReport(stories) {
   const srcBlock = `<div class="tsr-block"><div class="tsr-k">${ic("external", 12)} Sources</div>
     <div class="tsr-chips">${srcs.size ? [...srcs].map((x) => `<span class="src">${esc(x)}</span>`).join("") : `<span class="src src-llm">LLM only — add feed / research keys in the Vault</span>`}</div></div>`;
 
-  return `<div class="tsr">
-    <div class="tsr-top"><span class="ic-wrap">${ic("target", 15)}</span><span class="tsr-title">Trend Spotting report</span><span class="tsr-sub">${esc(BATCH?.name || "batch")} · ${n} ideas</span></div>
+  const topReg = sortEnt(regs)[0];
+  const hi = `<b>${Object.keys(topics).length}</b> concepts · <b>${n}</b> ideas${topReg ? ` · ${esc(topReg[0])} leads` : ""} · avg gap <b>${(gsum / n).toFixed(2)}</b> · ${live ? "live feed" : "config"}`;
+  return `<details class="tsr">
+    <summary class="tsr-top"><span class="ic-wrap">${ic("target", 15)}</span><span class="tsr-title">Trend Spotting report</span><span class="tsr-hi">${hi}</span><span class="tsr-chev">▾</span></summary>
     <div class="tsr-grid">${audBlock}${conceptBlock}${regBlock}${signalBlock}${routeBlock}${srcBlock}</div>
-  </div>`;
+  </details>`;
 }
 
 // ---- STORY BOARDS · group a concept's 3 angles into one board -------------
@@ -447,6 +449,23 @@ function pipelineTrace(s) {
     ])}
   </div>`;
 }
+// the key deliverable, boxed: the catchy optimized title + the headline (with copy).
+// title comes from topic_guide.title on fresh sweeps; falls back to the headline.
+function deliverableBox(s) {
+  const g = s.topic_guide || {};
+  const title = (g.title && g.title.trim() && g.title.trim() !== s.heading) ? g.title.trim() : null;
+  const row = (label, val, which, big) => `<div class="deliv-row"><span class="dl">${label}</span>
+    <div class="dtop"><span class="dv${big ? "" : " title"}">${esc(val)}</span><button class="cpy" onclick="event.stopPropagation();copyIdea(${s.id},'${which}',this)">copy</button></div></div>`;
+  return `<div class="deliv"><div class="deliv-k">${ic("target", 12)} The deliverable</div>
+    ${title ? row("Title · optimized", title, "title", false) : ""}
+    ${row("Headline", s.heading, "headline", true)}</div>`;
+}
+window.copyIdea = (id, which, btn) => {
+  const s = _STORIES[id]; if (!s) return;
+  const g = s.topic_guide || {};
+  const txt = which === "title" ? (g.title || s.heading) : s.heading;
+  (navigator.clipboard?.writeText(txt) || Promise.resolve()).then(() => { if (btn) { btn.textContent = "copied"; setTimeout(() => (btn.textContent = "copy"), 1200); } });
+};
 function leadIdea(s, franchises) {
   const m = angleMeta(s);
   return `<div class="lead">
@@ -455,7 +474,7 @@ function leadIdea(s, franchises) {
       ${ideaChips(s, franchises)}
       <span class="idea-score">score ${(Number(s.score) * 100).toFixed(0)}</span>
     </div>
-    <div class="idea-h">${esc(s.heading)}</div>
+    ${deliverableBox(s)}
     <div class="why-pair">
       <details class="whyx"><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
@@ -476,7 +495,8 @@ function altIdea(s, franchises, topicKey) {
       <button class="mklead" onclick="event.preventDefault();event.stopPropagation();promoteLead('${topicKey}',${s.id})" title="Make this the lead idea">↑ make lead</button>
     </summary>
     <div class="alt-body">
-      <div class="chips" style="margin:12px 0 0">${ideaChips(s, franchises)}</div>
+      <div style="margin-top:12px">${deliverableBox(s)}</div>
+      <div class="chips">${ideaChips(s, franchises)}</div>
       <details class="whyx" open><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> how RayDar built this — step by step</summary>${pipelineTrace(s)}</details>
