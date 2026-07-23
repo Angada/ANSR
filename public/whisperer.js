@@ -194,6 +194,31 @@ window.saveTM = async () => {
 };
 
 // ---- STAGE 02 · SWEEP → Ideas ----------------------------------------------
+// Honest ticker: name only the APIs actually live (enabled + keyed), per
+// /api/wh/feed/status. Steps gate exactly like the backend — classify only
+// runs with a live feed, validate only with a research key. No keys → LLM-only.
+const SRC_LABEL = {
+  youtube: "YouTube — search · stats · comments", reddit: "Reddit — search · comment trees",
+  newsapi: "News — headlines", serpapi: "Google News (SerpApi)",
+  tavily: "Tavily", serper: "Serper", perplexity: "Perplexity", exa: "Exa", brave: "Brave",
+};
+async function sweepSteps() {
+  let st = { feed: [], research: [], mock: true };
+  try { st = await (await fetch("/api/wh/feed/status")).json(); } catch { /* mock */ }
+  const steps = [];
+  if (st.feed?.length) {
+    for (const s of st.feed) steps.push("Collecting · " + (SRC_LABEL[s] || s));
+    steps.push("Classifying → topic · franchise · registers");
+  } else {
+    steps.push("No live feed keys — LLM-only run (add YouTube / Reddit in the Vault)");
+  }
+  steps.push("Signals · demand vs supply · velocity");
+  if (st.research?.length) steps.push("Research · " + st.research.map((s) => SRC_LABEL[s] || s).join(" · "));
+  steps.push("Writing headings + briefs");
+  if (st.research?.length) steps.push("Validate · evidence + fact-check");
+  steps.push("Composite ranking");
+  return steps;
+}
 window.onProcess = async () => {
   if (!ROUTES.trend && !ROUTES.seo && !ROUTES.talentmind) { rdAlert("Arm a feed", "Tick Trend Spotting, add SEO inputs, or run the TalentMind simulation first."); return; }
   STAGE = 2; rail();
@@ -201,8 +226,9 @@ window.onProcess = async () => {
   const body = TM ? { talentmind_cohort_id: TM.cohortId, name: TM.name, prompt } : { trend_topics: ROUTES.trend ? TOPICS : [], seo: ROUTES.seo, prompt };
   const b = await (await fetch("/api/wh/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
   BATCH = { id: b.id, name: b.name };
+  const steps = await sweepSteps();                                          // honest: reflects live keys
   const gen = fetch(`/api/wh/feedstories/${BATCH.id}`, { method: "POST" });   // kick off the real AI work
-  await meter(["Collecting feed", "Classifying → topic · franchise · registers", "Signals · velocity", "Writing headings + briefs", "Composite ranking"], "procMeter", "◎ Signal locked", gen);
+  await meter(steps, "procMeter", "◎ Signal locked", gen);
   await loadIdeas();
   STAGE = 3; toIdeas(); renderBatchPick();
 };
