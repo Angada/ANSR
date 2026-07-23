@@ -1,32 +1,18 @@
-// Munshi OCR — vision-LLM fallback for scanned / image-only PDFs.
-//
-// Reverse-engineered from the DeepSeek-OCR / Unlimited-OCR pipeline
-// (render → page-wise parse → stitch to layout markdown) but run on the Vault's
-// vision LLMs (Claude / Gemini / GPT) through the gated `munshi-ocr` pipeline —
-// no GPU, no self-hosting. Because it's a normal gated pipeline it can later be
-// pointed at a self-hosted DeepSeek-OCR/vLLM endpoint with no code change.
-//
-// The "long-horizon / unlimited" trick is here too: we never send the whole PDF
-// in one call — each page is rasterised, transcribed, and stitched back, so
-// document length is bounded only by MAX_PAGES (a cost guard), not by any model
-// context window.
+// Munshi OCR — scanned/image-only PDF reader. Ported to the munshi3 method:
+// rasterise each page (poppler, downscaled) → transcribe via the gated VISION
+// skill (munshi3:read, provider/model swappable in the Vault) → stitch. Because
+// it routes through runVisionSkill it uses whatever vision key exists (glm-4.5v
+// on Z.AI, gemini, gpt-4o, claude) — no GPU, no Anthropic-only assumption.
 import { spawn } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runPipeline } from "../ai.js";
+import { runVisionSkill, pickVisionProvider } from "../vision.js";
 
-// DeepSeek-OCR renders at 300 DPI; 200 keeps PNG payloads small for commercial
-// vision APIs (Claude auto-downscales to ~1568px anyway). All env-overridable.
-const DPI = Number(process.env.MUNSHI_OCR_DPI || 200);
-const MAX_PAGES = Number(process.env.MUNSHI_OCR_MAX_PAGES || 30);   // cost guard
+const DPI = Number(process.env.MUNSHI_OCR_DPI || 170);          // munshi3 default
+const SCALE_TO = Number(process.env.MUNSHI_OCR_SCALE || 1700);  // cap longest edge (no sharp needed)
+const MAX_PAGES = Number(process.env.MUNSHI_OCR_MAX_PAGES || 30);
 const CONCURRENCY = Number(process.env.MUNSHI_OCR_CONCURRENCY || 3);
-
-const OCR_PROMPT =
-  "Transcribe this document page image to clean GitHub-Flavoured Markdown. " +
-  "Preserve reading order, headings, lists and tables (use Markdown tables). " +
-  "Transcribe ONLY what is visibly printed — never invent or complete text. " +
-  "Output the transcription only, with no commentary. If the page is blank, output nothing.";
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -38,14 +24,19 @@ function run(cmd, args) {
   });
 }
 
-// Is pdftoppm (poppler) available on this host? (dev machines may lack it.)
+// OCR possible here? poppler installed AND a keyed vision provider.
 export async function ocrAvailable() {
+  if (!pickVisionProvider()) return false;
   try { await run("pdftoppm", ["-h"]); return true; } catch { return false; }
 }
 
-// Rasterise a PDF to per-page PNGs at DPI. Returns absolute PNG paths, in order.
-async function rasterize(pdfPath, dir, dpi) {
-  await run("pdftoppm", ["-png", "-r", String(dpi), pdfPath, join(dir, "pg")]);
+// Rasterise a PDF to per-page PNGs (downscaled to SCALE_TO px longest edge).
+async function rasterize(pdfPath, dir, { firstPage, lastPage } = {}) {
+  const args = ["-png", "-r", String(DPI), "-scale-to", String(SCALE_TO)];
+  if (firstPage) args.push("-f", String(firstPage));
+  if (lastPage) args.push("-l", String(lastPage));
+  args.push(pdfPath, join(dir, "pg"));
+  await run("pdftoppm", args);
   return readdirSync(dir).filter((f) => f.endsWith(".png")).sort().map((f) => join(dir, f));
 }
 
@@ -59,34 +50,53 @@ async function mapLimit(items, limit, fn) {
   return out;
 }
 
-// OCR a whole PDF via the gated munshi-ocr vision pipeline.
-// Returns { text, pages, ocr, mode, error? }.
-export async function ocrPdf(pdfPath, { provider, model } = {}) {
+async function ocrOnePng(pngPath) {
+  const data = readFileSync(pngPath).toString("base64");
+  return runVisionSkill("munshi3:read", [{ media_type: "image/png", data }]);
+}
+
+// OCR a whole PDF via the gated vision skill. Returns { text, pages, ocr, mode }.
+export async function ocrPdf(pdfPath, _opts = {}) {
   if (!(await ocrAvailable())) {
-    return { text: "", pages: 0, ocr: false, error: "poppler (pdftoppm) not installed on host" };
+    return { text: "", pages: 0, ocr: false, mode: "unavailable", error: "no vision key or poppler" };
   }
   const dir = mkdtempSync(join(tmpdir(), "munshi-ocr-"));
   try {
-    let pngs = await rasterize(pdfPath, dir, DPI);
+    let pngs = await rasterize(pdfPath, dir, { lastPage: MAX_PAGES });
     const total = pngs.length;
     const truncated = total > MAX_PAGES;
     pngs = pngs.slice(0, MAX_PAGES);
-
     let mode = "ai";
     const pageTexts = await mapLimit(pngs, CONCURRENCY, async (png) => {
-      const data = readFileSync(png).toString("base64");
-      const r = await runPipeline("munshi-ocr", {
-        images: [{ media_type: "image/png", data }],
-        user: OCR_PROMPT, maxTokens: 4000, provider, model,
-      });
-      if (r.mode !== "ai") mode = r.mode; // stub/disabled/error — surface it
+      const r = await ocrOnePng(png);
+      if (r.mode !== "ai") mode = r.mode;
       return r.mode === "ai" ? (r.text || "") : "";
     });
-
-    let text = pageTexts.map((t, i) => `\n\n<!-- page ${i + 1} -->\n\n${t}`.trimEnd()).join("\n").trim();
+    let text = pageTexts.map((t, i) => `<!-- page ${i + 1} -->\n\n${t}`.trimEnd()).join("\n\n---\n\n").trim();
     if (truncated) text += `\n\n<!-- OCR stopped at ${MAX_PAGES} of ${total} pages (MUNSHI_OCR_MAX_PAGES) -->`;
     return { text, pages: pngs.length, ocr: mode === "ai" && !!text, mode };
   } finally {
     try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
+}
+
+// Scanned-only backfill: OCR just the pages whose text layer is sparse, mutating
+// each page's text in place. Text-native PDFs → no-op, zero cost.
+export async function backfillScanned(pdfPath, pages, { minChars = 20 } = {}) {
+  const sparse = (pages || []).filter((p) => (p.text?.trim().length ?? 0) < minChars);
+  if (!sparse.length) return { scanned: 0, backfilled: [] };
+  if (!(await ocrAvailable())) return { scanned: sparse.length, backfilled: [], reason: "no vision key or poppler" };
+  const backfilled = [];
+  for (const p of sparse) {
+    const dir = mkdtempSync(join(tmpdir(), "munshi-bf-"));
+    try {
+      const imgs = await rasterize(pdfPath, dir, { firstPage: p.page_no, lastPage: p.page_no });
+      if (imgs.length) {
+        const r = await ocrOnePng(imgs[0]);
+        if (r.mode === "ai" && r.text && r.text.trim().length > minChars) { p.text = r.text; backfilled.push(p.page_no); }
+      }
+    } catch { /* per-page best-effort */ }
+    finally { try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ } }
+  }
+  return { scanned: sparse.length, backfilled };
 }

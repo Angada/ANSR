@@ -31,7 +31,15 @@ const GENERIC_OUTLINE = [
   { key: "governing_law", label: "Governing law", what_to_check: "Governing law and dispute-resolution forum.", required: true },
 ];
 
-// normalise proposed sections → the review_outline shape
+const rid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+// normalise a plain-English review-rule list [{id,text,created_at}]
+function normRules(rules) {
+  return (Array.isArray(rules) ? rules : [])
+    .filter((r) => r && String(r.text || "").trim())
+    .map((r) => ({ id: r.id || rid(), text: String(r.text).slice(0, 300), created_at: r.created_at || new Date().toISOString() }));
+}
+
+// normalise proposed sections → the review_outline shape (rules preserved)
 function toOutline(sections) {
   return (Array.isArray(sections) ? sections : []).map((s, i) => ({
     key: slugify(s.key || s.label || `section_${i + 1}`).replace(/-/g, "_"),
@@ -39,7 +47,20 @@ function toOutline(sections) {
     what_to_check: String(s.what_to_check || "").slice(0, 400),
     required: s.required !== false,
     order: i,
+    rules: normRules(s.rules),
   }));
+}
+
+// full-app AI log: every gated pipeline call is recorded (best-effort).
+async function logRun(out, { ref_type, ref_id, rules_applied, input, output } = {}) {
+  try {
+    await q(
+      `insert into contra_log(pipeline,provider,model,ref_type,ref_id,rules_applied,input_summary,output_summary,status)
+       values($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)`,
+      [out.pipeline || null, out.provider || null, out.model || null, ref_type || null, ref_id || null,
+       JSON.stringify(rules_applied || []), String(input || "").slice(0, 300), String(output || "").slice(0, 500), out.mode || null]
+    );
+  } catch { /* logging is best-effort — never blocks the review */ }
 }
 
 export function mountContra(app, upload) {
@@ -52,11 +73,35 @@ export function mountContra(app, upload) {
       const text = String(extract.text || "").slice(0, 60000);
       if (!text.trim()) return res.status(422).json({ error: "could not read any text from that file" });
 
+      // STEP · propose the review sections (gated pipeline)
       const out = await runPipeline("contra-archetype", { user: text, maxTokens: 2000 });
+      await logRun(out, { ref_type: "archetype", input: f.originalname, output: "propose sections" });
       const parsed = jparse(out.text) || {};
       let outline = toOutline(parsed.sections);
       if (!outline.length) outline = toOutline(GENERIC_OUTLINE);   // no key / parse miss → starter
       const name = (parsed.name || req.body.name || f.originalname.replace(/\.[^.]+$/, "")).slice(0, 80);
+
+      // STEP · suggest rules + required flags from the sample's actual terms (gated)
+      try {
+        const rout = await runPipeline("contra-rules", {
+          user: `Contract:\n${text.slice(0, 40000)}\n\nProposed sections: ${JSON.stringify(outline.map((s) => ({ key: s.key, label: s.label })))}`,
+          maxTokens: 1500,
+        });
+        await logRun(rout, { ref_type: "archetype", input: `${outline.length} sections`, output: "suggest rules" });
+        const rparsed = jparse(rout.text);
+        if (rparsed?.sections?.length) {
+          const bykey = Object.fromEntries(rparsed.sections.map((s) => [s.key, s]));
+          outline = outline.map((s) => {
+            const r = bykey[s.key];
+            if (!r) return s;
+            return {
+              ...s,
+              required: r.required !== undefined ? r.required !== false : s.required,
+              rules: normRules((r.rules || []).map((t) => ({ text: t }))),
+            };
+          });
+        }
+      } catch { /* rules are best-effort — the outline still saves */ }
 
       const { rows } = await q(
         `insert into contra_archetype(name, status, review_outline, source_doc)
@@ -92,25 +137,30 @@ export function mountContra(app, upload) {
   // it, and (on save) stamp the slug with a timestamp suffix + build the signature.
   app.post("/api/contra/archetype/:id", async (req, res) => {
     const id = Number(req.params.id);
-    const { name, review_outline, save } = req.body || {};
+    const { name, review_outline, global_rules, save } = req.body || {};
     const outline = review_outline ? toOutline(review_outline) : null;
+    const gRules = global_rules ? normRules(global_rules) : null;
     const signature = outline
       ? { keys: outline.filter((s) => s.required).map((s) => s.key), labels: outline.map((s) => s.label) }
       : null;
-    const status = save ? "saved" : "draft";
+    // status only advances on explicit save; autosaves keep the current status
+    // (so editing a saved archetype's rules doesn't downgrade it to draft).
+    const status = save ? "saved" : null;
     const slug = save && name ? `${slugify(name)}-${stamp()}` : null;
 
     const { rows } = await q(
       `update contra_archetype set
          name = coalesce($2, name),
          review_outline = coalesce($3::jsonb, review_outline),
-         detect_signature = coalesce($4::jsonb, detect_signature),
-         status = $5,
-         slug = coalesce($6, slug),
+         global_rules = coalesce($4::jsonb, global_rules),
+         detect_signature = coalesce($5::jsonb, detect_signature),
+         status = coalesce($6, status),
+         slug = coalesce(slug, $7),
          updated_at = now()
        where id=$1
-       returning id, name, slug, status, review_outline, updated_at`,
-      [id, name || null, outline ? JSON.stringify(outline) : null, signature ? JSON.stringify(signature) : null, status, slug]
+       returning id, name, slug, status, review_outline, global_rules, updated_at`,
+      [id, name || null, outline ? JSON.stringify(outline) : null, gRules ? JSON.stringify(gRules) : null,
+       signature ? JSON.stringify(signature) : null, status, slug]
     );
     if (!rows[0]) return res.status(404).json({ error: "not found" });
     res.json({ archetype: rows[0] });
