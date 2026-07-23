@@ -60,7 +60,7 @@ app.post("/api/logout", (_req, res) => {
 });
 
 app.use((req, res, next) => {
-  if (OPEN.some((p) => req.path === p) || req.path.startsWith("/brand/") || req.path.startsWith("/raydar-approach-note")) return next(); // public: shareable client approach note
+  if (OPEN.some((p) => req.path === p) || req.path.startsWith("/brand/") || req.path.startsWith("/raydar-approach-note") || req.path.startsWith("/raydar-engine")) return next(); // public: shareable client approach note + engine pipeline doc
   if (cookieToken(req) === AUTH_TOKEN) return next();
   if (req.path.startsWith("/api/")) return res.status(401).json({ error: "auth required" });
   return res.redirect("/login.html");
