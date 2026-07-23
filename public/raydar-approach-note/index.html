@@ -6,7 +6,7 @@
 <title>RayDar — an approach note by The Kettle Black</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"><link rel="icon" type="image/png" href="assets/q-emblem.png"><link rel="apple-touch-icon" href="assets/q-emblem.png">
 <style>
 /* ---------- ANSR / RayDar brand tokens ---------- */
 :root{
@@ -50,7 +50,7 @@ a{color:var(--orange);text-decoration:none}
 .main{margin-left:var(--nav-w)}
 .s{padding:88px 6vw;max-width:calc(var(--wrap) + 12vw);margin:0 auto}
 .s.tinted{background:var(--tint)}
-.s.dk{background:var(--navy);color:#e7eef0}
+.s.dk{background:var(--navy);color:#e7eef0}.s.dk .lead,.s.dk .sub{color:#b6cace}
 .s.dk h2,.s.dk h3{color:#fff}
 .eyebrow{font-family:var(--f-disp);font-size:12px;font-weight:600;letter-spacing:.2em;text-transform:uppercase;color:var(--orange);margin-bottom:14px}
 .s.dk .eyebrow{color:var(--orange-soft)}
@@ -132,11 +132,11 @@ h2.big{font-size:clamp(30px,4.2vw,46px);margin-bottom:18px}
 .stage.pulsing .num{animation:gen-pulse 1.1s ease-in-out infinite}
 
 /* ---------- API section ---------- */
-.apicat{font-family:var(--f-disp);font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--teal);margin:30px 0 14px;display:flex;align-items:center;gap:10px}
+.apicat{font-family:var(--f-disp);font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#79c7d6;margin:30px 0 14px;display:flex;align-items:center;gap:10px}
 .apicat::after{content:"";flex:1;height:1px;background:var(--line)}
 .api{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px}
 .api .hd{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
-.api h4{font-size:15px}
+.api h4{font-size:15px;color:var(--ink)}
 .api .role{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:100px}
 .role.demand{background:var(--tint);color:var(--orange-deep)}
 .role.valid{background:#e2eef0;color:var(--teal)}
@@ -255,10 +255,10 @@ h2.big{font-size:clamp(30px,4.2vw,46px);margin-bottom:18px}
 <header class="cover">
   <div class="l">
     <div class="maker"><span>An approach note by</span><img src="assets/tkb-white.png" alt="The Kettle Black"></div>
-    <div class="eyebrow" style="color:var(--orange-soft)">Content intelligence · for &amp;ANSR · Talent500</div>
+    <div class="eyebrow" style="color:var(--orange-soft)">Content intelligence · for Talent500</div>
     <h1>Know what to publish <em>before</em> your audience asks.</h1>
     <p class="benefit">RayDar reads what Indian job seekers are searching, watching and complaining about right now — and hands your team a ranked list of briefed content ideas, each with the evidence for why it will land.</p>
-    <div class="meta">Prepared for &amp;ANSR &nbsp;·&nbsp; by The Kettle Black &nbsp;·&nbsp; July 2026</div>
+    <div class="meta">Prepared for Talent500 &nbsp;·&nbsp; by The Kettle Black &nbsp;·&nbsp; July 2026</div>
   </div>
   <div class="r">
     <div class="rmark-big"><span class="dot"></span>RAYDAR</div>
@@ -283,7 +283,7 @@ h2.big{font-size:clamp(30px,4.2vw,46px);margin-bottom:18px}
   </div>
   <div class="pq rv" style="margin:30px 0 34px">It isn't about chasing what's viral. It's about hearing <span class="accent">what your audience is quietly asking</span> — and answering it first.</div>
   <div class="grid g3">
-    <div class="card rv"><div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg></div><h3>For whom</h3><p>Content, brand and community teams at &amp;ANSR / Talent500 who publish for Indian job seekers and GCC-tech talent.</p></div>
+    <div class="card rv"><div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/></svg></div><h3>For whom</h3><p>Content, brand and community teams at Talent500 who publish for Indian job seekers and GCC-tech talent.</p></div>
     <div class="card rv"><div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 12h18M3 6h18M3 18h18"/></svg></div><h3>Built on what already exists</h3><p>No new data to collect. It listens to public signal — YouTube, Reddit, news — that your audience is already generating, every day.</p></div>
     <div class="card rv"><div class="ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><circle cx="12" cy="12" r="3.2"/></svg></div><h3>A brief, never the copy</h3><p>RayDar hands your writer a heading and a topic guide — the angle, the evidence, the audience. Your team writes the words.</p></div>
   </div>
@@ -474,8 +474,7 @@ h2.big{font-size:clamp(30px,4.2vw,46px);margin-bottom:18px}
 <section class="s dk" id="heart">
   <div class="rv">
     <div class="eyebrow">08 — The heart of it</div>
-    <h2 class="big">&amp;ANSR built its name on reading talent. RayDar reads what talent wants to hear.</h2>
-    <p class="lead">The same instinct that makes &amp;ANSR trusted with people's careers — listen first, then act — is what RayDar puts to work on content. It's not a trend chaser. It's the discipline of hearing demand clearly, and answering it with evidence.</p>
+    <p class="lead">The same instinct that makes Talent500 trusted with people's careers — listen first, then act — is what RayDar puts to work on content. It's not a trend chaser. It's the discipline of hearing demand clearly, and answering it with evidence.</p>
   </div>
   <div style="margin-top:28px;overflow-x:auto">
     <table class="tbl rv">
@@ -493,9 +492,9 @@ h2.big{font-size:clamp(30px,4.2vw,46px);margin-bottom:18px}
 
 <!-- ============ CLOSE ============ -->
 <section class="close">
-  <img class="emb" src="assets/q-emblem.png" alt="&ANSR">
+  <img class="emb" src="assets/q-emblem.png" alt="Talent500">
   <h2>Hear the demand. Answer it first.</h2>
-  <div class="sign">RayDar · Talent Trend Radar · for &amp;ANSR</div>
+  <div class="sign">RayDar · Talent Trend Radar · for Talent500</div>
   <div class="footer">
     <img src="assets/tkb-black.png" alt="The Kettle Black">
     <p>An AI product by The Kettle Black.</p>
