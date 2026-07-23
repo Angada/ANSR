@@ -323,6 +323,24 @@
   .srclink .sgo{font-family:var(--mono);font-size:11px;color:var(--grn);flex:0 0 auto}
   .srcbox-empty{font-family:var(--mono);font-size:11px;color:var(--dim2);line-height:1.5}
 
+  /* pipeline trace — grey box, box-in-box, step by step (why an idea was built) */
+  .trace{margin:10px 0 2px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .tstep{background:#fff;border:1px solid var(--line);border-radius:10px;padding:11px 12px;margin-bottom:8px}
+  .tstep:last-child{margin-bottom:0}
+  .tstep-top{display:flex;align-items:center;gap:9px;margin-bottom:8px;flex-wrap:wrap}
+  .tstep-n{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--grn);color:#fff;font-family:var(--mono);font-size:11px;font-weight:700;flex:0 0 auto}
+  .tstep-name{font-weight:600;font-size:13.5px;color:var(--txt)}
+  .tstep-pipe{margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.03em;color:var(--cyan);background:#eef4f5;border:1px solid rgba(0,84,101,.2);border-radius:999px;padding:2px 8px}
+  .tstep-row{display:grid;grid-template-columns:96px 1fr;gap:10px;font-size:12.5px;line-height:1.55;padding:4px 0;border-top:1px dashed var(--line)}
+  .tstep-row:first-of-type{border-top:none}
+  .tstep-row .tl{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim2);padding-top:3px}
+  .tstep-row .tv{color:var(--dim);min-width:0;overflow-wrap:anywhere}
+  .tstep-row .tv b{color:var(--txt);font-weight:600}
+  .tstep-row .tv .src{margin:0 5px 3px 0}
+  .tstep-row .tv a.src:hover{border-color:var(--grn-dim)}
+  .tbeats{margin:2px 0 0;padding-left:15px}
+  .tbeats li{margin:2px 0}
+
   /* the user's free-text sweep brief box */
   .sweepbox{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:6px 0 0}
   .sweepbox textarea{margin-top:6px;color:var(--txt)}

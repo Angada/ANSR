@@ -343,7 +343,7 @@ let TOPIC_Q = {}, LEAD_OVERRIDE = {}, _RENDER = { stories: null, franchises: [] 
 
 function angleWhy(s) {
   const m = angleMeta(s);
-  return `<b>${esc(s.angle || "angle")}</b> — ${m.why} Register “${esc(s.emotional_register || "—")}”, routed to <b>${esc(s.franchise)}</b>${s.one_up ? ` · 1Up ${esc(s.one_up)}` : ""}.${s.contradiction ? ` Flags a contradiction against ${esc(s.contradiction_of || "popular belief")} — we propose, we never assert.` : ""}`;
+  return `<b>${esc(s.angle || "angle")}</b> — ${m.why} Register “${esc(shortReg(s.emotional_register) || "—")}”, routed to <b>${esc(s.franchise)}</b>${s.one_up ? ` · 1Up ${esc(s.one_up)}` : ""}.${s.contradiction ? ` Flags a contradiction against ${esc(s.contradiction_of || "popular belief")} — we propose, we never assert.` : ""}`;
 }
 function conceptWhy(board) {
   const lead = board.lead, b = lead.score_breakdown || {}, n = board.all.length;
@@ -390,6 +390,63 @@ function ideaActs(s) {
     <label class="build"><input type="checkbox" ${s.selected ? "checked" : ""} onchange="idea(${s.id},'select')"> build</label>
   </div>`;
 }
+// full provenance: the grey box-in-box that walks every pipeline step for THIS
+// idea — the actual parameters used, what the LLM produced, how it was checked.
+function pipelineTrace(s) {
+  const b = s.score_breakdown || {}, w = b.weights || {}, g = s.topic_guide || {};
+  const topic = (ALL_TOPICS || []).find((t) => t.name === s.demand_topic) || {};
+  const terms = topic.terms ? (Array.isArray(topic.terms) ? topic.terms.join(", ") : String(topic.terms)) : "—";
+  const aud = GUARD ? [GUARD.region, GUARD.language, GUARD.audience].filter(Boolean).join(" · ") : "—";
+  const srcs = b.sources || [];
+  const refs = (s.source_refs || []).filter((r) => r && r.url);
+  const pct = (Number(s.score) * 100).toFixed(0);
+  const part = (v, wt) => ((Number(v) || 0) * (Number(wt) || 0)).toFixed(3);
+  const reg = shortReg(s.emotional_register);
+  const step = (n, name, pipe, rows) => `<div class="tstep">
+    <div class="tstep-top"><span class="tstep-n">${n}</span><span class="tstep-name">${name}</span>${pipe ? `<span class="tstep-pipe">${esc(pipe)}</span>` : ""}</div>
+    ${rows.filter(([, v]) => v).map(([l, v]) => `<div class="tstep-row"><span class="tl">${l}</span><span class="tv">${v}</span></div>`).join("")}
+  </div>`;
+  return `<div class="trace">
+    ${step(1, "Hunger — the demand concept", "Trend Spotting", [
+      ["Audience", esc(aud)],
+      ["Concept", esc(s.demand_topic) + (topic.question ? ` — “${esc(topic.question)}”` : "")],
+      ["Why picked", `an active demand concept on the radar${topic.strategic_weight ? ` · strategic weight ${esc(String(topic.strategic_weight))}` : ""}`],
+    ])}
+    ${step(2, "Collect — sweep the feed", "youtube · reddit · news · research", [
+      ["Search terms", esc(terms)],
+      ["Channels", srcs.length ? srcs.map((x) => `<span class="src">${esc(x)}</span>`).join(" ") : `<span class="src src-llm">none live — config fallback</span>`],
+      ["Pulled", refs.length ? `${refs.length} source${refs.length === 1 ? "" : "s"} with links (see step 6)` : "no external items — LLM-only run"],
+    ])}
+    ${step(3, "Classify — route + label", "raydar-classify", [
+      ["Franchise", esc(s.franchise) + (s.one_up ? ` · 1Up ${esc(s.one_up)}` : "")],
+      ["Register", reg ? esc(reg) : "—"],
+      ["Format", esc(s.platform || "—")],
+      ["Gap type", esc(s.gap_type || "—")],
+    ])}
+    ${step(4, "Signals — demand vs supply", "topicSignals()", [
+      ["Demand", `${b.demand ?? 0} audience questions`],
+      ["Supply", `${b.supply ?? 0} existing items`],
+      ["Velocity", `${(Number(b.velocity) || 0).toFixed(2)} · views ÷ day, normalised`],
+      ["Gap", `${(Number(b.gap) || 0).toFixed(2)} · signal <b>${b.live ? "live feed" : "config fallback"}</b>`],
+    ])}
+    ${step(5, "Ideate — the LLM writes the brief", `feedstory-generate · ${esc(s.angle || "core")} angle`, [
+      ["Guardrails", "India / English brief prepended · propose, never assert"],
+      ["Heading", `“${esc(s.heading)}”`],
+      ["Angle taken", g.take ? esc(g.take) : esc(s.summary || "—")],
+      ["Beats", (g.beats || []).length ? `<ul class="tbeats">${g.beats.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""],
+    ])}
+    ${step(6, "Validate — evidence + fact-check", "raydar-contradiction · research APIs", [
+      ["Evidence", esc(s.evidence || "—")],
+      ["Sources cited", refs.length ? refs.map((r) => `<a class="src" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.source || "src")} ↗</a>`).join(" ") : `<span class="src src-llm">none — add research keys to ground with citations</span>`],
+      ["Contradiction", s.contradiction ? `flags a claim against ${esc(s.contradiction_of || "popular belief")} — raised for a human to verify, never asserted` : "none flagged"],
+    ])}
+    ${step(7, "Rank — composite score", "raydar-rank", [
+      ["Weights", w.gap ? `gap ${w.gap} · velocity ${w.velocity} · strategic ${w.strategic} · historical ${w.historical}` : "gap .35 · velocity .25 · strategic .20 · historical .20"],
+      ["Contributions", `gap ${part(b.gap, w.gap ?? .35)} + velocity ${part(b.velocity, w.velocity ?? .25)} + strategic ${part(b.strategic, w.strategic ?? .20)} + historical ${part(b.historical, w.historical ?? .20)}`],
+      ["Composite", `<b>${pct}</b> / 100`],
+    ])}
+  </div>`;
+}
 function leadIdea(s, franchises) {
   const m = angleMeta(s);
   return `<div class="lead">
@@ -402,6 +459,7 @@ function leadIdea(s, franchises) {
     <div class="why-pair">
       <details class="whyx"><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
+      <details class="whyx"><summary><span class="q">e</span> how RayDar built this — step by step</summary>${pipelineTrace(s)}</details>
     </div>
     ${sourcesBox(s)}
     ${ideaActs(s)}
@@ -421,6 +479,7 @@ function altIdea(s, franchises, topicKey) {
       <div class="chips" style="margin:12px 0 0">${ideaChips(s, franchises)}</div>
       <details class="whyx" open><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
+      <details class="whyx"><summary><span class="q">e</span> how RayDar built this — step by step</summary>${pipelineTrace(s)}</details>
       ${sourcesBox(s)}
       ${ideaActs(s)}
     </div>
