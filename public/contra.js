@@ -5,7 +5,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
 const rid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 
-let AREA = "archetypes";
+let AREA = "contracts";
 let SUB = { archetypes: "maker", contracts: "review" };
 let ARCH = null;          // the archetype currently open in the editor
 let EDIT_IN = null;       // "maker" | "library" — where the editor is shown
@@ -33,7 +33,7 @@ async function runWithMeter(hostId, steps, promise) {
 }
 
 function renderNav() {
-  $("#mainnav").innerHTML = [["archetypes", "Archetypes"], ["contracts", "Contracts"]]
+  $("#mainnav").innerHTML = [["contracts", "Contracts"], ["archetypes", "Archetypes"]]
     .map(([k, l]) => `<button class="${AREA === k ? "on" : ""}" onclick="setArea('${k}')">${l}</button>`).join("");
   const reviewN = REVIEWS_LOADED ? REVIEWS.length : null;
   const subs = AREA === "archetypes"
