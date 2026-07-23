@@ -3,10 +3,12 @@
 // SECTIONS → reviewer confirms/amends + tags Required → save as an archetype.
 // Everything persists (draft rows) so you can leave and come back.
 import { readFileSync, rmSync } from "node:fs";
+import { extname } from "node:path";
 import { q } from "./db/client.js";
 import { extractFile } from "./extract.js";
 import { runPipeline } from "./ai.js";
 import { buildReviewDocx } from "./contra-docx.js";
+import { markupDocx } from "./contra-redline.js";
 
 // snap LLM verdict keys onto the archetype's section keys (model-adherence safety)
 function snapKeys(verdicts, keys, labels) {
@@ -254,10 +256,12 @@ export function mountContra(app, upload) {
             .sort((x, y) => y.confidence - x.confidence);
         }
         const top = detected[0];
+        const ext = extname(f.originalname).toLowerCase();
+        const origBuf = ext === ".docx" ? readFileSync(f.path) : null;   // keep .docx for redline markup
         const rrow = (await q(
-          `insert into contra_review(batch_id,contract_name,extract_md,detected,archetype_id,detect_confidence,status)
-           values($1,$2,$3,$4::jsonb,$5,$6,'detected') returning id, contract_name, archetype_id, detect_confidence`,
-          [b.id, f.originalname, text, JSON.stringify(detected), top?.archetype_id || null, top?.confidence || null]
+          `insert into contra_review(batch_id,contract_name,extract_md,detected,archetype_id,detect_confidence,status,original_file,original_ext)
+           values($1,$2,$3,$4::jsonb,$5,$6,'detected',$7,$8) returning id, contract_name, archetype_id, detect_confidence`,
+          [b.id, f.originalname, text, JSON.stringify(detected), top?.archetype_id || null, top?.confidence || null, origBuf, ext]
         )).rows[0];
         reviews.push({ ...rrow, detected });
         try { rmSync(f.path); } catch { /* ignore */ }
@@ -287,7 +291,7 @@ export function mountContra(app, upload) {
       const keys = outlineForPrompt.map((s) => s.key);
       const rout = await runPipeline("contra-review", {
         // caller-side output contract — always applied, immune to any stored-prompt drift
-        system: `Return STRICT JSON only, no prose: {"summary": string, "verdicts": [{"key","verdict","evidence_refs":[],"note"}], "rule_checks": [{"rule","section_key","result","note","refs":[]}], "findings": [{"kind","severity","note","refs":[]}]}. Use ONLY these section keys for verdicts (one per section): ${keys.join(", ")}. verdict ∈ present|non_standard|risky|missing. Emit exactly one rule_check for EVERY rule in the provided list; result ∈ pass|check|breach with the § evidence. findings.kind ∈ contradiction|off_archetype|commercial|unresolved_ref. Cite the § for every claim; never assert a contradiction as fact.`,
+        system: `Return STRICT JSON only, no prose: {"summary": string, "parties": {"a": string, "b": string}, "verdicts": [{"key","verdict","evidence_refs":[],"note"}], "rule_checks": [{"rule","section_key","result","note","refs":[]}], "findings": [{"kind","severity","note","refs":[]}], "redlines": [{"find","replace","reason","ref"}]}. parties = the two contracting parties' names. Use ONLY these section keys for verdicts (one per section): ${keys.join(", ")}. verdict ∈ present|non_standard|risky|missing. Emit exactly one rule_check for EVERY rule in the provided list; result ∈ pass|check|breach with the § evidence. findings.kind ∈ contradiction|off_archetype|commercial|unresolved_ref. redlines = concrete fixes to apply as tracked changes: "find" MUST be a short, EXACT verbatim substring copied from the contract text (so it can be located), "replace" is the corrected text, plus a one-line "reason" and the "ref". Only propose a redline where there is a clear fix (a rule breach or a risky term). Cite the § for every claim; never assert a contradiction as fact.`,
         user: `Contract:\n${(rev.extract_md || "").slice(0, 50000)}\n\nSections to verdict (use these keys):\n${JSON.stringify(outlineForPrompt)}\n\nRules to check (one rule_check each):\n${JSON.stringify(allRules)}`,
         maxTokens: 3000,
       });
@@ -296,19 +300,25 @@ export function mountContra(app, upload) {
       const verdicts = snapKeys(Array.isArray(rp.verdicts) ? rp.verdicts : [], keys, merged.sections.map((s) => s.label));
       const rule_checks = Array.isArray(rp.rule_checks) ? rp.rule_checks : [];
       const findings = Array.isArray(rp.findings) ? rp.findings : [];
+      const redlines = Array.isArray(rp.redlines) ? rp.redlines.filter((r) => r && r.find) : [];
+      const party1 = rp.parties?.a || null, party2 = rp.parties?.b || null;
       const issue_count = verdicts.filter((v) => ["risky", "missing", "non_standard"].includes(v.verdict)).length
         + rule_checks.filter((c) => c.result === "breach" || c.result === "check").length + findings.length;
-      const report = { title: "Contract Review", generated_at: new Date().toISOString(), archetypes: archetypes.map((a) => a.name), summary: rp.summary || "", verdicts, rule_checks, findings, sections: outlineForPrompt };
-      await q(`update contra_review set status='done', verdicts=$2::jsonb, rule_checks=$3::jsonb, findings=$4::jsonb, report=$5::jsonb, issue_count=$6, updated_at=now() where id=$1`,
-        [id, JSON.stringify(verdicts), JSON.stringify(rule_checks), JSON.stringify(findings), JSON.stringify(report), issue_count]);
+      const report = { title: "Contract Review", generated_at: new Date().toISOString(), archetypes: archetypes.map((a) => a.name), parties: { a: party1, b: party2 }, summary: rp.summary || "", verdicts, rule_checks, findings, redlines, sections: outlineForPrompt };
+      await q(`update contra_review set status='done', verdicts=$2::jsonb, rule_checks=$3::jsonb, findings=$4::jsonb, report=$5::jsonb, issue_count=$6, party1=$7, party2=$8, updated_at=now() where id=$1`,
+        [id, JSON.stringify(verdicts), JSON.stringify(rule_checks), JSON.stringify(findings), JSON.stringify(report), issue_count, party1, party2]);
 
-      // timeline (newest-first on read): the review event + one row per finding
+      // timeline (newest-first on read): the review event + one row per finding + redline
       let seq = 0;
       await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning) values($1,$2,'ai','contra-review','review',$3,$4)`,
         [id, seq++, `Reviewed against ${archetypes.map((a) => a.name).join(" + ")}`, String(rp.summary || "").slice(0, 400)]);
       for (const fnd of findings) {
         await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning,refs) values($1,$2,'ai','contra-review',$3,$4,'',$5::jsonb)`,
           [id, seq++, fnd.kind || "finding", String(fnd.note || "").slice(0, 300), JSON.stringify(fnd.refs || [])]);
+      }
+      for (const rl of redlines) {
+        await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning,refs) values($1,$2,'ai','contra-review','redline',$3,$4,$5::jsonb)`,
+          [id, seq++, `“${String(rl.find).slice(0, 80)}” → “${String(rl.replace || "").slice(0, 80)}”`, String(rl.reason || "").slice(0, 240), JSON.stringify(rl.ref ? [rl.ref] : [])]);
       }
       const pend = (await q(`select count(*) c from contra_review where batch_id=$1 and status<>'done'`, [rev.batch_id])).rows[0];
       if (Number(pend.c) === 0) await q(`update contra_batch set status='done' where id=$1`, [rev.batch_id]);
@@ -377,11 +387,20 @@ export function mountContra(app, upload) {
   app.get("/api/contra/review/:id/docx", async (req, res) => {
     const rev = (await q(`select * from contra_review where id=$1`, [Number(req.params.id)])).rows[0];
     if (!rev) return res.status(404).send("not found");
+    const base = String(rev.contract_name || "contract").replace(/\.[^.]+$/, "").replace(/[^a-z0-9]+/gi, "-");
+    const redlines = (rev.report || {}).redlines || [];
     try {
+      // Original .docx + redlines → mark up the client's own file (tracked changes)
+      if (rev.original_ext === ".docx" && rev.original_file && redlines.length) {
+        const { buffer } = await markupDocx(rev.original_file, redlines);
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        res.setHeader("Content-Disposition", `attachment; filename="${base}-MARKED-UP-${rev.id}.docx"`);
+        return res.send(buffer);
+      }
+      // Fallback (PDF/scan or no redlines): the branded report doc
       const buf = await buildReviewDocx(rev);
-      const fname = `Contract-Review-${String(rev.contract_name || "contract").replace(/\.[^.]+$/, "").replace(/[^a-z0-9]+/gi, "-")}-${rev.id}.docx`;
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-      res.setHeader("Content-Disposition", `attachment; filename="${fname}"`);
+      res.setHeader("Content-Disposition", `attachment; filename="Contract-Review-${base}-${rev.id}.docx"`);
       res.send(buf);
     } catch (e) { res.status(500).send(String(e.message || e).slice(0, 200)); }
   });
