@@ -243,60 +243,7 @@ async function loadIdeas() {
 const FR_TAG = ["tag-grn", "tag-cyan", "tag-amber", "tag-mag"];
 const frIndexIn = (fr, name) => Math.max(0, (fr || []).findIndex((f) => f.name === name));
 
-// shared expandable story card — click to reveal the "reason why" (used by Ideas + Library)
-const _STORIES = {};
-function ideaCard(s, i, franchises, opts = {}) {
-  _STORIES[s.id] = s;
-  const g = s.topic_guide || {}, fb = s.feedback, brd = s.score_breakdown || {};
-  const tag = FR_TAG[frIndexIn(franchises, s.franchise) % FR_TAG.length];
-  const w = brd.weights || {};
-  const bar = (label, v) => `<div class="sbar"><span>${label}</span><span class="track2"><span class="fill2" style="width:${Math.round((Number(v) || 0) * 100)}%"></span></span><span>${(Number(v) || 0).toFixed(2)}</span></div>`;
-  return `<article class="card ${fb || ""}" id="card-${s.id}">
-    <div class="cardhead" onclick="toggleCard(${s.id})">
-      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
-        <span class="rank">#${i + 1}<span class="pct">${(Number(s.score) * 100).toFixed(0)}</span></span>
-        <span class="exp" title="Explainable AI — why this was suggested" onclick="event.stopPropagation();explainIdea(${s.id})">e</span>
-        ${s.gap_type ? `<span class="chip tag-cyan" style="cursor:default">${esc(s.gap_type)}</span>` : ""}
-        ${s.contradiction ? `<span class="chip flag" title="pushes against ${esc(s.contradiction_of || "popular belief")}">${ic("bolt")} contradiction</span>` : ""}
-        ${fb ? `<span class="chip ${fb === "used" ? "tag-grn" : fb === "saved" ? "tag-amber" : "tag-mag"}" style="cursor:default">${esc(fb)}</span>` : ""}
-        ${opts.showBatch && s.batch_name ? `<span class="chip" style="cursor:default;margin-left:auto">${ic("box")} ${esc(s.batch_name)}</span>` : ""}
-      </div>
-      <h4>${esc(s.heading)}</h4>
-      <div class="chips">
-        <span class="chip ${tag}">${ic("target")} ${esc(s.franchise)}</span>
-        <span class="chip">${ic("pin")} ${esc(s.demand_topic)}</span>
-        ${s.platform ? `<span class="chip">${ic("monitor")} ${esc(s.platform)}</span>` : ""}
-        ${s.emotional_register ? `<span class="chip">${esc(s.emotional_register)}</span>` : ""}
-      </div>
-      <p class="sum">${esc(s.summary)}</p>
-      <div class="srcrow">sources: ${(brd.sources && brd.sources.length) ? brd.sources.map((sc) => `<span class="src">${esc(sc)}</span>`).join("") : `<span class="src src-llm">LLM only</span>`}</div>
-      <div class="expand">▾ why this ranks — click to expand</div>
-    </div>
-    <div class="reason">
-      <div class="g-l">Topic guide</div>
-      <div style="font-size:12.5px;color:var(--dim)">${esc(g.take || "")}</div>
-      ${(g.beats || []).length ? `<ul style="margin:6px 0 0;padding-left:16px;font-size:12.5px;color:var(--dim);line-height:1.5">${(g.beats || []).map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}
-      <div class="why"><b>Why now:</b> ${esc(s.why_now || "—")}</div>
-      ${s.why_relevant ? `<div class="why"><b>Why relevant:</b> ${esc(s.why_relevant)}</div>` : ""}
-      ${s.why_cohort ? `<div class="why"><b>Why this cohort:</b> ${esc(s.why_cohort)}</div>` : ""}
-      <div class="why"><b>Evidence:</b> ${esc(s.evidence || "—")}</div>
-      ${s.contradiction ? `<div class="why"><b>Contradicts:</b> ${esc(s.contradiction_of || "popular belief")}</div>` : ""}
-      <div class="g-l" style="margin-top:12px">Score breakdown${w.gap ? ` · weights ${w.gap}·${w.velocity}·${w.strategic}·${w.historical}` : ""}</div>
-      ${bar("gap", brd.gap)}${bar("velocity", brd.velocity)}${bar("strategic", brd.strategic)}${bar("historical", brd.historical)}
-      ${brd.live !== undefined ? `<div class="why" style="font-family:var(--mono);font-size:10.5px">signal: ${brd.live ? "live feed" : "config fallback"} · demand ${brd.demand ?? 0} Qs · supply ${brd.supply ?? 0} items</div>` : ""}
-      ${s.source_refs?.length ? `<div class="g-l" style="margin-top:12px">Sources</div><div class="chips">${s.source_refs.slice(0, 6).map((r) => `<a class="chip" href="${esc(r.url)}" target="_blank" rel="noopener">${ic("external")} ${esc(r.source || "src")}</a>`).join("")}</div>` : ""}
-      <div class="acts">
-        <button class="btn small" onclick="idea(${s.id},'used')">${ic("check")} Used</button>
-        <button class="btn small" onclick="idea(${s.id},'saved')">${ic("save")} Save</button>
-        <button class="btn small" onclick="rejectIdea(${s.id})">${ic("x")} Reject</button>
-        <button class="btn small" onclick="editIdea(${s.id},'${esc(s.heading).replace(/'/g, "\\'")}')">${ic("edit")} Edit</button>
-        <label class="build"><input type="checkbox" ${s.selected ? "checked" : ""} onchange="idea(${s.id},'select')"> build</label>
-      </div>
-      ${s.reject_reason ? `<div style="font-family:var(--mono);font-size:10.5px;color:var(--red);margin-top:8px">rejected: ${esc(s.reject_reason)}</div>` : ""}
-    </div>
-  </article>`;
-}
-window.toggleCard = (id) => { document.getElementById(`card-${id}`)?.classList.toggle("open"); };
+const _STORIES = {};   // id → story cache, shared by story boards / explain / copy
 
 // Trend Spotting report — sits above the article titles; aggregates the sweep:
 // which trends, which audience, what's being discussed, signals, sources.
@@ -617,6 +564,26 @@ async function renderBatchPick() {
 }
 
 // ---- Library view ----------------------------------------------------------
+// Library reuses the EXACT Ideas story-board styling — one rich board per story
+// (deliverable box · why-chips · pipeline trace · sources), plus its batch tag.
+function libraryBoard(s, i, franchises) {
+  _STORIES[s.id] = s;
+  const fb = s.feedback;
+  return `<article class="board ${fb || ""}" id="board-lib-${s.id}">
+    <div class="board-top">
+      <span class="board-rank">#${i + 1}<span class="pct">${(Number(s.score) * 100).toFixed(0)}</span></span>
+      <span class="exp" title="Explainable AI — the maths behind this idea" onclick="explainIdea(${s.id})">e</span>
+      ${s.gap_type ? `<span class="chip tag-cyan" style="cursor:default">${esc(s.gap_type)}</span>` : ""}
+      ${s.contradiction ? `<span class="chip flag" style="cursor:default">${ic("bolt")} contradiction</span>` : ""}
+      ${fb ? `<span class="chip ${fb === "used" ? "tag-grn" : fb === "saved" ? "tag-amber" : "tag-mag"}" style="cursor:default">${esc(fb)}</span>` : ""}
+      ${s.batch_name ? `<span class="chip" style="cursor:default;margin-left:auto">${ic("box")} ${esc(s.batch_name)}</span>` : ""}
+    </div>
+    <h3 class="board-q">${esc(s.demand_topic)}</h3>
+    <p class="board-sum"><span class="lede">Summary</span>${esc(s.summary || "")}</p>
+    <div class="lead-label">${esc(s.angle || "core")} angle</div>
+    ${leadIdea(s, franchises)}
+  </article>`;
+}
 let LIB_FR = "all", LIB_FB = "all";
 async function loadLibrary() {
   const qs = new URLSearchParams(); if (LIB_FR !== "all") qs.set("franchise", LIB_FR); if (LIB_FB !== "all") qs.set("feedback", LIB_FB);
@@ -629,7 +596,7 @@ async function loadLibrary() {
       <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${stories.length} stories</span>
     </div>`;
   $("#view-library").innerHTML = `<p class="intro"><b>LIBRARY</b> — every idea ever generated, across all batches. Click a story to expand the reasoning.</p>` +
-    filters + (stories.length ? `<div class="grid">${stories.map((s, i) => ideaCard(s, i, FRANCHISES, { showBatch: true })).join("")}</div>` : `<div class="empty">// nothing here //</div>`);
+    filters + (stories.length ? `<div class="boards">${stories.map((s, i) => libraryBoard(s, i, FRANCHISES)).join("")}</div>` : `<div class="empty">// nothing here //</div>`);
 }
 window.setLibFR = (v) => { LIB_FR = v; loadLibrary(); };
 window.setLibFB = (v) => { LIB_FB = v; loadLibrary(); };
