@@ -10,6 +10,7 @@ export function stubOps() {
   const A = (name, role, blurb, href, status) => ({ name, role, blurb, href: href || "", status });
   return [
     A("RayDar", "Talent Trend Radar", "Tells you what to publish each month — matches who talent are (TalentMind chips → Hunger) with what's trending (YouTube + Reddit + SEO), gap-analyses it, and produces ranked content ideas routed to the right 1Up franchise. Journey 1 live on mock.", "/whisperer.html", "live"),
+    A("Contra", "Contract Review", "Teach it a contract type once, then it reviews new contracts against it — reads each one (Munshi3 vision-OCR), checks your plain-English rules, flags contradictions and off-standard clauses, and marks up the document with a full audit trail.", "/contra.html", "live"),
     A("Mint", "AR Reconciler", "Reads your contracts + employee list, rebuilds every invoice (TA + OSS) from the contract's own rules, and explains each number with a clause-backed, replayable trail.", "/mint.html", "live"),
     A("Atlas", "Contract Archetypes", "Fingerprints every contract by its billing physiology and groups them into reusable archetypes — each new contract auto-routes to a known pattern that pre-loads its rule book, inputs and playbook.", "/atlas.html", "live"),
     A("Sift", "Roster Normalizer", "Cleans messy employee data — sources, roles, statuses, dates, CTC, currency — and learns your labels so next month is zero-touch.", "", "coming"),
