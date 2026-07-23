@@ -28,7 +28,8 @@ async function loadArches() {
 // ---- Archetype Maker -------------------------------------------------------
 function renderMaker() {
   const host = $("#view-maker");
-  const drop = `<div class="drop" id="drop" onclick="$('#file').click()">
+  const drop = `<div class="drop" id="drop" onclick="document.getElementById('file').click()"
+        ondragover="dzOver(event)" ondragenter="dzOver(event)" ondragleave="dzLeave(event)" ondrop="dzDrop(event)">
       <span class="ic">⤒</span>
       <div><div class="t">Drop a sample contract to learn its type</div>
         <div class="s">PDF or DOCX · read by Munshi (atomize → clause-chips) · OCR fallback for scans → Contra proposes the sections to review</div></div>
@@ -84,6 +85,11 @@ function archLibrary() {
   return `<div class="sec-head" style="margin-top:34px"><h3>Saved archetypes</h3></div>`
     + (ARCHES.length ? rows : `<div class="empty">// no archetypes yet — upload a sample above //</div>`);
 }
+
+// drag & drop onto the box
+window.dzOver = (e) => { e.preventDefault(); e.dataTransfer && (e.dataTransfer.dropEffect = "copy"); e.currentTarget.classList.add("over"); };
+window.dzLeave = (e) => { e.currentTarget.classList.remove("over"); };
+window.dzDrop = (e) => { e.preventDefault(); e.currentTarget.classList.remove("over"); const f = e.dataTransfer?.files?.[0]; if (f) uploadSample(f); };
 
 window.uploadSample = async (file) => {
   if (!file) return;
