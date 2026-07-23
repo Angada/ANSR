@@ -33,12 +33,12 @@ async function runWithMeter(hostId, steps, promise) {
 }
 
 function renderNav() {
-  const saved = ARCHES.filter((a) => a.status === "saved").length;
   $("#mainnav").innerHTML = [["archetypes", "Archetypes"], ["contracts", "Contracts"]]
     .map(([k, l]) => `<button class="${AREA === k ? "on" : ""}" onclick="setArea('${k}')">${l}</button>`).join("");
+  const reviewN = REVIEWS_LOADED ? REVIEWS.length : null;
   const subs = AREA === "archetypes"
-    ? [["maker", "Archetype Maker", ARCHES.length], ["library", "Archetype Library", ARCHES.length]]
-    : [["review", "Review", saved], ["reviewed", "Reviewed", 0]];
+    ? [["maker", "Maker", null], ["library", "Library", ARCHES.length]]
+    : [["review", "Review", null], ["reviewed", "Reviewed", reviewN]];
   $("#subnav").innerHTML = subs.map(([k, l, n]) => `<button class="${SUB[AREA] === k ? "on" : ""}" onclick="setSub('${k}')">${l}${n ? `<span class="count">${n}</span>` : ""}</button>`).join("");
 }
 window.setArea = (a) => { AREA = a; setSub(SUB[a]); };
@@ -48,6 +48,7 @@ function rerenderEditor(focusI) { (EDIT_IN === "library" ? renderLibrary : rende
 
 async function init() {
   await loadArches();
+  fetch("/api/contra/reviews").then((r) => r.json()).then((j) => { REVIEWS = j.reviews || []; REVIEWS_LOADED = true; renderNav(); }).catch(() => {});
   renderNav();
   Object.values(VIEWS).forEach((v) => ($(v).hidden = true));
   $(VIEWS[SUB[AREA]]).hidden = false;
