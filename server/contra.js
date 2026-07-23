@@ -6,6 +6,22 @@ import { readFileSync, rmSync } from "node:fs";
 import { q } from "./db/client.js";
 import { extractFile } from "./extract.js";
 import { runPipeline } from "./ai.js";
+import { buildReviewDocx } from "./contra-docx.js";
+
+// snap LLM verdict keys onto the archetype's section keys (model-adherence safety)
+function snapKeys(verdicts, keys, labels) {
+  const set = new Set(keys);
+  const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const byNorm = {}; keys.forEach((k, i) => { byNorm[norm(k)] = k; byNorm[norm(labels[i])] = k; });
+  return (verdicts || []).map((v) => {
+    if (set.has(v.key)) return v;
+    const n = norm(v.key);
+    if (byNorm[n]) return { ...v, key: byNorm[n] };
+    const hit = keys.find((k, i) => norm(k).includes(n) || n.includes(norm(k)) || norm(labels[i]).includes(n) || n.includes(norm(labels[i])));
+    return hit ? { ...v, key: hit } : v;
+  });
+}
+const nextSeq = async (id) => Number((await q(`select coalesce(max(seq),-1)+1 s from contra_change where review_id=$1`, [id])).rows[0].s);
 
 const slugify = (s) => String(s || "archetype").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 48);
 const stamp = () => new Date().toISOString().slice(0, 16).replace("T", "·").replace(/:/g, "");
@@ -259,7 +275,7 @@ export function mountContra(app, upload) {
       });
       await logRun(rout, { ref_type: "review", ref_id: id, rules_applied: merged.sections.flatMap((s) => s.rules.map((r) => r.text)), input: rev.contract_name, output: "review" });
       const rp = jparse(rout.text) || {};
-      const verdicts = Array.isArray(rp.verdicts) ? rp.verdicts : [];
+      const verdicts = snapKeys(Array.isArray(rp.verdicts) ? rp.verdicts : [], keys, merged.sections.map((s) => s.label));
       const rule_checks = Array.isArray(rp.rule_checks) ? rp.rule_checks : [];
       const findings = Array.isArray(rp.findings) ? rp.findings : [];
       const issue_count = verdicts.filter((v) => ["risky", "missing", "non_standard"].includes(v.verdict)).length
@@ -303,5 +319,52 @@ export function mountContra(app, upload) {
   app.delete("/api/contra/batch/:id", async (req, res) => {
     await q(`delete from contra_batch where id=$1`, [Number(req.params.id)]); // cascades reviews + changes
     res.json({ ok: true });
+  });
+
+  // Ask Contract — grounded Q&A on the reviewed contract; logged to the timeline.
+  app.post("/api/contra/review/:id/ask", async (req, res) => {
+    const id = Number(req.params.id);
+    const { question, box_key } = req.body || {};
+    if (!question) return res.status(400).json({ error: "no question" });
+    const rev = (await q(`select * from contra_review where id=$1`, [id])).rows[0];
+    if (!rev) return res.status(404).json({ error: "not found" });
+    try {
+      const out = await runPipeline("contra-ask", {
+        system: `Answer ONLY from the contract below. Cite the § for every claim; combine several §§ when they interact. Be concise and practical.\n\nContract:\n${(rev.extract_md || "").slice(0, 50000)}`,
+        user: `${question}${box_key ? `\n(focus on the "${box_key}" section)` : ""}`,
+        maxTokens: 900,
+      });
+      await logRun(out, { ref_type: "review", ref_id: id, input: question, output: "ask" });
+      const answer = out.mode === "ai" ? out.text : "(no answer — add a keyed model in AI Skills & Pipelines)";
+      const seq = await nextSeq(id);
+      await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning) values($1,$2,'ai','contra-ask','qa',$3,$4)`,
+        [id, seq, `Q: ${String(question).slice(0, 220)}${box_key ? ` (${box_key})` : ""}`, String(answer).slice(0, 1500)]);
+      res.json({ answer });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
+  });
+
+  // Human action on a box (accept / reject / comment) → remembered on the timeline.
+  app.post("/api/contra/review/:id/act", async (req, res) => {
+    const id = Number(req.params.id);
+    const { kind, box_key, body, by } = req.body || {};
+    if (!["accept", "reject", "comment"].includes(kind)) return res.status(400).json({ error: "bad kind" });
+    const seq = await nextSeq(id);
+    const label = kind === "accept" ? `Accepted · ${box_key || "review"}` : kind === "reject" ? `Rejected · ${box_key || "review"}` : `Comment · ${box_key || "whole contract"}`;
+    await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning) values($1,$2,'human',$3,$4,$5,$6)`,
+      [id, seq, String(by || "you").slice(0, 40), kind, label, String(body || "").slice(0, 500)]);
+    res.json({ ok: true });
+  });
+
+  // Branded Word (.docx) export of the review.
+  app.get("/api/contra/review/:id/docx", async (req, res) => {
+    const rev = (await q(`select * from contra_review where id=$1`, [Number(req.params.id)])).rows[0];
+    if (!rev) return res.status(404).send("not found");
+    try {
+      const buf = await buildReviewDocx(rev);
+      const fname = `Contract-Review-${String(rev.contract_name || "contract").replace(/\.[^.]+$/, "").replace(/[^a-z0-9]+/gi, "-")}-${rev.id}.docx`;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+      res.setHeader("Content-Disposition", `attachment; filename="${fname}"`);
+      res.send(buf);
+    } catch (e) { res.status(500).send(String(e.message || e).slice(0, 200)); }
   });
 }

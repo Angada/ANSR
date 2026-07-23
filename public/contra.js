@@ -14,6 +14,7 @@ let BATCH = null;         // current review batch { batch, reviews:[...] }
 let CFILES = [];          // dropped File objects, index-aligned with BATCH.reviews
 let RVOPEN = null;        // opened reviewed contract { review, changes }
 let RVTAB = "report";     // report | timeline
+let ASK_LAST = null, ASK_BOXKEY = null;   // Ask Contract: last Q&A + focused box
 const VIEWS = { maker: "#view-maker", library: "#view-library", review: "#view-review", reviewed: "#view-reviewed" };
 function meterHtml(msg) { return `<div class="meter"><div class="now"><img class="potspin" src="/brand/assets/logos/pot.png" alt="">${esc(msg)}</div><div class="track"><div class="fill indet"></div></div></div>`; }
 
@@ -264,6 +265,7 @@ function renderReviewed() {
   const tabs = `<div class="rvtabs">
       <span class="rvtab ${RVTAB === "report" ? "on" : ""}" onclick="setRvTab('report')">Legal report</span>
       <span class="rvtab ${RVTAB === "timeline" ? "on" : ""}" onclick="setRvTab('timeline')">Timeline</span>
+      <span class="rvtab" onclick="downloadDocx(${RVOPEN.review.id})">⤓ Word (.docx)</span>
       <span class="backlnk" style="margin-left:auto;margin-bottom:0" onclick="closeReviewed()">‹ back to review</span></div>`;
   host.innerHTML = tabs + (RVTAB === "report" ? reportView(RVOPEN.review) : timelineView(RVOPEN.changes || []));
 }
@@ -282,19 +284,52 @@ function reportView(r) {
   const verdicts = rep.verdicts || [], checks = rep.rule_checks || [], findings = rep.findings || [];
   const rc = checks.length ? `<div class="rlbl">Your rule checks</div>${checks.map((c) => `<div class="rcheck rc-${c.result || "check"}"><span class="rcbadge" style="color:${c.result === "breach" ? "#C0392B" : c.result === "pass" ? "#2E7D4F" : "#8a6d1f"}">${String(c.result || "check").toUpperCase()}</span><span>${esc(c.rule || c.section_key || "")} — ${esc(c.note || c.found || "")} ${refs(c.refs)}</span></div>`).join("")}` : "";
   const fnd = findings.length ? `<div class="fband"><div style="font-weight:700;font-size:13.5px;color:#8a5410;margin-bottom:9px">⚠ Whole-contract findings</div>${findings.map((f) => `<div class="fitem"><b style="color:#141414">${esc(String(f.kind || "finding").replace(/_/g, " "))}</b> — ${esc(f.note || "")} ${refs(f.refs)}</div>`).join("")}</div>` : "";
-  const boxes = verdicts.length ? `<div class="rlbl" style="margin-top:14px">Section review</div><div class="grid">${verdicts.map((v) => `<div class="rbox"><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:600;font-size:14px">${esc(String(v.key || "").replace(/_/g, " "))}</span><span class="vchip ${VCLASS[v.verdict] || "v-non_standard"}" style="margin-left:auto">${String(v.verdict || "").replace(/_/g, " ").toUpperCase()}</span></div><div class="q">${esc(v.note || "—")} ${refs(v.evidence_refs)}</div></div>`).join("")}</div>` : "";
+  const boxes = verdicts.length ? `<div class="rlbl" style="margin-top:14px">Section review</div><div class="grid">${verdicts.map((v) => `<div class="rbox"><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:600;font-size:14px">${esc(String(v.key || "").replace(/_/g, " "))}</span><span class="vchip ${VCLASS[v.verdict] || "v-non_standard"}" style="margin-left:auto">${String(v.verdict || "").replace(/_/g, " ").toUpperCase()}</span></div><div class="q">${esc(v.note || "—")} ${refs(v.evidence_refs)}</div>
+      <div class="rbox-acts"><button class="lnk" onclick="actBox(${r.id},'accept','${esc(v.key)}')">✓ Accept</button><button class="lnk" onclick="askBox('${esc(v.key)}')">✦ Ask</button><button class="lnk" onclick="commentBox(${r.id},'${esc(v.key)}')">💬 Comment</button></div></div>`).join("")}</div>` : "";
   const summary = rep.summary ? `<div class="rlbl">Summary</div><p style="margin:0 0 16px;font-size:13.5px;color:var(--dim);line-height:1.6">${esc(rep.summary)}</p>` : "";
+  const ask = `<div class="askbox">
+      <div class="askbox-h">✦ Ask Contract <span class="askbox-s">grounded in the clauses · cites the §§ · saved to the timeline</span></div>
+      ${ASK_LAST ? `<div class="askbox-a"><div class="askbox-q">${esc(ASK_LAST.q)}${ASK_LAST.box_key ? ` · ${esc(ASK_LAST.box_key)}` : ""}</div><div class="askbox-ans">${esc(ASK_LAST.a)}</div></div>` : ""}
+      <div class="askbox-in"><input id="askin" placeholder="ask anything about this contract…" onkeydown="askKey(event)"><button class="btn btn--org small" onclick="doAsk()">Ask ▸</button></div></div>`;
   return `<div class="report-doc"><div class="rd-head"><div class="rd-emb">Q</div>
       <div style="flex:1"><div class="rd-title">Contract Review</div>
         <div class="rd-ref">Ref: ${esc(r.contract_name)} · ${esc((rep.archetypes || []).join(" + "))} · ${new Date(rep.generated_at || Date.now()).toLocaleDateString()} · contra-review</div></div>
       ${r.issue_count ? `<span class="chip" style="color:var(--red);background:#FBECEB;border-color:#F0CFCF">${r.issue_count} issues</span>` : `<span class="chip saved">clean</span>`}</div>
-    <div style="padding:16px 24px 22px">${summary}${rc}${fnd}${boxes}
+    <div style="padding:16px 24px 22px">${ask}${summary}${rc}${fnd}${boxes}
       <div style="margin-top:18px;padding-top:12px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;color:#A79F93;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><span>Prepared by Contra</span><span>an AI product by The Kettle Black</span></div>
     </div></div>`;
 }
+window.askKey = (e) => { if (e.key === "Enter") { e.preventDefault(); doAsk(); } };
+window.askBox = (key) => { ASK_BOXKEY = key; const el = document.getElementById("askin"); if (el) { el.focus(); el.placeholder = `ask about the "${key}" section…`; } };
+window.doAsk = async () => {
+  const el = document.getElementById("askin"); const qtext = (el?.value || "").trim(); if (!qtext) return;
+  const id = RVOPEN.review.id; el.disabled = true; el.value = "asking…";
+  try {
+    const r = await fetch(`/api/contra/review/${id}/ask`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: qtext, box_key: ASK_BOXKEY }) });
+    const j = await r.json();
+    if (!r.ok) { el.disabled = false; el.value = qtext; return rdAlert("Ask failed", j.error || ""); }
+    ASK_LAST = { q: qtext, a: j.answer, box_key: ASK_BOXKEY }; ASK_BOXKEY = null;
+    RVOPEN = await (await fetch(`/api/contra/review/${id}`)).json();
+    renderReviewed(); setTimeout(() => document.getElementById("askin")?.focus(), 60);
+  } catch (e) { el.disabled = false; el.value = qtext; rdAlert("Ask failed", String(e.message || e)); }
+};
+window.actBox = async (id, kind, key) => {
+  await fetch(`/api/contra/review/${id}/act`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind, box_key: key }) });
+  RVOPEN = await (await fetch(`/api/contra/review/${id}`)).json(); renderReviewed();
+};
+window.commentBox = (id, key) => rdForm(`Comment · ${key}`, [{ k: "body", label: "Your comment", ph: "e.g. check with legal on this" }], async (o) => {
+  if (!o.body) return;
+  await fetch(`/api/contra/review/${id}/act`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "comment", box_key: key, body: o.body }) });
+  RVOPEN = await (await fetch(`/api/contra/review/${id}`)).json(); renderReviewed();
+});
+window.downloadDocx = (id) => window.open(`/api/contra/review/${id}/docx`, "_blank");
 function timelineView(changes) {
   if (!changes.length) return `<div class="empty">// no timeline yet //</div>`;
-  return `<div class="tl">${changes.map((c) => {
+  const ai = changes.filter((c) => c.actor_type === "ai").length;
+  const human = changes.filter((c) => c.actor_type === "human").length;
+  const qa = changes.filter((c) => c.kind === "qa").length;
+  const summary = `<div class="tl-summary">${changes.length} events · ${ai} by AI · ${human} by you${qa ? ` · ${qa} Q&A` : ""} — remembered on this contract</div>`;
+  return summary + `<div class="tl">${changes.map((c) => {
     const ai = c.actor_type === "ai";
     return `<div class="tl-item tl-${ai ? "ai" : "human"}"><span class="tl-dot"></span>
       <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><span class="tl-badge" style="color:${ai ? "#6b3fa0" : "#005465"};background:${ai ? "#F1EBFA" : "#E6EEF0"};border:1px solid ${ai ? "#DDCCF3" : "#cde"}">${ai ? "✦ AI" : "👤 Human"} · ${esc(c.actor_id || "")}</span><span style="font-size:13px;font-weight:600">${esc(String(c.kind || "").replace(/_/g, " "))}</span></div>
