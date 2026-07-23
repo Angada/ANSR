@@ -61,7 +61,18 @@ function sectionEditor() {
   const req = ARCH.sections.filter((s) => s.required).length;
   const grules = (ARCH.global_rules || []).map((r) => `<span class="rchip">${esc(r.text)}<a class="x" onclick="delGRule('${r.id}')">×</a></span>`).join("");
   const saved = ARCH.status === "saved";
-  return `<div class="sec-head"><h3>Review outline</h3>
+  const vers = ARCH.versions || [];
+  const verDrop = (saved && vers.length) ? `<label class="metalbl" style="width:auto;padding-top:0">View version</label>
+      <select id="verpick" onchange="loadVersion(this.value)">${vers.map((v) => `<option value="${v.version}" ${v.version === (ARCH._viewing || ARCH.version) ? "selected" : ""}>v${v.version}${v.version === ARCH.version ? " · current" : ""} · ${new Date(v.created_at).toLocaleDateString()}</option>`).join("")}</select>` : "";
+  const meta = `<div class="arch-meta">
+      <div class="arch-meta-row"><label class="metalbl">Name</label><input id="archname" value="${esc(ARCH.name)}" oninput="onName(this.value)" placeholder="e.g. MSA — India GCC"></div>
+      <div class="arch-meta-row"><label class="metalbl">Description</label><textarea id="archdesc" rows="2" oninput="onDesc(this.value)" placeholder="What this contract type is for — with examples (e.g. master services for GCC build-and-operate; Acme, Northwind).">${esc(ARCH.description || "")}</textarea></div>
+      <div class="arch-meta-row2">
+        <span class="metastamp">${saved ? `${vers.length ? `Version <b>v${ARCH.version}</b> · ` : ""}created ${ARCH.created_at ? new Date(ARCH.created_at).toLocaleDateString() : "—"}` : "draft · not yet saved"}</span>
+        ${ARCH._viewing ? `<span class="viewnote">viewing v${ARCH._viewing} — Save to restore it as v${(ARCH.version || 1) + 1}</span>` : ""}
+        <span style="margin-left:auto;display:flex;align-items:center;gap:8px">${verDrop}</span>
+      </div></div>`;
+  return meta + `<div class="sec-head"><h3>Review outline</h3>
       <span class="chip">${ARCH.sections.length} sections · <b style="color:var(--org)">${req} required</b></span>
       <button class="btn small" onclick="addSection()" style="margin-left:auto">+ Add section</button></div>
     <div class="grid">${secs}</div>
@@ -69,13 +80,22 @@ function sectionEditor() {
       <div class="rchips">${grules || '<span class="rnone">none — add whole-contract rules like “governing law must be Bangalore”</span>'}</div>
       <input class="rinput" id="grinput" placeholder="add a whole-contract rule, then press Enter…" onkeydown="grKey(event)"></div>
     <div class="savebar">
-      <span style="font-weight:600">Archetype</span>
-      <input id="archname" value="${esc(ARCH.name)}" oninput="onName(this.value)" placeholder="e.g. MSA — India GCC">
-      <span class="stampnote">${saved ? "saved · edits autosave" : "timestamp auto-suffixed on save"}</span>
-      <button class="btn btn--primary" style="margin-left:auto" onclick="saveArchetype()">${saved ? "Save changes ▸" : "Save archetype ▸"}</button>
+      <span style="font-weight:600">${saved ? "Save changes" : "Save archetype"}</span>
+      <span class="stampnote">${saved ? "each save is snapshotted as a new version" : "timestamp auto-suffixed on save"}</span>
+      <button class="btn btn--primary" style="margin-left:auto" onclick="saveArchetype()">${saved ? `Save as v${(ARCH.version || 1) + 1} ▸` : "Save archetype ▸"}</button>
       <button class="btn" onclick="${saved ? "closeEditor()" : "discardDraft()"}">${saved ? "Close" : "Discard"}</button>
     </div>`;
 }
+window.onDesc = (v) => { ARCH.description = v; };
+window.loadVersion = async (v) => {
+  v = Number(v);
+  if (v === ARCH.version && !ARCH._viewing) return;
+  const j = await (await fetch(`/api/contra/archetype/${ARCH.id}/version/${v}`)).json();
+  const s = j.version || {};
+  ARCH.name = s.name || ARCH.name; ARCH.description = s.description || ""; ARCH.sections = s.review_outline || []; ARCH.global_rules = s.global_rules || [];
+  ARCH._viewing = (v !== ARCH.version) ? v : null;
+  rerenderEditor();
+};
 
 // rules — type + Enter → chip (multiple per section, removable)
 window.ruleKey = (e, i) => { if (e.key === "Enter") { e.preventDefault(); const v = e.target.value.trim(); if (v) addRule(i, v); } };
@@ -98,18 +118,18 @@ window.amendSection = (i) => { const s = ARCH.sections[i]; rdForm("Amend section
 async function saveDraft() {
   if (!ARCH?.id) return;
   ARCH.sections.forEach((s, i) => (s.order = i));
-  try { await fetch(`/api/contra/archetype/${ARCH.id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: ARCH.name, review_outline: ARCH.sections, global_rules: ARCH.global_rules || [], save: false }) }); } catch { /* keep local */ }
+  try { await fetch(`/api/contra/archetype/${ARCH.id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: ARCH.name, description: ARCH.description || "", review_outline: ARCH.sections, global_rules: ARCH.global_rules || [], save: false }) }); } catch { /* keep local */ }
 }
 window.saveArchetype = async () => {
   if (!ARCH?.id) return;
   if (!ARCH.name?.trim()) return rdAlert("Name it first", "Give the archetype a name so Review can detect against it.");
   if (!ARCH.sections.some((s) => s.required)) return rdAlert("Mark at least one required", "Tag the sections that matter as Required.");
   ARCH.sections.forEach((s, i) => (s.order = i));
-  const r = await fetch(`/api/contra/archetype/${ARCH.id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: ARCH.name, review_outline: ARCH.sections, global_rules: ARCH.global_rules || [], save: true }) });
+  const r = await fetch(`/api/contra/archetype/${ARCH.id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: ARCH.name, description: ARCH.description || "", review_outline: ARCH.sections, global_rules: ARCH.global_rules || [], save: true }) });
   const j = await r.json();
   if (!r.ok) return rdAlert("Save failed", j.error || "");
   ARCH = null; EDIT_IN = null; await loadArches(); renderNav(); renderView(SUB[AREA]);
-  rdAlert("Archetype saved", `“${esc(j.archetype.slug || j.archetype.name)}” is in your library and ready for Review.`);
+  rdAlert("Archetype saved", `“${esc(j.archetype.name)}” saved as v${j.archetype.version} — in your library and ready for Review.`);
 };
 window.closeEditor = () => { ARCH = null; EDIT_IN = null; renderNav(); renderView(SUB[AREA]); };
 window.discardDraft = () => rdConfirm("Discard this draft?", "The proposed outline will be deleted.", async () => { if (ARCH?.id) await fetch(`/api/contra/archetype/${ARCH.id}`, { method: "DELETE" }); ARCH = null; EDIT_IN = null; await loadArches(); renderNav(); renderView(SUB[AREA]); });
@@ -155,10 +175,13 @@ function renderLibrary() {
     return;
   }
   const rows = ARCHES.map((a) => `<div class="arch-row">
-      <span class="an">${esc(a.name)}</span>
+      <div style="flex:1;min-width:180px">
+        <div class="an">${esc(a.name)}${a.status === "saved" ? `<span class="vtag">v${a.version || 1}</span>` : ""}</div>
+        ${a.description ? `<div class="adesc">${esc(a.description)}</div>` : ""}
+      </div>
       <span class="chip ${a.status}">${a.status}</span>
       <span class="am">${a.sections} sections</span>
-      <span class="am">${a.source_doc ? esc(a.source_doc) : ""}</span>
+      <span class="am">${a.created_at ? new Date(a.created_at).toLocaleDateString() : ""}</span>
       <button class="btn small" onclick="editArch(${a.id})">Open &amp; add rules</button>
       <button class="btn small" onclick="delArch(${a.id},'${esc(a.name).replace(/'/g, "\\'")}')">✕</button>
     </div>`).join("");
@@ -166,8 +189,9 @@ function renderLibrary() {
     + (ARCHES.length ? rows : `<div class="empty">// no archetypes yet — make one in the Archetype Maker //</div>`);
 }
 window.editArch = async (id) => {
-  const a = (await (await fetch(`/api/contra/archetype/${id}`)).json()).archetype;
-  ARCH = { id: a.id, name: a.name, status: a.status, sections: a.review_outline || [], global_rules: a.global_rules || [] };
+  const j = await (await fetch(`/api/contra/archetype/${id}`)).json();
+  const a = j.archetype;
+  ARCH = { id: a.id, name: a.name, status: a.status, description: a.description || "", version: a.version || 1, versions: j.versions || [], created_at: a.created_at, _viewing: null, sections: a.review_outline || [], global_rules: a.global_rules || [] };
   EDIT_IN = "library"; renderLibrary(); window.scrollTo({ top: 0, behavior: "smooth" });
 };
 window.delArch = (id, name) => rdConfirm("Delete archetype?", `“${name}” will be removed.`, async () => { await fetch(`/api/contra/archetype/${id}`, { method: "DELETE" }); if (ARCH?.id === id) { ARCH = null; EDIT_IN = null; } await loadArches(); renderNav(); renderView(SUB[AREA]); });

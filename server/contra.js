@@ -136,7 +136,7 @@ export function mountContra(app, upload) {
   // List archetypes (saved first, then drafts) — for the library + detect.
   app.get("/api/contra/archetypes", async (_req, res) => {
     const { rows } = await q(
-      `select id, name, slug, status, jsonb_array_length(review_outline) as sections,
+      `select id, name, slug, status, description, version, jsonb_array_length(review_outline) as sections,
               source_doc, created_at, updated_at
          from contra_archetype order by (status='saved') desc, updated_at desc`
     );
@@ -144,42 +144,60 @@ export function mountContra(app, upload) {
   });
 
   app.get("/api/contra/archetype/:id", async (req, res) => {
-    const { rows } = await q(`select * from contra_archetype where id=$1`, [Number(req.params.id)]);
+    const id = Number(req.params.id);
+    const { rows } = await q(`select * from contra_archetype where id=$1`, [id]);
     if (!rows[0]) return res.status(404).json({ error: "not found" });
-    res.json({ archetype: rows[0] });
+    const versions = (await q(`select version, name, created_at from contra_archetype_version where archetype_id=$1 order by version desc`, [id])).rows;
+    res.json({ archetype: rows[0], versions });
+  });
+
+  // A specific past version snapshot (for the v1 · v2 · v3 dropdown).
+  app.get("/api/contra/archetype/:id/version/:v", async (req, res) => {
+    const { rows } = await q(`select * from contra_archetype_version where archetype_id=$1 and version=$2`, [Number(req.params.id), Number(req.params.v)]);
+    if (!rows[0]) return res.status(404).json({ error: "not found" });
+    res.json({ version: rows[0] });
   });
 
   // Save/confirm an archetype: persist the edited outline + Required flags, name
   // it, and (on save) stamp the slug with a timestamp suffix + build the signature.
   app.post("/api/contra/archetype/:id", async (req, res) => {
     const id = Number(req.params.id);
-    const { name, review_outline, global_rules, save } = req.body || {};
+    const { name, description, review_outline, global_rules, save } = req.body || {};
     const outline = review_outline ? toOutline(review_outline) : null;
     const gRules = global_rules ? normRules(global_rules) : null;
     const signature = outline
       ? { keys: outline.filter((s) => s.required).map((s) => s.key), labels: outline.map((s) => s.label) }
       : null;
-    // status only advances on explicit save; autosaves keep the current status
-    // (so editing a saved archetype's rules doesn't downgrade it to draft).
+    const cur = (await q(`select status, version from contra_archetype where id=$1`, [id])).rows[0];
+    if (!cur) return res.status(404).json({ error: "not found" });
+    // status only advances on explicit save; autosaves keep it. A save of an
+    // already-saved archetype bumps the version and snapshots it (v1, v2, …).
     const status = save ? "saved" : null;
     const slug = save && name ? `${slugify(name)}-${stamp()}` : null;
+    const newVersion = save ? (cur.status === "saved" ? (cur.version || 1) + 1 : 1) : null;
 
     const { rows } = await q(
       `update contra_archetype set
          name = coalesce($2, name),
-         review_outline = coalesce($3::jsonb, review_outline),
-         global_rules = coalesce($4::jsonb, global_rules),
-         detect_signature = coalesce($5::jsonb, detect_signature),
-         status = coalesce($6, status),
-         slug = coalesce(slug, $7),
+         description = coalesce($3, description),
+         review_outline = coalesce($4::jsonb, review_outline),
+         global_rules = coalesce($5::jsonb, global_rules),
+         detect_signature = coalesce($6::jsonb, detect_signature),
+         status = coalesce($7, status),
+         slug = coalesce(slug, $8),
+         version = coalesce($9, version),
          updated_at = now()
        where id=$1
-       returning id, name, slug, status, review_outline, global_rules, updated_at`,
-      [id, name || null, outline ? JSON.stringify(outline) : null, gRules ? JSON.stringify(gRules) : null,
-       signature ? JSON.stringify(signature) : null, status, slug]
+       returning id, name, slug, status, description, version, review_outline, global_rules, created_at, updated_at`,
+      [id, name || null, description ?? null, outline ? JSON.stringify(outline) : null, gRules ? JSON.stringify(gRules) : null,
+       signature ? JSON.stringify(signature) : null, status, slug, newVersion]
     );
-    if (!rows[0]) return res.status(404).json({ error: "not found" });
-    res.json({ archetype: rows[0] });
+    const a = rows[0];
+    if (save) {
+      await q(`insert into contra_archetype_version(archetype_id,version,name,description,review_outline,global_rules) values($1,$2,$3,$4,$5::jsonb,$6::jsonb)`,
+        [id, a.version, a.name, a.description || null, JSON.stringify(a.review_outline || []), JSON.stringify(a.global_rules || [])]);
+    }
+    res.json({ archetype: a });
   });
 
   app.delete("/api/contra/archetype/:id", async (req, res) => {
