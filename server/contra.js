@@ -332,6 +332,17 @@ export function mountContra(app, upload) {
   app.get("/api/contra/batches", async (_req, res) => {
     res.json({ batches: (await q(`select id, name, status, contract_count, created_at from contra_batch order by id desc limit 50`)).rows });
   });
+  // all reviews (for the Reviewed history table)
+  app.get("/api/contra/reviews", async (_req, res) => {
+    const rows = (await q(
+      `select r.id, r.contract_name, r.party1, r.party2, r.archetype_id, a.name as archetype,
+              r.issue_count, r.status, r.created_at, r.updated_at
+         from contra_review r left join contra_archetype a on a.id = r.archetype_id
+        where r.status = 'done' order by r.id desc limit 200`
+    )).rows;
+    res.json({ reviews: rows });
+  });
+
   app.get("/api/contra/batch/:id", async (req, res) => {
     const b = (await q(`select * from contra_batch where id=$1`, [Number(req.params.id)])).rows[0];
     if (!b) return res.status(404).json({ error: "not found" });

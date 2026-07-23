@@ -15,8 +15,22 @@ let CFILES = [];          // dropped File objects, index-aligned with BATCH.revi
 let RVOPEN = null;        // opened reviewed contract { review, changes }
 let RVTAB = "report";     // report | timeline
 let ASK_LAST = null, ASK_BOXKEY = null;   // Ask Contract: last Q&A + focused box
+let REVIEWS = [], REVIEWS_LOADED = false;  // Reviewed history table
+// live filter a table's rows by a data-k attribute (no re-render → keeps focus)
+window.filterTable = (tid, v) => { const q = v.toLowerCase(); document.querySelectorAll(`#${tid} tbody tr`).forEach((tr) => { tr.style.display = (tr.dataset.k || "").includes(q) ? "" : "none"; }); };
 const VIEWS = { maker: "#view-maker", library: "#view-library", review: "#view-review", reviewed: "#view-reviewed" };
 function meterHtml(msg) { return `<div class="meter"><div class="now"><img class="potspin" src="/brand/assets/logos/pot.png" alt="">${esc(msg)}</div><div class="track"><div class="fill indet"></div></div></div>`; }
+// stepped meter: ticks through the REAL pipeline steps while `promise` runs,
+// rotating Pot on the active step, ✓ on the done ones. Resolves to promise's value.
+async function runWithMeter(hostId, steps, promise) {
+  const host = document.getElementById(hostId); if (!host) return promise;
+  let i = 0;
+  const render = () => { host.innerHTML = `<div class="meter"><div class="cmeter-steps">${steps.map((s, idx) => `<div class="cmstep ${idx < i ? "done" : idx === i ? "now" : ""}"><span class="cmi">${idx < i ? '<span class="ck">✓</span>' : idx === i ? '<img class="potspin" src="/brand/assets/logos/pot.png" alt="">' : '<span class="cmdot"></span>'}</span><span>${esc(s)}</span></div>`).join("")}</div><div class="track"><div class="fill" style="width:${Math.round((i / steps.length) * 100)}%"></div></div></div>`; };
+  render();
+  const timer = setInterval(() => { if (i < steps.length - 1) { i++; render(); } }, 1400);
+  try { const r = await promise; i = steps.length; render(); return r; }
+  finally { clearInterval(timer); }
+}
 
 function renderNav() {
   const saved = ARCHES.filter((a) => a.status === "saved").length;
@@ -152,19 +166,17 @@ window.dzLeave = (e) => { e.currentTarget.classList.remove("over"); };
 window.dzDrop = (e) => { e.preventDefault(); e.currentTarget.classList.remove("over"); const f = e.dataTransfer?.files?.[0]; if (f) uploadSample(f); };
 window.uploadSample = async (file) => {
   if (!file) return;
-  const proc = $("#proc");
-  proc.innerHTML = `<div class="meter"><div class="now"><img class="potspin" src="/brand/assets/logos/pot.png" alt="">Reading the contract · proposing sections · suggesting rules — up to a minute…</div><div class="track"><div class="fill indet"></div></div></div>`;
   const fd = new FormData(); fd.append("file", file);
+  const req = (async () => { const r = await fetch("/api/contra/archetype/propose", { method: "POST", body: fd }); return { ok: r.ok, j: await r.json() }; })();
   try {
-    const r = await fetch("/api/contra/archetype/propose", { method: "POST", body: fd });
-    const j = await r.json();
-    proc.innerHTML = "";
-    if (!r.ok) return rdAlert("Couldn't read that", j.error || "Try a different file.");
+    const { ok, j } = await runWithMeter("proc", ["Reading the contract · Munshi3", "Atomizing → clause chips", "Proposing review sections", "Suggesting rules from the terms"], req);
+    const p = $("#proc"); if (p) p.innerHTML = "";
+    if (!ok) return rdAlert("Couldn't read that", j.error || "Try a different file.");
     ARCH = { id: j.id, name: j.name, status: "draft", sections: j.sections || [], global_rules: [] };
     EDIT_IN = "maker";
     await loadArches(); renderNav(); renderMaker();
     if (j.mode !== "ai") rdAlert("Starter outline (no LLM key)", "Contra returned a generic starter. Point the Contra pipelines at a keyed model in AI Skills & Pipelines for a real read.");
-  } catch (e) { proc.innerHTML = ""; rdAlert("Upload failed", String(e.message || e)); }
+  } catch (e) { const p = $("#proc"); if (p) p.innerHTML = ""; rdAlert("Upload failed", String(e.message || e)); }
 };
 
 // ---- Archetype Library (open → add rules → save) ---------------------------
@@ -174,19 +186,18 @@ function renderLibrary() {
     host.innerHTML = `<span class="backlnk" onclick="closeEditor()">‹ back to library</span>` + sectionEditor();
     return;
   }
-  const rows = ARCHES.map((a) => `<div class="arch-row">
-      <div style="flex:1;min-width:180px">
-        <div class="an">${esc(a.name)}${a.status === "saved" ? `<span class="vtag">v${a.version || 1}</span>` : ""}</div>
-        ${a.description ? `<div class="adesc">${esc(a.description)}</div>` : ""}
-      </div>
-      <span class="chip ${a.status}">${a.status}</span>
-      <span class="am">${a.sections} sections</span>
-      <span class="am">${a.created_at ? new Date(a.created_at).toLocaleDateString() : ""}</span>
-      <button class="btn small" onclick="editArch(${a.id})">Open &amp; add rules</button>
-      <button class="btn small" onclick="delArch(${a.id},'${esc(a.name).replace(/'/g, "\\'")}')">✕</button>
-    </div>`).join("");
-  host.innerHTML = `<p class="intro"><b>ARCHETYPE LIBRARY</b> — your saved contract types. Open one to add <b>review rules</b> in plain English (type a rule, press <b>Enter</b> → it becomes a chip). Rules save into the archetype and apply on every review.</p>`
-    + (ARCHES.length ? rows : `<div class="empty">// no archetypes yet — make one in the Archetype Maker //</div>`);
+  const rows = ARCHES.map((a) => `<tr class="clk" data-k="${esc((a.name + " " + (a.description || "")).toLowerCase())}">
+      <td onclick="editArch(${a.id})"><b>${esc(a.name)}</b>${a.status === "saved" ? `<span class="vtag">v${a.version || 1}</span>` : `<span class="chip draft" style="margin-left:6px">draft</span>`}</td>
+      <td class="tdesc" onclick="editArch(${a.id})">${a.description ? esc(a.description) : "<span style='color:var(--dim2)'>—</span>"}</td>
+      <td onclick="editArch(${a.id})">${a.sections}</td>
+      <td onclick="editArch(${a.id})">${a.created_at ? new Date(a.created_at).toLocaleDateString() : ""}</td>
+      <td class="tacts"><button class="btn small" onclick="editArch(${a.id})">Open</button> <button class="btn small" onclick="delArch(${a.id},'${esc(a.name).replace(/'/g, "\\'")}')">✕</button></td>
+    </tr>`).join("");
+  host.innerHTML = `<p class="intro"><b>ARCHETYPE LIBRARY</b> — your saved contract types (title + description). Open one to edit its rules, name, and versions.</p>`
+    + (ARCHES.length
+      ? `<div class="cfilter"><input placeholder="filter archetypes…" oninput="filterTable('libtable',this.value)"><span class="am">${ARCHES.length} archetype${ARCHES.length === 1 ? "" : "s"}</span></div>
+         <table class="ctable" id="libtable"><thead><tr><th>Archetype</th><th>Description</th><th>Sections</th><th>Created</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="empty">// no archetypes yet — make one in the Archetype Maker //</div>`);
 }
 window.editArch = async (id) => {
   const j = await (await fetch(`/api/contra/archetype/${id}`)).json();
@@ -249,15 +260,15 @@ function reviewRow(rv, i) {
 window.cDrop = (e) => { e.preventDefault(); e.currentTarget.classList.remove("over"); const fs = e.dataTransfer?.files; if (fs && fs.length) cUpload(fs); };
 window.cUpload = async (files) => {
   if (!files || !files.length) return;
-  const proc = $("#cproc"); proc.innerHTML = meterHtml("Reading & detecting archetypes…");
   CFILES = [...files];
   const fd = new FormData(); CFILES.forEach((f) => fd.append("files", f));
+  const req = (async () => { const r = await fetch("/api/contra/batch", { method: "POST", body: fd }); return { ok: r.ok, j: await r.json() }; })();
   try {
-    const r = await fetch("/api/contra/batch", { method: "POST", body: fd });
-    const j = await r.json(); proc.innerHTML = "";
-    if (!r.ok) return rdAlert("Couldn't read that", j.error || "");
+    const { ok, j } = await runWithMeter("cproc", ["Reading the contract(s) · Munshi3", "Fingerprinting each contract", "Detecting & ranking archetypes"], req);
+    const p = $("#cproc"); if (p) p.innerHTML = "";
+    if (!ok) return rdAlert("Couldn't read that", j.error || "");
     BATCH = j; renderReview();
-  } catch (e) { proc.innerHTML = ""; rdAlert("Upload failed", String(e.message || e)); }
+  } catch (e) { const p = $("#cproc"); if (p) p.innerHTML = ""; rdAlert("Upload failed", String(e.message || e)); }
 };
 window.toggleArch = (i, id) => {
   const rv = BATCH.reviews[i]; rv.selected = rv.selected || [];
@@ -268,33 +279,51 @@ window.toggleArch = (i, id) => {
 };
 window.runReview = async (i) => {
   const rv = BATCH.reviews[i]; if (!rv.selected?.length) return;
-  const proc = $("#cproc"); proc.innerHTML = meterHtml(`Reviewing ${esc(rv.contract_name)} — sections · rules · findings…`);
+  const req = (async () => { const r = await fetch(`/api/contra/review/${rv.id}/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archetype_ids: rv.selected }) }); return { ok: r.ok, j: await r.json() }; })();
   try {
-    const r = await fetch(`/api/contra/review/${rv.id}/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ archetype_ids: rv.selected }) });
-    const j = await r.json(); proc.innerHTML = "";
-    if (!r.ok) return rdAlert("Review failed", j.error || "");
+    const { ok, j } = await runWithMeter("cproc", ["Reading against the archetype", "Verdict on each section", "Checking your rules", "Whole-contract findings", "Proposing redlines", "Composing the report"], req);
+    const p = $("#cproc"); if (p) p.innerHTML = "";
+    if (!ok) return rdAlert("Review failed", j.error || "");
     rv.status = "done"; rv.issue_count = j.review.issue_count;
+    REVIEWS_LOADED = false;   // refresh the Reviewed history
     renderReview(); openReviewed(rv.id);
-  } catch (e) { proc.innerHTML = ""; rdAlert("Review failed", String(e.message || e)); }
+  } catch (e) { const p = $("#cproc"); if (p) p.innerHTML = ""; rdAlert("Review failed", String(e.message || e)); }
 };
 window.createFromFile = (i) => { const f = CFILES[i]; if (!f) return rdAlert("No file", "Re-drop the contract."); setArea("archetypes"); setSub("maker"); uploadSample(f); };
 
 // ---- Contracts · Reviewed (report · timeline) ------------------------------
 function renderReviewed() {
   const host = $("#view-reviewed");
-  if (!RVOPEN) {
-    host.innerHTML = `<p class="intro"><b>REVIEWED</b> — open a reviewed contract from the Review tab to see its legal report, findings and change timeline.</p><div class="empty">// run a review first //</div>`;
+  if (RVOPEN) {
+    const tabs = `<div class="rvtabs">
+        <span class="rvtab ${RVTAB === "report" ? "on" : ""}" onclick="setRvTab('report')">Legal report</span>
+        <span class="rvtab ${RVTAB === "timeline" ? "on" : ""}" onclick="setRvTab('timeline')">Timeline</span>
+        <span class="rvtab" onclick="downloadDocx(${RVOPEN.review.id})">⤓ Word (.docx)</span>
+        <span class="backlnk" style="margin-left:auto;margin-bottom:0" onclick="closeReviewed()">‹ all reviews</span></div>`;
+    host.innerHTML = tabs + (RVTAB === "report" ? reportView(RVOPEN.review) : timelineView(RVOPEN.changes || []));
     return;
   }
-  const tabs = `<div class="rvtabs">
-      <span class="rvtab ${RVTAB === "report" ? "on" : ""}" onclick="setRvTab('report')">Legal report</span>
-      <span class="rvtab ${RVTAB === "timeline" ? "on" : ""}" onclick="setRvTab('timeline')">Timeline</span>
-      <span class="rvtab" onclick="downloadDocx(${RVOPEN.review.id})">⤓ Word (.docx)</span>
-      <span class="backlnk" style="margin-left:auto;margin-bottom:0" onclick="closeReviewed()">‹ back to review</span></div>`;
-  host.innerHTML = tabs + (RVTAB === "report" ? reportView(RVOPEN.review) : timelineView(RVOPEN.changes || []));
+  // history table
+  if (!REVIEWS_LOADED) {
+    host.innerHTML = `<p class="intro"><b>REVIEWED</b> — every contract you've reviewed.</p><div class="empty">loading…</div>`;
+    fetch("/api/contra/reviews").then((r) => r.json()).then((j) => { REVIEWS = j.reviews || []; REVIEWS_LOADED = true; if (!RVOPEN) renderReviewed(); });
+    return;
+  }
+  const rows = REVIEWS.map((r) => `<tr class="clk" data-k="${esc((r.contract_name + " " + (r.party1 || "") + " " + (r.party2 || "") + " " + (r.archetype || "")).toLowerCase())}" onclick="openReviewed(${r.id})">
+      <td><b>${esc(r.contract_name || "")}</b></td>
+      <td>${esc([r.party1, r.party2].filter(Boolean).join(" ⟷ ")) || "<span style='color:var(--dim2)'>—</span>"}</td>
+      <td>${esc(r.archetype || "—")}</td>
+      <td>${r.issue_count ? `<span style="color:var(--red);font-weight:600">${r.issue_count}</span>` : `<span style="color:var(--grn)">clean</span>`}</td>
+      <td>${r.created_at ? new Date(r.created_at).toLocaleString() : ""}</td>
+    </tr>`).join("");
+  host.innerHTML = `<p class="intro"><b>REVIEWED</b> — every contract you've reviewed. Filter, then open one for its report, redlines and timeline.</p>`
+    + (REVIEWS.length
+      ? `<div class="cfilter"><input placeholder="filter by contract, party, archetype…" oninput="filterTable('revtable',this.value)"><span class="am">${REVIEWS.length} review${REVIEWS.length === 1 ? "" : "s"}</span></div>
+         <table class="ctable" id="revtable"><thead><tr><th>Contract</th><th>Parties</th><th>Archetype</th><th>Issues</th><th>Reviewed</th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="empty">// no reviews yet — run one in the Review tab //</div>`);
 }
 window.setRvTab = (t) => { RVTAB = t; renderReviewed(); };
-window.closeReviewed = () => { RVOPEN = null; setSub("review"); };
+window.closeReviewed = () => { RVOPEN = null; setSub("reviewed"); };
 window.openReviewed = async (id) => {
   RVOPEN = await (await fetch(`/api/contra/review/${id}`)).json();
   RVTAB = "report"; AREA = "contracts"; SUB.contracts = "reviewed"; renderNav();
@@ -303,25 +332,34 @@ window.openReviewed = async (id) => {
 };
 const VCLASS = { present: "v-present", non_standard: "v-non_standard", risky: "v-risky", missing: "v-missing" };
 function refs(arr) { return (arr || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" "); }
+const VCOLOR = { present: "#2E7D4F", non_standard: "#8a6d1f", risky: "#C77B2B", missing: "#C0392B" };
+const VLABEL = { present: "Present", non_standard: "Non-std", risky: "Risky", missing: "Missing" };
 function reportView(r) {
   const rep = r.report || {};
   const verdicts = rep.verdicts || [], checks = rep.rule_checks || [], findings = rep.findings || [];
-  const rc = checks.length ? `<div class="rlbl">Your rule checks</div>${checks.map((c) => `<div class="rcheck rc-${c.result || "check"}"><span class="rcbadge" style="color:${c.result === "breach" ? "#C0392B" : c.result === "pass" ? "#2E7D4F" : "#8a6d1f"}">${String(c.result || "check").toUpperCase()}</span><span>${esc(c.rule || c.section_key || "")} — ${esc(c.note || c.found || "")} ${refs(c.refs)}</span></div>`).join("")}` : "";
-  const fnd = findings.length ? `<div class="fband"><div style="font-weight:700;font-size:13.5px;color:#8a5410;margin-bottom:9px">⚠ Whole-contract findings</div>${findings.map((f) => `<div class="fitem"><b style="color:#141414">${esc(String(f.kind || "finding").replace(/_/g, " "))}</b> — ${esc(f.note || "")} ${refs(f.refs)}</div>`).join("")}</div>` : "";
-  const boxes = verdicts.length ? `<div class="rlbl" style="margin-top:14px">Section review</div><div class="grid">${verdicts.map((v) => `<div class="rbox"><div style="display:flex;align-items:center;gap:8px"><span style="font-weight:600;font-size:14px">${esc(String(v.key || "").replace(/_/g, " "))}</span><span class="vchip ${VCLASS[v.verdict] || "v-non_standard"}" style="margin-left:auto">${String(v.verdict || "").replace(/_/g, " ").toUpperCase()}</span></div><div class="q">${esc(v.note || "—")} ${refs(v.evidence_refs)}</div>
-      <div class="rbox-acts"><button class="lnk" onclick="actBox(${r.id},'accept','${esc(v.key)}')">✓ Accept</button><button class="lnk" onclick="askBox('${esc(v.key)}')">✦ Ask</button><button class="lnk" onclick="commentBox(${r.id},'${esc(v.key)}')">💬 Comment</button></div></div>`).join("")}</div>` : "";
-  const summary = rep.summary ? `<div class="rlbl">Summary</div><p style="margin:0 0 16px;font-size:13.5px;color:var(--dim);line-height:1.6">${esc(rep.summary)}</p>` : "";
-  const ask = `<div class="askbox">
+  const parties = [r.party1 || rep.parties?.a, r.party2 || rep.parties?.b].filter(Boolean).join(" ⟷ ");
+  const breaches = checks.filter((c) => c.result === "breach").length;
+  const flagged = verdicts.filter((v) => ["risky", "missing", "non_standard"].includes(v.verdict)).length;
+  const glance = `<div class="glance">
+      <div class="g"><div class="gv" style="color:${r.issue_count ? "#C0392B" : "#2E7D4F"}">${r.issue_count || 0}</div><div class="gl">issues</div></div>
+      <div class="g"><div class="gv">${breaches}</div><div class="gl">rule breaches</div></div>
+      <div class="g"><div class="gv">${findings.length}</div><div class="gl">findings</div></div>
+      <div class="g"><div class="gv">${flagged}<span style="font-size:14px;color:var(--line2)">/${verdicts.length || "—"}</span></div><div class="gl">sections flagged</div></div></div>`;
+  const summary = rep.summary ? `<p class="rsummary">${esc(rep.summary)}</p>` : "";
+  const rc = checks.length ? `<div class="rsec-lbl">Rule checks</div><div style="margin-bottom:22px">${checks.map((c) => `<div class="rcrow"><span class="rcp ${c.result || "check"}">${String(c.result || "check").toUpperCase()}</span><span style="flex:1">${esc(c.rule || c.section_key || "")} — ${esc(c.note || c.found || "")} ${refs(c.refs)}</span></div>`).join("")}</div>` : "";
+  const fnd = findings.length ? `<div class="rsec-lbl">Whole-contract findings</div><div style="margin-bottom:22px">${findings.map((f) => `<div class="frow ${f.severity === "high" ? "hi" : f.severity === "med" ? "med" : ""}"><b>${esc(String(f.kind || "finding").replace(/_/g, " "))}</b> · ${esc(f.note || "")} ${refs(f.refs)}</div>`).join("")}</div>` : "";
+  const secs = verdicts.length ? `<div class="rsec-lbl">Section review <span style="color:var(--dim2);font-weight:400">· click to ask</span></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${verdicts.map((v) => `<div class="schip" onclick="askBox('${esc(v.key)}')"><span style="flex:1">${esc(String(v.key || "").replace(/_/g, " "))}</span><span class="sdot" style="background:${VCOLOR[v.verdict] || "#B4B2A9"}"></span><span style="font-size:11px;font-weight:600;color:${VCOLOR[v.verdict] || "#7A7266"}">${VLABEL[v.verdict] || v.verdict || ""}</span></div>`).join("")}</div>` : "";
+  const doc = `<div class="report-doc"><div class="rd-head"><div class="rd-emb">Q</div>
+      <div style="flex:1"><div class="rd-title">Contract Review</div>
+        <div class="rd-ref">${parties ? esc(parties) + " · " : ""}${esc((rep.archetypes || []).join(" + "))} · ${new Date(rep.generated_at || Date.now()).toLocaleDateString()}</div></div></div>
+    ${glance}
+    <div style="padding:20px 26px 24px">${summary}${rc}${fnd}${secs}
+      <div style="margin-top:20px;padding-top:12px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;color:#A79F93;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><span>Prepared by Contra · ${esc(r.contract_name || "")}</span><span>an AI product by The Kettle Black</span></div></div></div>`;
+  const ask = `<div class="askbox" style="margin-top:16px">
       <div class="askbox-h">✦ Ask Contract <span class="askbox-s">grounded in the clauses · cites the §§ · saved to the timeline</span></div>
       ${ASK_LAST ? `<div class="askbox-a"><div class="askbox-q">${esc(ASK_LAST.q)}${ASK_LAST.box_key ? ` · ${esc(ASK_LAST.box_key)}` : ""}</div><div class="askbox-ans">${esc(ASK_LAST.a)}</div></div>` : ""}
       <div class="askbox-in"><input id="askin" placeholder="ask anything about this contract…" onkeydown="askKey(event)"><button class="btn btn--org small" onclick="doAsk()">Ask ▸</button></div></div>`;
-  return `<div class="report-doc"><div class="rd-head"><div class="rd-emb">Q</div>
-      <div style="flex:1"><div class="rd-title">Contract Review</div>
-        <div class="rd-ref">Ref: ${esc(r.contract_name)} · ${esc((rep.archetypes || []).join(" + "))} · ${new Date(rep.generated_at || Date.now()).toLocaleDateString()} · contra-review</div></div>
-      ${r.issue_count ? `<span class="chip" style="color:var(--red);background:#FBECEB;border-color:#F0CFCF">${r.issue_count} issues</span>` : `<span class="chip saved">clean</span>`}</div>
-    <div style="padding:16px 24px 22px">${ask}${summary}${rc}${fnd}${boxes}
-      <div style="margin-top:18px;padding-top:12px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;color:#A79F93;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><span>Prepared by Contra</span><span>an AI product by The Kettle Black</span></div>
-    </div></div>`;
+  return doc + ask;
 }
 window.askKey = (e) => { if (e.key === "Enter") { e.preventDefault(); doAsk(); } };
 window.askBox = (key) => { ASK_BOXKEY = key; const el = document.getElementById("askin"); if (el) { el.focus(); el.placeholder = `ask about the "${key}" section…`; } };
