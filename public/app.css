@@ -28,11 +28,12 @@ img, svg, table { max-width: 100%; }
   display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch;
   scroll-snap-type: x proximity; scrollbar-width: none;
   border-bottom: 1px solid var(--ansr-border); padding-bottom: 0;
+  margin: 10px 0 28px;
 }
 .tabs::-webkit-scrollbar { display: none; }
 .tab {
   flex: 0 0 auto; scroll-snap-align: start;
-  min-height: 44px; padding: 10px 16px; border: 0; background: none;
+  min-height: 44px; padding: 13px 16px; border: 0; background: none;
   color: var(--ansr-gray); font: inherit; font-size: 16px; cursor: pointer;
   border-bottom: 2px solid transparent; white-space: nowrap; transition: var(--ansr-transition);
 }
