@@ -58,6 +58,7 @@ window.appForm = (title, fields, onSubmit, okLabel = "Create") => {
 // every page without touching app.css. Monospace, phosphor-green, dark.
 const QTERM_CSS = `
 .q-term{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:16px;
+  min-height:62px;box-sizing:border-box;
   padding:9px 18px;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);
   border-bottom:1px solid #E7E3DC;
   font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
@@ -85,9 +86,7 @@ const QTERM_CSS = `
   .q-term__user{flex-direction:row;flex-wrap:wrap;padding-top:8px;border-top:1px solid #E7E3DC}
 }`;
 // Inject the app menu into #appbar. activeTab: 'home'|'mint'|'raydar'|'admin'.
-window.qHeader = async (activeTab = "home") => {
-  let me = { user: "—", role: "" };
-  try { me = await (await fetch("/api/me")).json(); } catch {}
+window.qHeader = (activeTab = "home") => {
   const el = document.querySelector("#appbar");
   if (!el) return;
   if (!document.getElementById("qterm-css")) {
@@ -95,6 +94,9 @@ window.qHeader = async (activeTab = "home") => {
     document.head.appendChild(st);
   }
   const tabs = [["raydar", "RayDar", "/whisperer.html"], ["contra", "Contra", "/contra.html"], ["mint", "Mint", "/mint.html"], ["admin", "Admin", "/admin.html"]];
+  // Render the bar synchronously (no await) so it never pops in late / shifts
+  // the page. The username + role fill in after /api/me resolves, without moving
+  // anything (their spans already occupy the row).
   el.outerHTML = `
   <header class="q-term" id="appbar">
     <a href="/" class="q-term__brand" title="Home"><span class="q-term__led"></span><img class="q-term__logo" src="/brand/assets/logos/QAnsr-logo.png" alt="Q&ANSR"><span class="q-term__sys">// CORE</span></a>
@@ -103,11 +105,15 @@ window.qHeader = async (activeTab = "home") => {
       ${tabs.map(([k, l, h]) => `<a href="${h}" class="q-term__tab ${activeTab === k ? "on" : ""}">${l}</a>`).join("")}
     </nav>
     <div class="q-term__user">
-      <span>USR:${_esc(me.user || "—")}</span>
-      ${me.role ? `<span class="q-term__role">${_esc(me.role)}</span>` : ""}
+      <span id="q-usr">USR:—</span>
+      <span class="q-term__role" id="q-role" style="display:none"></span>
       <a href="#" class="q-term__out" onclick="fetch('/api/logout',{method:'POST'}).then(()=>location.href='/login.html');return false">⏻ SIGN OUT</a>
     </div>
   </header>`;
+  fetch("/api/me").then((r) => r.json()).then((me) => {
+    const u = document.getElementById("q-usr"); if (u) u.textContent = "USR:" + (me.user || "—");
+    const rl = document.getElementById("q-role"); if (rl && me.role) { rl.textContent = me.role; rl.style.display = ""; }
+  }).catch(() => {});
 };
 
 // ---- global "AI working" spinner — the rotating Q emblem ---------------------

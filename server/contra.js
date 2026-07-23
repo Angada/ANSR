@@ -246,8 +246,15 @@ export function mountContra(app, upload) {
       await q(`update contra_review set status='reviewing', archetype_ids=$2::jsonb, archetype_id=$3 where id=$1`, [id, JSON.stringify(ids), ids[0]]);
 
       const outlineForPrompt = merged.sections.map((s) => ({ key: s.key, label: s.label, what_to_check: s.what_to_check, required: s.required, rules: s.rules.map((r) => r.text) }));
+      const allRules = [
+        ...merged.sections.flatMap((s) => s.rules.map((r) => ({ rule: r.text, section_key: s.key }))),
+        ...merged.globals.map((g) => ({ rule: g.text, section_key: "whole-contract" })),
+      ];
+      const keys = outlineForPrompt.map((s) => s.key);
       const rout = await runPipeline("contra-review", {
-        user: `Contract:\n${(rev.extract_md || "").slice(0, 50000)}\n\nReview outline (deduped from ${archetypes.map((a) => a.name).join(", ")}):\n${JSON.stringify(outlineForPrompt)}\n\nWhole-contract rules:\n${JSON.stringify(merged.globals.map((g) => g.text))}`,
+        // caller-side output contract — always applied, immune to any stored-prompt drift
+        system: `Return STRICT JSON only, no prose: {"summary": string, "verdicts": [{"key","verdict","evidence_refs":[],"note"}], "rule_checks": [{"rule","section_key","result","note","refs":[]}], "findings": [{"kind","severity","note","refs":[]}]}. Use ONLY these section keys for verdicts (one per section): ${keys.join(", ")}. verdict ∈ present|non_standard|risky|missing. Emit exactly one rule_check for EVERY rule in the provided list; result ∈ pass|check|breach with the § evidence. findings.kind ∈ contradiction|off_archetype|commercial|unresolved_ref. Cite the § for every claim; never assert a contradiction as fact.`,
+        user: `Contract:\n${(rev.extract_md || "").slice(0, 50000)}\n\nSections to verdict (use these keys):\n${JSON.stringify(outlineForPrompt)}\n\nRules to check (one rule_check each):\n${JSON.stringify(allRules)}`,
         maxTokens: 3000,
       });
       await logRun(rout, { ref_type: "review", ref_id: id, rules_applied: merged.sections.flatMap((s) => s.rules.map((r) => r.text)), input: rev.contract_name, output: "review" });
