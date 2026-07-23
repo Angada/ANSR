@@ -14,12 +14,34 @@ const dataDir = join(root, "data");
 const configPath = join(dataDir, "config.json");
 const secretPath = join(dataDir, ".secret");
 
+const isProd = () => process.env.NODE_ENV === "production";
+
 function secret() {
   const env = process.env.CONFIG_SECRET;
-  if (env) return Buffer.from(env.padEnd(64, "0").slice(0, 64), "hex");
+  if (env) {
+    if (!/^[0-9a-fA-F]{64}$/.test(env)) throw new Error("CONFIG_SECRET must be exactly 64 hex chars (32 bytes).");
+    return Buffer.from(env, "hex");
+  }
+  // In prod the container FS is ephemeral: a file-generated secret is lost on every
+  // instance recycle, silently orphaning all Vault (BYOK) keys. Refuse rather than corrupt.
+  if (isProd()) throw new Error("CONFIG_SECRET is required in production (Vault keys are encrypted with it).");
   if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
   if (!existsSync(secretPath)) writeFileSync(secretPath, randomBytes(32).toString("hex"), { mode: 0o600 });
   return Buffer.from(readFileSync(secretPath, "utf8").trim(), "hex");
+}
+
+// Fail-fast boot gate: call once at startup so prod misconfig is a loud crash, not a
+// first-request-time surprise. Validates the Vault secret and the login credentials.
+export function assertSecurity() {
+  if (!isProd()) return;
+  const env = process.env.CONFIG_SECRET;
+  if (!env || !/^[0-9a-fA-F]{64}$/.test(env)) {
+    throw new Error("Refusing to boot: CONFIG_SECRET must be set to 64 hex chars in production.");
+  }
+  const pw = process.env.QANSR_PW;
+  if (!pw || pw === "admin") {
+    throw new Error("Refusing to boot: QANSR_PW must be set to a non-default value in production.");
+  }
 }
 
 export function encryptKey(plain) {
