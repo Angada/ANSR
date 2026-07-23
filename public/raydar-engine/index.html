@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RayDar Engine — pipeline trace</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="icon" type="image/png" href="assets/q-emblem.png">
+<link rel="apple-touch-icon" href="assets/q-emblem.png">
+<style>
+:root{
+  --orange:#FF5400; --orange-deep:#CE4502; --orange-tint:#FFF1E9; --orange-soft:#FFBC7D;
+  --teal:#005465; --navy:#00242E; --navy-2:#03323d; --slate:#1E293B;
+  --ink:#1E1E1E; --gray:#6b6b6b; --gray-mid:#94A3B8; --line:#E4E0D8; --line-2:#d8d6cf;
+  --bg:#F4F3EF; --surface:#FFFFFF; --tint:#FFF1E9;
+  --code-bg:#0f2a31; --code-ink:#cfe3e7; --code-key:#ffb27d; --code-str:#9fd8c8; --code-com:#6f9098;
+  --f-disp:'Space Grotesk',-apple-system,system-ui,sans-serif;
+  --f-body:'Inter',-apple-system,system-ui,sans-serif;
+  --f-mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,monospace;
+  --wrap:940px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-weight:400;line-height:1.62;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{font-family:var(--f-disp);font-weight:600;line-height:1.14;letter-spacing:-.02em;margin:0}
+p{margin:0 0 12px}
+a{color:var(--orange);text-decoration:none}
+.accent{color:var(--orange)}
+.wrap{max-width:var(--wrap);margin:0 auto;padding:0 34px}
+
+/* ---------- masthead ---------- */
+.mast{background:var(--navy);color:#fff;padding:30px 0 0}
+.mast .row{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.mast .brand{display:flex;align-items:center;gap:13px}
+.mast .brand img{height:52px}
+.mast .brand .q{display:flex;flex-direction:column;line-height:1.05}
+.mast .brand .q b{font-family:var(--f-disp);font-weight:700;font-size:18px;letter-spacing:.02em}
+.mast .brand .q span{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:#7fa0a8;margin-top:2px}
+.rmark{font-family:var(--f-disp);font-weight:700;letter-spacing:.16em;font-size:22px;display:flex;align-items:center;gap:8px}
+.rmark .dot{width:10px;height:10px;border-radius:50%;background:var(--orange);box-shadow:0 0 0 4px rgba(255,84,0,.22)}
+.rmark .ray{color:#fff}.rmark .dar{color:var(--orange)}
+.rmark .tag{font-family:var(--f-body);font-weight:400;font-size:10px;letter-spacing:.28em;color:#6f9098;margin-left:8px;text-transform:uppercase}
+
+/* hero */
+.hero{background:var(--navy);color:#fff;padding:34px 0 46px}
+.hero .eyebrow{font-family:var(--f-disp);font-size:12px;font-weight:600;letter-spacing:.22em;text-transform:uppercase;color:var(--orange-soft);margin-bottom:16px}
+.hero h1{font-size:clamp(34px,5.4vw,56px);letter-spacing:-.03em;margin-bottom:16px}
+.hero h1 em{font-style:italic;color:var(--orange-soft);font-weight:500}
+.hero .lead{font-size:18px;color:#c4d6da;max-width:60ch}
+.hero .spine{margin-top:22px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:16px 18px;font-size:14px;color:#cddee1;max-width:70ch}
+.hero .spine b{color:#fff}
+
+/* ---------- chain strip ---------- */
+.chain{background:var(--orange-tint);border-bottom:1px solid var(--line);padding:20px 0}
+.chain .flow{display:flex;flex-wrap:wrap;gap:7px;align-items:center;font-family:var(--f-disp);font-size:12px;font-weight:600}
+.chain .node{background:#fff;border:1px solid var(--line-2);border-radius:100px;padding:5px 12px;color:var(--slate)}
+.chain .node.acc{background:var(--navy);color:#fff;border-color:var(--navy)}
+.chain .arw{color:var(--orange);font-weight:700}
+
+/* ---------- body ---------- */
+.doc{padding:44px 0 20px}
+.intro{font-size:16px;color:var(--slate);max-width:72ch;margin-bottom:8px}
+
+.stage{display:grid;grid-template-columns:56px 1fr;gap:22px;margin-top:26px;break-inside:avoid}
+.stage .rail{display:flex;flex-direction:column;align-items:center}
+.stage .num{width:48px;height:48px;border-radius:50%;flex:none;background:var(--navy);color:#fff;font-family:var(--f-disp);font-weight:600;font-size:17px;display:flex;align-items:center;justify-content:center}
+.stage .num.zero{background:var(--orange)}
+.stage .line{width:2px;flex:1;background:var(--line-2);min-height:12px;margin-top:6px}
+.stage:last-child .line{display:none}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;box-shadow:0 1px 0 rgba(0,40,53,.03)}
+.card .top{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-bottom:5px}
+.card h3{font-size:20px}
+.card .st{font-family:var(--f-disp);font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--orange-deep)}
+.pill{font-family:var(--f-disp);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px;border-radius:100px;background:var(--tint);color:var(--orange-deep)}
+.pill.teal{background:#e2eef0;color:var(--teal)}
+.pill.navy{background:var(--navy);color:#fff}
+.card .sub{font-size:12.5px;color:var(--gray);font-family:var(--f-mono);margin-bottom:12px}
+.lbl{font-family:var(--f-disp);font-size:10.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--teal);margin:16px 0 8px;display:flex;align-items:center;gap:8px}
+.lbl::before{content:"";width:14px;height:2px;background:var(--orange);border-radius:2px}
+.lbl.means{color:var(--orange-deep)}
+.lbl.means::before{background:var(--teal)}
+.card p{font-size:14.5px;color:var(--slate);margin:0 0 8px}
+.card p:last-child{margin-bottom:0}
+.card p .k{font-weight:600;color:var(--navy)}
+
+pre{margin:0;background:var(--code-bg);border-radius:11px;padding:15px 17px;overflow-x:auto;border:1px solid #17414c}
+code{font-family:var(--f-mono);font-size:12.5px;line-height:1.62;color:var(--code-ink);white-space:pre}
+.c-com{color:var(--code-com);font-style:italic}
+.c-key{color:var(--code-key)}
+.c-str{color:var(--code-str)}
+.c-fn{color:#8ec7ff}
+:not(pre)>code{background:var(--tint);color:var(--orange-deep);padding:1px 6px;border-radius:5px;font-size:12.5px;white-space:normal}
+
+/* ---------- footer ---------- */
+.foot{background:var(--navy);color:#c4d6da;margin-top:44px;padding:34px 0}
+.foot .row{display:flex;align-items:center;justify-content:space-between;gap:22px;flex-wrap:wrap}
+.foot .tkb{display:flex;align-items:center;gap:12px}
+.foot .tkb img{height:46px;filter:brightness(0) invert(1);opacity:.94}
+.foot .tkb .t b{font-family:var(--f-disp);font-size:14px;color:#fff;display:block;letter-spacing:.02em}
+.foot .tkb .t span{font-size:11px;color:#7fa0a8;letter-spacing:.06em}
+.foot .meta{font-size:11.5px;color:#7fa0a8;text-align:right;line-height:1.7}
+.foot .meta b{color:#cddee1;font-weight:500}
+
+/* ---------- print / PDF ---------- */
+@page{size:A4;margin:14mm 0}
+@media print{
+  body{background:#fff}
+  .wrap{max-width:none;padding:0 16mm}
+  .mast,.hero,.foot{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .chain,.card,.stage,pre{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .stage{break-inside:avoid}
+  .hero{padding-bottom:30px}
+  .doc{padding-top:30px}
+  a{color:var(--orange-deep)}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== masthead ===== -->
+<header class="mast">
+  <div class="wrap row">
+    <div class="brand">
+      <img src="assets/q-emblem.png" alt="Q&amp;ANSR">
+      <div class="q"><b>Q&amp;ANSR</b><span>Talent Trend Radar</span></div>
+    </div>
+    <div class="rmark"><span class="dot"></span><span class="ray">RAY</span><span class="dar">DAR</span><span class="tag">Engine</span></div>
+  </div>
+</header>
+
+<!-- ===== hero ===== -->
+<section class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Pipeline Trace · Demand → Enriched Feed Stories</div>
+    <h1>RayDar <em>Engine</em></h1>
+    <p class="lead">How a batch travels from the <b>Hunger</b> seed, out through the YouTube and Reddit APIs, and back as ranked, evidence-grounded content ideas — every step, the code, and what it means.</p>
+    <div class="spine"><b>The spine.</b> Every ✦ AI step runs through the gated <code style="background:rgba(255,84,0,.16);color:var(--orange-soft)">runPipeline(id,…)</code> layer — provider · model · prompt from the swappable Admin registry, key from the encrypted Vault (BYOK), one log row per call. Every 🌐 fetch pulls its key from <code style="background:rgba(255,84,0,.16);color:var(--orange-soft)">getIntegrationKey(id)</code> and its query params from an editable business rule. Raw text never reaches a model outside the gate.</div>
+  </div>
+</section>
+
+<!-- ===== chain strip ===== -->
+<div class="chain">
+  <div class="wrap flow">
+    <span class="node acc">Hunger</span><span class="arw">→</span>
+    <span class="node">Terms</span><span class="arw">→</span>
+    <span class="node">YouTube</span><span class="node">Reddit</span><span class="arw">→</span>
+    <span class="node">Dedupe</span><span class="arw">→</span>
+    <span class="node">Classify</span><span class="arw">→</span>
+    <span class="node">Gap</span><span class="arw">→</span>
+    <span class="node">Research</span><span class="arw">→</span>
+    <span class="node">Ideate</span><span class="arw">→</span>
+    <span class="node">Validate</span><span class="arw">→</span>
+    <span class="node acc">Rank</span>
+  </div>
+</div>
+
+<!-- ===== the 9 steps ===== -->
+<main class="doc">
+<div class="wrap">
+  <p class="intro">Nine stages, in pipeline order. Each shows <b>what the code is</b> (from <code>server/whisperer.js</code>) and <b>what it means</b>.</p>
+
+  <!-- STEP 0 -->
+  <div class="stage">
+    <div class="rail"><div class="num zero">0</div><div class="line"></div></div>
+    <div class="card">
+      <div class="top"><span class="st">Stage 0</span><h3>Hunger — the demand seed</h3><span class="pill navy">✦ hunger-generate</span></div>
+      <div class="sub">/api/wh/batch · /api/wh/hunger/:cohortId</div>
+      <p>A batch fuses up to three routes — Trend-Spotting chips, pasted SEO text, and/or a TalentMind cohort — into a <b>Hunt Outcome</b>: who the cohort is, what they care about, and the <span class="k">demand topics</span> to sweep.</p>
+      <div class="lbl">What the code is</div>
+<pre><code><span class="c-key">const</span> routes = { trend: !!(trend_topics||[]).length, seo: !!seo, talentmind: !!talentmind_cohort_id };
+hunger = { who: <span class="c-str">`Batch seeded from …`</span>, demand_topics: topics, cares_about: topics.slice(0,4), routes };
+
+<span class="c-com">// cohort route → the Hunt Outcome is written by the gated pipeline over ClientMind chips</span>
+<span class="c-key">const</span> { j, model } = <span class="c-key">await</span> <span class="c-fn">ai</span>(<span class="c-str">"hunger-generate"</span>, <span class="c-str">"Write the Hunt Outcome."</span>,
+  <span class="c-str">`Cohort: ${co.name}… Top chips: ${JSON.stringify(top)}`</span>);</code></pre>
+      <div class="lbl means">What it means</div>
+      <p>Before we touch any external API, the machine holds a structured picture of <span class="k">demand</span> — topics plus the underlying questions the cohort is actually asking.</p>
+    </div>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="stage">
+    <div class="rail"><div class="num">1</div><div class="line"></div></div>
+    <div class="card">
+      <div class="top"><span class="st">Stage 1</span><h3>Topic → search-term structuring</h3><span class="pill teal">fan-out</span></div>
+      <div class="sub">collectFeed(topics) · /api/wh/feedstories/:batchId</div>
+      <p>Each demand topic carries its own <code>terms[]</code>. <code>collectFeed</code> expands <span class="k">topic → terms → individual queries</span> — those terms are the literal strings fired at every source, in parallel.</p>
+      <div class="lbl">What the code is</div>
+<pre><code><span class="c-key">for</span> (<span class="c-key">const</span> t <span class="c-key">of</span> topics.slice(0,6)) {
+  <span class="c-key">const</span> terms = (t.terms?.length) ? t.terms : [t.name];
+  <span class="c-key">for</span> (<span class="c-key">const</span> term <span class="c-key">of</span> terms.slice(0,4)) {
+    <span class="c-key">const</span> batches = <span class="c-key">await</span> Promise.<span class="c-fn">allSettled</span>([
+      <span class="c-fn">fetchYouTube</span>(term), <span class="c-fn">fetchReddit</span>(term), <span class="c-fn">fetchNews</span>(term), <span class="c-fn">fetchSerpNews</span>(term)]);
+    …out.push({ ...it, topic: name, term });   <span class="c-com">// tag every item with its concept</span>
+  }
+}</code></pre>
+      <div class="lbl means">What it means</div>
+      <p>One topic ("Salary negotiation") fans into ~4 concrete queries, each hitting 4 sources at once — <code>allSettled</code> means one source failing never sinks the sweep. Every item is stamped with its parent topic so gap-analysis can regroup later.</p>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="stage">
+    <div class="rail"><div class="num">2</div><div class="line"></div></div>
+    <div class="card">
+      <div class="top"><span class="st">Stage 2</span><h3>YouTube — three chained calls</h3><span class="pill">🌐 search · stats · comments</span></div>
+      <div class="sub">fetchYouTube(topic) — key + params from the youtube business rule</div>
+      <div class="lbl">What the code is</div>
+<pre><code><span class="c-com">// 2a — search fresh, high-view videos</span>
+<span class="c-fn">fetch</span>(<span class="c-str">`…/youtube/v3/search?type=video&order=viewCount&regionCode=IN
+      &publishedAfter=${…}&q=${term}&key=${key}`</span>)
+<span class="c-com">// 2b — video stats (views + counts + date) → velocity</span>
+<span class="c-fn">fetch</span>(<span class="c-str">`…/youtube/v3/videos?part=statistics,snippet&id=${ids}&key=${key}`</span>)
+  → stats[id] = { views, comments, publishedAt }
+<span class="c-com">// 2c — top-N comment threads (the real demand signal), in parallel</span>
+<span class="c-fn">fetch</span>(<span class="c-str">`…/youtube/v3/commentThreads?videoId=${v.id}&order=relevance`</span>)
+→ { source:<span class="c-str">"youtube"</span>, title, url, meta:{ views, ageDays, comments:[…] } }</code></pre>
+      <div class="lbl means">What it means</div>
+      <p>We don't just count videos — we capture <span class="k">views ÷ age</span> (velocity) and the <span class="k">comment text</span> (what people are actually confused, angry or excited about). Comments carry the feeling; stats carry the momentum.</p>
+    </div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="stage">
+    <div class="rail"><div class="num">3</div><div class="line"></div></div>
+    <div class="card">
+      <div class="top"><span class="st">Stage 3</span><h3>Reddit — OAuth → search → walk comment trees</h3><span class="pill">🌐 pair-auth</span></div>
+      <div class="sub">fetchReddit(topic) — client_id:client_secret pair from the Vault</div>
+      <div class="lbl">What the code is</div>
+<pre><code><span class="c-com">// 3a — app-only OAuth token</span>
+<span class="c-fn">fetch</span>(<span class="c-str">"…/api/v1/access_token"</span>, { headers:{ authorization:<span class="c-str">"Basic "</span>+base64(<span class="c-str">`${cid}:${secret}`</span>) },
+       body:<span class="c-str">"grant_type=client_credentials"</span> })
+<span class="c-com">// 3b — search posts (subreddits / timeframe from the rule)</span>
+<span class="c-fn">fetch</span>(<span class="c-str">`…oauth.reddit.com/search?q=${term}&sort=relevance&t=month`</span>, { headers:{ Bearer… } })
+<span class="c-com">// 3c — recursively walk the comment tree on the top-N posts</span>
+<span class="c-key">const</span> <span class="c-fn">walk</span> = (node) => { <span class="c-key">for</span> (<span class="c-key">const</span> ch <span class="c-key">of</span> node?.data?.children||[]) {
+  <span class="c-key">if</span> (ch.kind===<span class="c-str">"t1"</span> && ch.data?.body) { arr.push(ch.data.body); <span class="c-fn">walk</span>(ch.data.replies); } } };
+→ { source:<span class="c-str">"reddit"</span>, title, url, meta:{ score, ageDays, comments:[…] } }</code></pre>
+      <div class="lbl means">What it means</div>
+      <p>Reddit is treated as a <span class="k">leading indicator</span> (a guardrail caveat, not a census). The recursive <code>walk</code> mines nested replies — where the honest, high-signal complaints live — and normalises them into the <span class="k">same item shape</span> as YouTube, so everything downstream is source-agnostic.</p>
+    </div>
+  </div>
+
+  <!-- STEP 4 -->
+  <div class="stage">
+    <div class="rail"><div class="num">4</div><div class="line"></div></div>
+    <div class="card">
+      <div class="top"><span class="st">Stage 4</span><h3>Classify — channel each item through its rule prompt</h3><span class="pill navy">✦ raydar-classify</span></div>
+      <div class="sub">classifyFeed(items) — per-source prompt + model + gate · also dedupe by URL &amp; persist</div>
+      <div class="lbl">What the code is</div>
+<pre><code><span class="c-com">// first: dedupe by url + persist each item into wh_feed_item</span>
+<span class="c-key">const</span> uniq = out.filter(x => x.url && !seen.has(x.url) && seen.add(x.url));
+
+<span class="c-fn">runPipeline</span>(<span class="c-str">"raydar-classify"</span>, {
+  system: <span class="c-str">`${rule.prompt}\nReturn STRICT JSON {"items":[{"i","topic","franchise",
+           "registers":{FOMO,Anxiety,Optimism,Ambition},"question"}]}`</span>,
+  user: payload, provider: prov, model: mdl });
+→ arr[t.i].tags = t;   <span class="c-com">// tag each item</span></code></pre>
+      <div class="lbl means">What it means</div>
+      <p>Raw feed → tagged feed. Each item gets a demand topic, a 1Up franchise, a 4-register emotional distribution, and the <span class="k">underlying question</span> it represents — all decided by the swappable per-source prompt, never hardcoded.</p>
+    </div>
+  </div>
+
+  <!-- STEP 5 -->
+  <div class="stage">
+    <div class="rail"><div class="num">5</div><div class="line"></div></div>
+    <div class="card">
+      <div class="top"><span class="st">Stage 5</span><h3>Gap Analysis — pure math, no model</h3><span class="pill teal">deterministic</span></div>
+      <div class="sub">topicSignals(items, gapMapVal)</div>
+      <div class="lbl">What the code is</div>
+<pre><code>velocity = log10(max(views/ageDays)+1)/5        <span class="c-com">// momentum, ~100k/day → 1</span>
+demand   = # question-like comments + titles     <span class="c-com">// /how|why|which|worth it|vs/</span>
+supply   = item count × freshness                <span class="c-com">// halved if top item &gt; 365 days stale</span>
+gap      = clamp(demandN / supplyQ)              <span class="c-com">// hunger ÷ what's already answered</span>
+gapType  = stale | emerging | unanswered | thin</code></pre>
+      <div class="lbl means">What it means</div>
+      <p>The money step. <span class="k">Gap = demand ÷ supply.</span> A topic with 20 unanswered questions and only 2 stale videos scores a high gap (big opportunity); a saturated topic scores low. Deterministic and auditable — it falls back to the configured <code>gap_map</code> when live metrics are missing.</p>
+    </div>
+  </div>
+
+  <!-- STEP 6 -->
+  <div class="stage">
+    <div class="rail"><div class="num">6</div><div class="line"></div></div>
+    <div class="card">
+      <div class="top"><span class="st">Stage 6</span><h3>Research — grounding sources in parallel</h3><span class="pill">🌐 Tavily · Serper · Perplexity · Exa · Brave</span></div>
+      <div class="sub">researchTopic(topic) — every enabled source, each reading its own rule</div>
+      <div class="lbl">What the code is</div>
+<pre><code><span class="c-key">if</span> (<span class="c-fn">enabled</span>(<span class="c-str">"tavily"</span>))  runs.push(<span class="c-str">/* POST api.tavily.com/search  → answer + refs[] */</span>);
+<span class="c-key">if</span> (<span class="c-fn">enabled</span>(<span class="c-str">"perplexity"</span>)) runs.push(<span class="c-str">/* sonar chat → cited answer */</span>);
+…
+<span class="c-key">for</span> (<span class="c-key">const</span> s <span class="c-key">of</span> <span class="c-key">await</span> Promise.<span class="c-fn">allSettled</span>(runs))
+  { out.refs.push(...s.value.refs); out.sources.push(s.value.source); }  <span class="c-com">// each ref tagged</span></code></pre>
+      <div class="lbl means">What it means</div>
+      <p>Separate from the <span class="k">demand</span> feed, this pulls <span class="k">authoritative</span> material to ground and fact-check the idea, with citable URLs — every reference attributed to its origin.</p>
+    </div>
+  </div>
+
+  <!-- STEP 7 -->
+  <div class="stage">
+    <div class="rail"><div class="num">7</div><div class="line"></div></div>
+    <div class="card">
+      <div class="top"><span class="st">Stage 7</span><h3>Ideate — three angles per topic, grounded</h3><span class="pill navy">✦ feedstory-generate</span></div>
+      <div class="sub">core · contrarian · insider-data — with Talent500 guardrails prepended</div>
+      <div class="lbl">What the code is</div>
+<pre><code>ANGLES = [<span class="c-str">"core"</span>, <span class="c-str">"contrarian"</span>, <span class="c-str">"insider-data"</span>];   <span class="c-com">// a===1 → contradiction idea</span>
+<span class="c-fn">ai</span>(<span class="c-str">"feedstory-generate"</span>,
+  <span class="c-str">`${guardPrompt}\nCreate ONE content idea (heading + topic-guide brief, NOT finished
+    copy) for '${t.franchise}'. Angle: ${ANGLES[a]}. Ground it in the real feed + research.`</span>,
+  <span class="c-str">`Demand topic: ${t.name} (question: ${t.question})… Real feed: ${items} Research: ${…}`</span>);
+<span class="c-key">if</span> (!j || !j.heading) <span class="c-key">continue</span>;   <span class="c-com">// LLM-only, no dummy fallback</span></code></pre>
+      <div class="lbl means">What it means</div>
+      <p>Output is a <span class="k">brief for a writer</span> (heading + topic guide), never finished copy — one straight take, one contrarian, one data-led — each anchored to specific feed evidence.</p>
+    </div>
+  </div>
+
+  <!-- STEP 8 -->
+  <div class="stage">
+    <div class="rail"><div class="num">8</div><div class="line"></div></div>
+    <div class="card">
+      <div class="top"><span class="st">Stage 8</span><h3>Contradiction &amp; Evidence — validate the idea</h3><span class="pill navy">✦ raydar-contradiction</span></div>
+      <div class="sub">validateIdea(story, research)</div>
+      <div class="lbl">What the code is</div>
+<pre><code><span class="c-fn">runPipeline</span>(<span class="c-str">"raydar-contradiction"</span>, {
+  system: <span class="c-str">`Return {"evidence":[{claim,source}],"contradictions":[{claim,conflict}]}.
+           Only cite what research supports; never assert independently.`</span> });
+<span class="c-com">// a conflict → flag the story and record the belief it pushes against</span>
+<span class="c-key">if</span> (val.contradictions.length) { s.contradiction = <span class="c-key">true</span>; s.contradiction_of = …conflict; }</code></pre>
+      <div class="lbl means">What it means</div>
+      <p>The "you propose, never assert" guardrail in code — claims get citations; a wrong-but-popular belief becomes a <span class="k">contrarian angle with evidence</span>, not an unbacked hot take.</p>
+    </div>
+  </div>
+
+  <!-- STEP 9 -->
+  <div class="stage">
+    <div class="rail"><div class="num">9</div><div class="line"></div></div>
+    <div class="card">
+      <div class="top"><span class="st">Stage 9</span><h3>Rank — composite score, then persist</h3><span class="pill teal">Σ signals → wh_feed_story</span></div>
+      <div class="sub">weighted sum from the editable scoring rule + the human feedback loop</div>
+      <div class="lbl">What the code is</div>
+<pre><code>score = W.gap*gap + W.velocity*velocity + W.strategic*strategic + W.historical*franchiseHist;
+<span class="c-com">// default weights: gap .35 · velocity .25 · strategic .20 · historical .20</span>
+<span class="c-com">// historical = past "Used" acceptance per franchise → feedback feeds back into rank</span>
+<span class="c-key">await</span> <span class="c-fn">wq</span>(<span class="c-str">`insert into wh_feed_story(… score, score_breakdown …)`</span>);  <span class="c-com">// explainable, stored</span></code></pre>
+      <div class="lbl means">What it means</div>
+      <p>Every card is ranked by <span class="k">opportunity × momentum × strategy × what's worked before</span>, and the full breakdown (demand, supply, live-flag, sources) is stored — so the ranking is completely explainable in the report, never a black box.</p>
+    </div>
+  </div>
+
+  <!-- one-line chain -->
+  <div class="stage">
+    <div class="rail"><div class="num zero" style="background:var(--teal)">∑</div></div>
+    <div class="card" style="border-color:var(--teal);background:linear-gradient(180deg,#fff,#f6faf9)">
+      <div class="top"><h3>The whole chain, one line</h3></div>
+      <p style="font-size:15px"><b>Hunger</b> (demand topics) → <b>terms</b> → parallel <b>YouTube</b> (search·stats·comments) + <b>Reddit</b> (OAuth·search·comment-trees) + News/Serp → <b>dedupe/persist</b> → <b>classify</b> (topic·franchise·register·question) → <b>gap = demand ÷ supply</b> + velocity → <b>research grounding</b> → <b>ideate</b> (3 guardrailed angles) → <b>contradiction/evidence</b> → <b>composite rank</b> → stored, explainable Feed Stories.</p>
+    </div>
+  </div>
+
+</div>
+</main>
+
+<!-- ===== footer ===== -->
+<footer class="foot">
+  <div class="wrap row">
+    <div class="tkb">
+      <img src="assets/tkb-black.png" alt="The Kettle Black">
+      <div class="t"><b>Bespoke AI by The Kettle Black</b><span>RayDar — Talent Trend Radar for Q&amp;ANSR</span></div>
+    </div>
+    <div class="meta"><b>RayDar Engine</b> · pipeline trace<br>Source: <b>server/whisperer.js</b><br>Generated 24 Jul 2026</div>
+  </div>
+</footer>
+
+</body>
+</html>
