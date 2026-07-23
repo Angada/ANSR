@@ -94,7 +94,7 @@ window.qHeader = async (activeTab = "home") => {
     const st = document.createElement("style"); st.id = "qterm-css"; st.textContent = QTERM_CSS;
     document.head.appendChild(st);
   }
-  const tabs = [["raydar", "RayDar", "/whisperer.html"], ["mint", "Mint", "/mint.html"], ["admin", "Admin", "/admin.html"]];
+  const tabs = [["raydar", "RayDar", "/whisperer.html"], ["contra", "Contra", "/contra.html"], ["mint", "Mint", "/mint.html"], ["admin", "Admin", "/admin.html"]];
   el.outerHTML = `
   <header class="q-term" id="appbar">
     <a href="/" class="q-term__brand" title="Home"><span class="q-term__led"></span><img class="q-term__logo" src="/brand/assets/logos/QAnsr-logo.png" alt="Q&ANSR"><span class="q-term__sys">// CORE</span></a>

@@ -26,6 +26,7 @@ import { runMigrations } from "./migrate.js";
 import { stubClauses, upsertInterpretation, getInterpretations } from "./clauses.js";
 import { registerCorpusDoc, intakeCorpus, reparse, getChipGroups, ruleBookFromChips, seedStubCorpus, mstore } from "./munshi/engine.js";
 import { parserMode, setParserMode, ocrMode, setOcrMode } from "./munshi/flag.js";
+import { mountContra } from "./contra.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const uploads = join(root, "uploads"); // multer temp only — persistent artifacts go to storage.js
@@ -69,6 +70,7 @@ app.use(express.static(join(root, "public")));
 app.use("/brand", express.static(join(root, "brand"))); // tokens.css + logo for the UI
 const MAX_UPLOAD = 25 * 1024 * 1024; // 25 MB
 const upload = multer({ dest: uploads, limits: { fileSize: MAX_UPLOAD } });
+mountContra(app, upload); // Contra — contract review (archetype maker + review)
 
 const slug = (s) => String(s || "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
 
