@@ -237,6 +237,7 @@ window.onProcess = async () => {
 async function loadIdeas() {
   const { stories } = await (await fetch(`/api/wh/feedstories/${BATCH.id}?franchise=${encodeURIComponent(FR)}`)).json();
   const { franchises } = await (await fetch("/api/wh/franchises")).json();
+  try { FEED_SIGNAL = (await (await fetch(`/api/wh/feed/${BATCH.id}`)).json()).feed || []; } catch { FEED_SIGNAL = []; }
   renderIdeas(stories, franchises);
   rail();
 }
@@ -439,6 +440,18 @@ window.copyIdea = (id, which, btn) => {
   const txt = which === "title" ? (g.title || s.heading) : s.heading;
   (navigator.clipboard?.writeText(txt) || Promise.resolve()).then(() => { if (btn) { btn.textContent = "copied"; setTimeout(() => (btn.textContent = "copy"), 1200); } });
 };
+// fact-check confidence badge — score + why (+ any published fact-check reviews).
+// Reads score_breakdown.fact_check; shows on every idea on the results page.
+function factCheckBadge(s) {
+  const f = (s.score_breakdown || {}).fact_check;
+  if (!f) return "";
+  const cls = f.score >= 80 ? "fc-good" : f.score >= 60 ? "fc-ok" : f.score >= 40 ? "fc-warn" : "fc-bad";
+  const revs = (f.reviews || []).length
+    ? `<div class="fc-revs">${f.reviews.map((r) => `<a class="fc-rev" href="${esc(r.url || "#")}" target="_blank" rel="noopener">${esc(r.publisher || "source")}: “${esc(r.rating || "")}” ↗</a>`).join("")}</div>` : "";
+  return `<div class="factcheck ${cls}">
+    <div class="fc-top"><span class="fc-score">✓ Fact-check ${f.score}<span class="fc-out">/100</span></span><span class="fc-label">${esc(f.label || "")}</span></div>
+    ${f.why ? `<div class="fc-why">${esc(f.why)}</div>` : ""}${revs}</div>`;
+}
 function leadIdea(s, franchises) {
   const m = angleMeta(s);
   return `<div class="lead">
@@ -448,6 +461,7 @@ function leadIdea(s, franchises) {
       <span class="idea-score">score ${(Number(s.score) * 100).toFixed(0)}</span>
     </div>
     ${deliverableBox(s)}
+    ${factCheckBadge(s)}
     <div class="why-pair">
       <details class="whyx"><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
@@ -469,6 +483,7 @@ function altIdea(s, franchises, topicKey) {
     </summary>
     <div class="alt-body">
       <div style="margin-top:12px">${deliverableBox(s)}</div>
+      ${factCheckBadge(s)}
       <div class="chips">${ideaChips(s, franchises)}</div>
       <details class="whyx" open><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
@@ -518,6 +533,33 @@ function groupBoards(stories) {
 }
 window.promoteLead = (key, id) => { LEAD_OVERRIDE[key] = id; renderIdeas(_RENDER.stories, _RENDER.franchises); };
 
+// results-page "top videos that scored high" block — the live feed snapshot,
+// ranked by velocity, each row links out to the real YouTube video / Reddit post.
+let FEED_SIGNAL = [];
+function feedSignalBlock() {
+  const feed = FEED_SIGNAL || [];
+  if (!feed.length) return "";
+  const srcIcon = (s) => s === "youtube" ? "▶️" : s === "reddit" ? "👽" : s === "news" ? "📰" : "🌐";
+  const nfmt = (n) => Number(n || 0).toLocaleString();
+  const why = (v) => {
+    const b = [];
+    if (v.views) b.push(`${nfmt(v.views)} views${v.ageDays ? ` in ${v.ageDays}d` : ""}`);
+    if (v.velocity) b.push(`velocity ${v.velocity.toFixed(2)}`);
+    if (v.questions) b.push(`${v.questions} question-comment${v.questions === 1 ? "" : "s"}`);
+    else if (v.comments) b.push(`${v.comments} comments`);
+    return b.join(" · ") || "collected signal";
+  };
+  const rows = feed.map((v, i) => `<a class="fsig-row" href="${esc(v.url)}" target="_blank" rel="noopener" title="open on ${esc(v.source)} ↗">
+    <span class="fsig-rank">#${i + 1}</span><span class="fsig-src">${srcIcon(v.source)}</span>
+    <span class="fsig-main"><span class="fsig-title">${esc(v.title || "(untitled)")}</span><span class="fsig-why">${esc(why(v))}</span></span>
+    <span class="fsig-vel"><span class="fsig-bar"><span style="width:${Math.round((v.velocity || 0) * 100)}%"></span></span><b>${(v.velocity || 0).toFixed(2)}</b></span>
+    <span class="fsig-ext">↗</span></a>`).join("");
+  const yt = feed.some((f) => f.source === "youtube");
+  return `<details class="fsig" open>
+    <summary><span class="fsig-k">◎ Signal — top ${yt ? "videos" : "items"} that scored high</span><span class="fsig-n">${feed.length}</span></summary>
+    <div class="fsig-note">Ranked by velocity (views ÷ days) — the live demand signal behind these ideas. Click any to open ↗</div>
+    ${rows}</details>`;
+}
 function renderIdeas(stories, franchises) {
   const host = $("#stageIdeas");
   if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each concept becomes a <b>story board</b>: a lead idea plus alternative angles, all ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
@@ -531,7 +573,7 @@ function renderIdeas(stories, franchises) {
       <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${boards.length} concept${boards.length === 1 ? "" : "s"} · ${stories.length} angles</span>
     </div>`;
   host.innerHTML = `<p class="intro"><b>IDEAS</b> — grouped into <b>story boards</b> by concept. Each board leads with the strongest angle; open the <b>alternatives</b> or the <b>why</b> chips (concept · angle · story) to see the reasoning and the sources we pulled.</p>` +
-    trendReport(stories) + filter + (boards.length ? `<div class="boards">${boards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>` : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`);
+    trendReport(stories) + feedSignalBlock() + filter + (boards.length ? `<div class="boards">${boards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>` : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`);
 }
 window.setFR = (v) => { FR = v; loadIdeas(); };
 function refreshCurrent() { if (VIEW === "library") loadLibrary(); else loadIdeas(); }

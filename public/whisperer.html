@@ -262,6 +262,38 @@
   .tsr-note{font-size:12px;color:var(--dim);line-height:1.5;margin-top:9px}
   .tsr-note b{color:var(--txt)}
 
+  /* ============ FEED SIGNAL — top scoring videos/posts (results page) ======= */
+  .fsig{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:0 0 18px}
+  .fsig>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px}
+  .fsig>summary::-webkit-details-marker{display:none}
+  .fsig-k{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--grn);font-weight:700}
+  .fsig-n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--dim2);border:1px solid var(--line2);border-radius:999px;padding:2px 9px}
+  .fsig-note{font-family:var(--mono);font-size:11.5px;color:var(--dim2);margin:8px 0 6px}
+  .fsig-row{display:flex;align-items:center;gap:11px;padding:9px 8px;border-top:1px solid var(--line);text-decoration:none;color:var(--txt);transition:.14s}
+  .fsig-row:hover{background:var(--bg2)}
+  .fsig-rank{font-family:var(--mono);font-size:12px;color:var(--dim2);width:26px;flex:0 0 auto}
+  .fsig-src{font-size:15px;flex:0 0 auto}
+  .fsig-main{flex:1;min-width:0}
+  .fsig-title{display:block;font-size:14px;font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fsig-why{display:block;font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:2px}
+  .fsig-vel{display:flex;align-items:center;gap:7px;flex:0 0 auto;font-family:var(--mono);font-size:12px;color:var(--grn)}
+  .fsig-bar{width:54px;height:5px;border-radius:3px;background:var(--line2);overflow:hidden;display:inline-block}
+  .fsig-bar>span{display:block;height:100%;background:var(--grn-dim)}
+  .fsig-ext{color:var(--dim2);flex:0 0 auto}
+
+  /* ============ FACT-CHECK badge (results page, per idea) =================== */
+  .factcheck{margin:12px 0 0;border:1px solid var(--line);border-left:3px solid var(--dim2);border-radius:10px;padding:10px 12px;background:var(--bg2)}
+  .factcheck.fc-good{border-left-color:var(--cyan)} .factcheck.fc-ok{border-left-color:var(--amber)}
+  .factcheck.fc-warn{border-left-color:var(--amber)} .factcheck.fc-bad{border-left-color:var(--red)}
+  .fc-top{display:flex;align-items:center;gap:10px}
+  .fc-score{font-family:var(--mono);font-size:12.5px;font-weight:700;color:var(--txt)}
+  .fc-out{color:var(--dim2);font-weight:400}
+  .fc-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2)}
+  .fc-good .fc-label{color:var(--cyan)} .fc-bad .fc-label{color:var(--red)} .fc-warn .fc-label,.fc-ok .fc-label{color:var(--amber)}
+  .fc-why{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:5px}
+  .fc-revs{display:flex;flex-direction:column;gap:3px;margin-top:6px}
+  .fc-rev{font-size:11.5px;color:var(--cyan);text-decoration:none} .fc-rev:hover{text-decoration:underline}
+
   /* ============ STORY BOARDS (grouped: concept → lead idea + alternatives) === */
   .boards{display:flex;flex-direction:column;gap:18px}
   .board{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px 20px 18px;box-shadow:0 1px 2px rgba(0,36,46,.04);transition:.16s}

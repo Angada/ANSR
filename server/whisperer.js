@@ -147,6 +147,25 @@ async function collectFeed(topics) {
 // velocity = views ÷ days since publish (YouTube), normalised
 // Falls back to the configured gap_map + item-count when no live metrics exist.
 const isQuestion = (t) => /\?|\bhow\b|\bwhy\b|\bwhat\b|\bwhich\b|\bwhen\b|\bcan i\b|\bshould i\b|worth it|vs\b/i.test(String(t || ""));
+
+// Rank the raw collected feed items (videos/posts) by velocity (views ÷ days),
+// with a plain-English "why" — the snapshot behind the results page's "top
+// videos that scored high" block. Only items with a real signal survive.
+function rankFeedSignal(items) {
+  return (items || []).filter((f) => f.url).map((f) => {
+    const m = f.meta || {};
+    const views = Number(m.views || 0), ageDays = m.ageDays || null;
+    const vRaw = ageDays ? views / Math.max(1, ageDays) : 0;
+    const velocity = vRaw > 0 ? Math.min(1, Math.log10(vRaw + 1) / 5) : 0;
+    const comments = Array.isArray(m.comments) ? m.comments : [];
+    const questions = comments.filter(isQuestion).length;
+    return { source: f.source, title: f.title || "", url: f.url, topic: f.topic || null,
+      franchise: f.tags?.franchise || null, views, ageDays, comments: comments.length, questions, score: Number(m.score || 0),
+      velocity: Math.round(velocity * 100) / 100 };
+  }).filter((x) => x.views > 0 || x.comments > 0 || x.source === "reddit")
+    .sort((a, b) => b.velocity - a.velocity || b.views - a.views || b.comments - a.comments)
+    .slice(0, 15);
+}
 function topicSignals(items, gapMapVal) {
   const withMeta = items.filter((x) => x.meta && (x.meta.comments || x.meta.views != null));
   // velocity — top views/day across matched videos, log-normalised (~100k/day → 1)
@@ -188,6 +207,40 @@ async function validateIdea(s, research) {
     if (out.mode === "ai" && out.text) return jsonFrom(out.text);
   } catch { /* no validation → no contradiction claim */ }
   return null;
+}
+
+// ---- Fact-check (Stage 6b): query Google Fact Check Tools for the idea's claim.
+// Returns published claim-reviews (publisher + rating + url) or null (unkeyed).
+const DISPUTE_RE = /false|misleading|incorrect|inaccurate|no evidence|unproven|unsupported|pants on fire|distort|debunk|mostly false|not true/i;
+async function factCheckIdea(s) {
+  if (!enabled("factcheck")) return null;
+  const key = getIntegrationKey("factcheck"); if (!key) return null;
+  const rule = await getRule("factcheck"); const lang = rule.collection?.languageCode || "en";
+  const query = String(s.heading || s.summary || "").slice(0, 200);
+  try {
+    const r = await timeout(fetch(`https://factchecktools.googleapis.com/v1alpha1/claims:search?query=${encodeURIComponent(query)}&languageCode=${lang}&pageSize=5&key=${encodeURIComponent(key)}`));
+    const j = await r.json();
+    const reviews = (j.claims || []).flatMap((c) => (c.claimReview || []).map((cr) => ({ claim: c.text, rating: cr.textualRating || "", publisher: cr.publisher?.name || cr.publisher?.site || "", url: cr.url || "" }))).filter((x) => x.rating);
+    return { checked: query, count: reviews.length, reviews: reviews.slice(0, 4) };
+  } catch { return null; }
+}
+// Confidence score (0–100) that an idea's claim holds up: grounded in evidence/
+// sources, penalised for flagged contradictions + any published fact-check disputes.
+function scoreFactCheck(s, srcRefs, research, fc) {
+  let score = 60; const why = [];
+  if (s.evidence && String(s.evidence).trim()) { score += 12; why.push("cited evidence"); }
+  if (srcRefs.length) { score += Math.min(18, srcRefs.length * 4); why.push(`${srcRefs.length} source${srcRefs.length === 1 ? "" : "s"} linked`); }
+  if (research && (research.refs || []).length) score += 8;
+  if (s.contradiction) { score -= 25; why.push("flags a contested belief"); }
+  const disputed = (fc?.reviews || []).filter((r) => DISPUTE_RE.test(r.rating));
+  if (fc && fc.count) {
+    if (disputed.length) { score -= 35; why.push(`${disputed.length} fact-check dispute${disputed.length === 1 ? "" : "s"} found`); }
+    else { score += 12; why.push("no fact-check disputes"); }
+  } else if (fc) { why.push("no matching fact-checks"); }
+  else if (!enabled("factcheck")) { why.push("fact-check not keyed"); }
+  score = Math.max(5, Math.min(98, Math.round(score)));
+  const label = score >= 80 ? "well-grounded" : score >= 60 ? "plausible" : score >= 40 ? "check" : "disputed";
+  return { score, label, why: why.join(" · "), reviews: fc?.reviews || [] };
 }
 
 // ---- Classify (Stage 2): tag each source's items with THAT integration's -----
@@ -413,6 +466,7 @@ export function mountWhisperer(app, slug) {
     if (extra) feedTopics.push({ name: "__extra__", terms: [extra] });   // also search the user's prompt
     const feed = await collectFeed(feedTopics).catch(() => []);
     await classifyFeed(feed).catch(() => {});            // Stage 2 — channel through each source's rule prompt
+    await wq(`update wh_batch set feed_signal=$2::jsonb where id=$1`, [bid, JSON.stringify(rankFeedSignal(feed))]).catch(() => {}); // results-page "top videos" snapshot
     const made = [];
     for (const t of topicRows) {
       const research = await researchTopic(extra ? `${t.name} — ${extra}` : t.name).catch(() => null);
@@ -445,9 +499,11 @@ export function mountWhisperer(app, slug) {
           if (Array.isArray(val.contradictions) && val.contradictions.length) { s.contradiction = true; s.contradiction_of = val.contradictions[0].conflict || val.contradictions[0].claim || s.contradiction_of; }
           if (Array.isArray(val.evidence) && val.evidence.length) s.evidence = val.evidence.map((e) => e.claim).filter(Boolean).join("; ").slice(0, 300) || s.evidence;
         }
+        const fc = await factCheckIdea(s).catch(() => null);   // Stage 6b — published fact-checks (real when keyed)
+        const fact_check = scoreFactCheck(s, srcRefs, research, fc);
         const score = Math.round((W.gap * gap + W.velocity * velocity + W.strategic * strategic + W.historical * franchiseHist) * 1000) / 1000;
         const sources = [...new Set([...srcRefs.map((r) => r.source), ...((research && research.sources) || [])])].filter(Boolean);
-        const breakdown = { gap: Math.round(gap * 100) / 100, velocity: Math.round(velocity * 100) / 100, strategic: Math.round(strategic * 100) / 100, historical: Math.round(franchiseHist * 100) / 100, weights: W, demand: sig.demand, supply: sig.supply, live: sig.live, sources };
+        const breakdown = { gap: Math.round(gap * 100) / 100, velocity: Math.round(velocity * 100) / 100, strategic: Math.round(strategic * 100) / 100, historical: Math.round(franchiseHist * 100) / 100, weights: W, demand: sig.demand, supply: sig.supply, live: sig.live, sources, fact_check };
         const gapType = s.contradiction ? "wrong" : (sig.gapType || (velocity >= 0.8 ? "emerging" : gap >= 0.8 ? "unanswered" : items.length <= 1 ? "thin" : "stale"));
         const r = await wq(`insert into wh_feed_story(batch_id,cohort_id,demand_topic,franchise,platform,one_up,emotional_register,heading,topic_guide,summary,why_now,why_relevant,why_cohort,evidence,contradiction,contradiction_of,source_refs,score,score_breakdown,angle,gap_type,in_library,status)
           values($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19::jsonb,$20,$21,true,'draft') returning id`,
@@ -457,6 +513,12 @@ export function mountWhisperer(app, slug) {
     }
     await wq(`update wh_batch set story_count=$2, status='swept', swept_at=now() where id=$1`, [bid, made.length]);
     res.json({ ok: true, made: made.length });
+  });
+
+  // the results-page "top videos that scored high" block — ranked feed snapshot for this sweep
+  app.get("/api/wh/feed/:batchId", async (req, res) => {
+    const b = (await wq(`select feed_signal from wh_batch where id=$1`, [Number(req.params.batchId)])).rows?.[0];
+    res.json({ feed: b?.feed_signal || [] });
   });
 
   app.get("/api/wh/feedstories/:batchId", async (req, res) => {
