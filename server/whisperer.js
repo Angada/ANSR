@@ -41,6 +41,7 @@ Object.assign(RULE_DEFAULTS, {
   guardrails: { app: "RayDar", category: "guardrails", pipeline: "feedstory-generate",
     collection: {
       language: "English", region: "India", locale: "en-IN",
+      languages: ["en"], // ENFORCED deterministically on the feed (not just the prompt): only these ISO codes survive; ["all"] disables the filter
       audience: "Indian job seekers · GCC / tech talent", brand: "Talent500", currency: "INR",
       idiom: ["hike", "notice period", "CTC", "package", "service company", "product company", "fresher", "campus placement", "on-site", "bench"],
       out_of_scope: ["Hindi / regional-language content (v2)"],
@@ -173,11 +174,22 @@ function regionalLang(title) {
   const m = t.match(LANG_TAG_RE); if (m) return m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
   return null;
 }
+const LANG_CODE = { Tamil: "ta", Kannada: "kn", Telugu: "te", Malayalam: "ml", "Hindi/Devanagari": "hi", Bengali: "bn", Punjabi: "pa", Gujarati: "gu", Odia: "or", Hindi: "hi", Marathi: "mr", Urdu: "ur", Assamese: "as" };
+// Deterministic guardrail enforcement (RULE-DRIVEN, not prompt-only): given the
+// allowed-language codes from the business rule, return a drop-reason if this item
+// violates it, else null. English/undetected always passes; ["all"] disables it.
+function langExcludeReason(title, allowed) {
+  const lang = regionalLang(title);
+  if (!lang) return null;
+  if (!allowed || allowed.includes("all")) return null;
+  const code = LANG_CODE[lang] || lang.toLowerCase();
+  return allowed.includes(code) ? null : `${lang} — not in allowed languages (${allowed.join(", ")})`;
+}
 
 // Rank collected feed items by velocity (views ÷ days), split into on-topic (kept)
 // vs off-topic (dropped, with reason), and compute coverage stats — the auditable
 // snapshot behind the results page's "top videos" block. Returns {kept,dropped,stats}.
-function rankFeedSignal(items) {
+function rankFeedSignal(items, allowedLangs = ["en"]) {
   const rows = (items || []).filter((f) => f.url).map((f) => {
     const m = f.meta || {};
     const views = Number(m.views || 0), ageDays = m.ageDays || null;
@@ -193,8 +205,8 @@ function rankFeedSignal(items) {
 
   const kept = [], dropped = [];
   for (const r of rows) {
-    const lang = regionalLang(r.title);
-    if (lang) { dropped.push({ ...r, reason: `${lang} — English audience only`, hard: true }); continue; } // never promoted back
+    const langReason = langExcludeReason(r.title, allowedLangs);
+    if (langReason) { dropped.push({ ...r, reason: langReason, hard: true }); continue; } // rule-driven hard drop, never promoted back
     const m = relevanceMatch(r);
     if (m === null) dropped.push({ ...r, reason: "no topic-keyword match" });
     else { r.match = m || null; kept.push(r); }
@@ -499,6 +511,7 @@ export function mountWhisperer(app, slug) {
     const sc = (await getRule("scoring")).collection || {};
     const guard = await getRule("guardrails");                  // audience · language · region (editable)
     const guardPrompt = guard.enabled === false ? "" : (guard.prompt || "");
+    const allowedLangs = (guard.collection && guard.collection.languages) || ["en"]; // rule-driven, code-enforced (not prompt-only)
     const W = sc.weights || { gap: 0.35, velocity: 0.25, strategic: 0.20, historical: 0.20 };
     const GAPMAP = sc.gap_map || {};
     // the approved 6 demand topics + franchise routing (skip Emerging for generation)
@@ -516,11 +529,11 @@ export function mountWhisperer(app, slug) {
     if (extra) feedTopics.push({ name: "__extra__", terms: [extra] });   // also search the user's prompt
     const feed = await collectFeed(feedTopics).catch(() => []);
     await classifyFeed(feed).catch(() => {});            // Stage 2 — channel through each source's rule prompt
-    await wq(`update wh_batch set feed_signal=$2::jsonb where id=$1`, [bid, JSON.stringify(rankFeedSignal(feed))]).catch(() => {}); // results-page "top videos" snapshot
+    await wq(`update wh_batch set feed_signal=$2::jsonb where id=$1`, [bid, JSON.stringify(rankFeedSignal(feed, allowedLangs))]).catch(() => {}); // results-page "top videos" snapshot
     const made = [];
     for (const t of topicRows) {
       const research = await researchTopic(extra ? `${t.name} — ${extra}` : t.name).catch(() => null);
-      const items = feed.filter((f) => f.topic === t.name || f.topic === "__extra__" || (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase())).slice(0, 5);
+      const items = feed.filter((f) => !langExcludeReason(f.title, allowedLangs) && (f.topic === t.name || f.topic === "__extra__" || (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase()))).slice(0, 5); // rule-enforced: excluded-language items never ground an idea
       const sig = topicSignals(items, GAPMAP[t.name]);          // Stage 3 — real demand/supply/velocity when live
       const velocity = sig.velocity != null ? sig.velocity : Math.min(1, 0.4 + items.length * 0.1);
       const strategic = Math.min(1, (Number(t.strategic_weight) || 1) / 1.5);
