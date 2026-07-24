@@ -161,6 +161,18 @@ function relevanceMatch(row) {
   for (const k of keys) if (hay.includes(k)) return k;
   return null;
 }
+// Regional-language guard: the audience is India-English (guardrails mark
+// Hindi/regional content out of scope). Drop titles in an Indic script OR tagged
+// with a regional-language name. Returns the detected language, or null if English.
+const INDIC_RE = /[ऀ-ॿঀ-৿਀-੿઀-૿଀-୿஀-௿ఀ-౿ಀ-೿ഀ-ൿ]/;
+const LANG_TAG_RE = /\b(tamil|kannada|telugu|malayalam|hindi|marathi|bengali|punjabi|gujarati|urdu|odia|assamese)\b/i;
+const SCRIPT_LANG = [[/[஀-௿]/, "Tamil"], [/[ಀ-೿]/, "Kannada"], [/[ఀ-౿]/, "Telugu"], [/[ഀ-ൿ]/, "Malayalam"], [/[ऀ-ॿ]/, "Hindi/Devanagari"], [/[ঀ-৿]/, "Bengali"], [/[਀-੿]/, "Punjabi"], [/[઀-૿]/, "Gujarati"], [/[଀-୿]/, "Odia"]];
+function regionalLang(title) {
+  const t = String(title || "");
+  for (const [re, name] of SCRIPT_LANG) if (re.test(t)) return name;
+  const m = t.match(LANG_TAG_RE); if (m) return m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+  return null;
+}
 
 // Rank collected feed items by velocity (views ÷ days), split into on-topic (kept)
 // vs off-topic (dropped, with reason), and compute coverage stats — the auditable
@@ -181,14 +193,18 @@ function rankFeedSignal(items) {
 
   const kept = [], dropped = [];
   for (const r of rows) {
+    const lang = regionalLang(r.title);
+    if (lang) { dropped.push({ ...r, reason: `${lang} — English audience only`, hard: true }); continue; } // never promoted back
     const m = relevanceMatch(r);
     if (m === null) dropped.push({ ...r, reason: "no topic-keyword match" });
     else { r.match = m || null; kept.push(r); }
   }
   let keptF = kept, dropF = dropped;
-  if (keptF.length < 3 && dropF.length) {             // never near-empty the block
-    const promote = dropF.slice(0, 3 - keptF.length).map((d) => ({ ...d, match: null }));
-    keptF = keptF.concat(promote); dropF = dropF.slice(promote.length);
+  if (keptF.length < 3 && dropF.some((d) => !d.hard)) { // never near-empty the block (but never promote a regional drop)
+    const promote = dropF.filter((d) => !d.hard).slice(0, 3 - keptF.length);
+    const urls = new Set(promote.map((p) => p.url));
+    keptF = keptF.concat(promote.map((d) => ({ ...d, match: null })));
+    dropF = dropF.filter((d) => !urls.has(d.url));
   }
   const sources = {}; for (const r of rows) sources[r.source] = (sources[r.source] || 0) + 1;
   const stats = {
