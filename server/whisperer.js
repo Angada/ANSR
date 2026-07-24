@@ -148,23 +148,37 @@ async function collectFeed(topics) {
 // Falls back to the configured gap_map + item-count when no live metrics exist.
 const isQuestion = (t) => /\?|\bhow\b|\bwhy\b|\bwhat\b|\bwhich\b|\bwhen\b|\bcan i\b|\bshould i\b|worth it|vs\b/i.test(String(t || ""));
 
+// On-topic relevance: does the item title share a meaningful keyword with the
+// topic/term it was collected under? Drops viral-but-off-topic hits (a K-drama,
+// a game) that YouTube's viewCount sort surfaces for a loose query match.
+const FEED_STOP = new Set("the a an of to for in on at and or your you my how why what which when get got new best top vs is are be do this that with into make made using use need needs guide tips 2024 2025 2026".split(" "));
+const kwOf = (s) => (String(s || "").toLowerCase().match(/[a-z0-9]{3,}/g) || []).filter((w) => !FEED_STOP.has(w));
+function isRelevant(row) {
+  const keys = new Set([...kwOf(row.topic), ...kwOf(row.term)]);
+  if (!keys.size) return true;                       // nothing to match on → don't filter
+  const hay = (row.title || "").toLowerCase();
+  for (const k of keys) if (hay.includes(k)) return true;
+  return false;
+}
+
 // Rank the raw collected feed items (videos/posts) by velocity (views ÷ days),
 // with a plain-English "why" — the snapshot behind the results page's "top
-// videos that scored high" block. Only items with a real signal survive.
+// videos that scored high" block. Off-topic hits filtered; real signal only.
 function rankFeedSignal(items) {
-  return (items || []).filter((f) => f.url).map((f) => {
+  const rows = (items || []).filter((f) => f.url).map((f) => {
     const m = f.meta || {};
     const views = Number(m.views || 0), ageDays = m.ageDays || null;
     const vRaw = ageDays ? views / Math.max(1, ageDays) : 0;
     const velocity = vRaw > 0 ? Math.min(1, Math.log10(vRaw + 1) / 5) : 0;
     const comments = Array.isArray(m.comments) ? m.comments : [];
     const questions = comments.filter(isQuestion).length;
-    return { source: f.source, title: f.title || "", url: f.url, topic: f.topic || null,
+    return { source: f.source, title: f.title || "", url: f.url, topic: f.topic || null, term: f.term || null,
       franchise: f.tags?.franchise || null, views, ageDays, comments: comments.length, questions, score: Number(m.score || 0),
       velocity: Math.round(velocity * 100) / 100 };
-  }).filter((x) => x.views > 0 || x.comments > 0 || x.source === "reddit")
-    .sort((a, b) => b.velocity - a.velocity || b.views - a.views || b.comments - a.comments)
-    .slice(0, 15);
+  }).filter((x) => x.views > 0 || x.comments > 0 || x.source === "reddit");
+  const rel = rows.filter(isRelevant);
+  const pool = rel.length >= 3 ? rel : rows;          // don't over-filter to a near-empty block
+  return pool.sort((a, b) => b.velocity - a.velocity || b.views - a.views || b.comments - a.comments).slice(0, 15);
 }
 function topicSignals(items, gapMapVal) {
   const withMeta = items.filter((x) => x.meta && (x.meta.comments || x.meta.views != null));
