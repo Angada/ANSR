@@ -51,7 +51,7 @@ app.use((_req, res, next) => {
 const AUTH_USER = process.env.QANSR_USER || "admin";
 const AUTH_PW = process.env.QANSR_PW || "admin";
 const AUTH_TOKEN = createHash("sha256").update(`${AUTH_USER}:${AUTH_PW}:qansr-soft`).digest("hex");
-const OPEN = ["/login.html", "/login.js", "/app.css", "/favicon.png", "/apple-touch-icon.png", "/api/login", "/health"];
+const OPEN = ["/login.html", "/login.js", "/app.css", "/favicon.png", "/apple-touch-icon.png", "/q-emblem.png", "/api/login", "/health"];
 const cookieToken = (req) => (req.headers.cookie || "").split(";").map((c) => c.trim()).find((c) => c.startsWith("qansr_auth="))?.slice(11);
 // constant-time compare (no login/cookie timing oracle); Secure cookie in prod only (local dev is http)
 const safeEq = (a, b) => { const x = Buffer.from(String(a || "")), y = Buffer.from(String(b || "")); return x.length === y.length && timingSafeEqual(x, y); };
