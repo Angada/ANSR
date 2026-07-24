@@ -515,8 +515,9 @@ export function mountWhisperer(app, slug) {
     res.json({ ok: true, made: made.length });
   });
 
-  // the results-page "top videos that scored high" block — ranked feed snapshot for this sweep
-  app.get("/api/wh/feed/:batchId", async (req, res) => {
+  // the results-page "top videos that scored high" block — ranked feed snapshot for this
+  // sweep. NB: distinct path from /api/wh/feed/status (which would shadow :batchId).
+  app.get("/api/wh/feed-signal/:batchId", async (req, res) => {
     const b = (await wq(`select feed_signal from wh_batch where id=$1`, [Number(req.params.batchId)])).rows?.[0];
     res.json({ feed: b?.feed_signal || [] });
   });

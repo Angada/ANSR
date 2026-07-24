@@ -237,7 +237,7 @@ window.onProcess = async () => {
 async function loadIdeas() {
   const { stories } = await (await fetch(`/api/wh/feedstories/${BATCH.id}?franchise=${encodeURIComponent(FR)}`)).json();
   const { franchises } = await (await fetch("/api/wh/franchises")).json();
-  try { FEED_SIGNAL = (await (await fetch(`/api/wh/feed/${BATCH.id}`)).json()).feed || []; } catch { FEED_SIGNAL = []; }
+  try { FEED_SIGNAL = (await (await fetch(`/api/wh/feed-signal/${BATCH.id}`)).json()).feed || []; } catch { FEED_SIGNAL = []; }
   renderIdeas(stories, franchises);
   rail();
 }
