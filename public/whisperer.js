@@ -535,30 +535,47 @@ window.promoteLead = (key, id) => { LEAD_OVERRIDE[key] = id; renderIdeas(_RENDER
 
 // results-page "top videos that scored high" block — the live feed snapshot,
 // ranked by velocity, each row links out to the real YouTube video / Reddit post.
-let FEED_SIGNAL = [];
+let FEED_SIGNAL = null;
+const _srcIcon = (s) => s === "youtube" ? "▶️" : s === "reddit" ? "👽" : s === "news" ? "📰" : "🌐";
+const _nfmt = (n) => Number(n || 0).toLocaleString();
+const _compact = (n) => { n = Number(n || 0); return n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n); };
 function feedSignalBlock() {
-  const feed = FEED_SIGNAL || [];
-  if (!feed.length) return "";
-  const srcIcon = (s) => s === "youtube" ? "▶️" : s === "reddit" ? "👽" : s === "news" ? "📰" : "🌐";
-  const nfmt = (n) => Number(n || 0).toLocaleString();
+  const d = Array.isArray(FEED_SIGNAL) ? { kept: FEED_SIGNAL, dropped: [], stats: null } : (FEED_SIGNAL || {});
+  const kept = d.kept || [], dropped = d.dropped || [], st = d.stats;
+  if (!kept.length && !dropped.length) return "";
   const why = (v) => {
     const b = [];
-    if (v.views) b.push(`${nfmt(v.views)} views${v.ageDays ? ` in ${v.ageDays}d` : ""}`);
+    if (v.views) b.push(`${_nfmt(v.views)} views${v.ageDays ? ` in ${v.ageDays}d` : ""}`);
     if (v.velocity) b.push(`velocity ${v.velocity.toFixed(2)}`);
     if (v.questions) b.push(`${v.questions} question-comment${v.questions === 1 ? "" : "s"}`);
     else if (v.comments) b.push(`${v.comments} comments`);
     return b.join(" · ") || "collected signal";
   };
-  const rows = feed.map((v, i) => `<a class="fsig-row" href="${esc(v.url)}" target="_blank" rel="noopener" title="open on ${esc(v.source)} ↗">
-    <span class="fsig-rank">#${i + 1}</span><span class="fsig-src">${srcIcon(v.source)}</span>
-    <span class="fsig-main"><span class="fsig-title">${esc(v.title || "(untitled)")}</span><span class="fsig-why">${esc(why(v))}</span></span>
+  const keptRow = (v, i) => `<a class="fsig-row" href="${esc(v.url)}" target="_blank" rel="noopener" title="open on ${esc(v.source)} ↗">
+    <span class="fsig-rank">#${i + 1}</span><span class="fsig-src">${_srcIcon(v.source)}</span>
+    <span class="fsig-main"><span class="fsig-title">${esc(v.title || "(untitled)")}</span><span class="fsig-why">${esc(why(v))}${v.match ? ` · <span class="fsig-match">matches “${esc(v.match)}”</span>` : ""}</span></span>
     <span class="fsig-vel"><span class="fsig-bar"><span style="width:${Math.round((v.velocity || 0) * 100)}%"></span></span><b>${(v.velocity || 0).toFixed(2)}</b></span>
-    <span class="fsig-ext">↗</span></a>`).join("");
-  const yt = feed.some((f) => f.source === "youtube");
+    <span class="fsig-ext">↗</span></a>`;
+  const dropRow = (v) => `<a class="fsig-row drop" href="${esc(v.url)}" target="_blank" rel="noopener" title="open ↗">
+    <span class="fsig-src">${_srcIcon(v.source)}</span>
+    <span class="fsig-main"><span class="fsig-title">${esc(v.title || "(untitled)")}</span><span class="fsig-why">${_nfmt(v.views)} views · dropped — ${esc(v.reason || "off-topic")}</span></span>
+    <span class="fsig-ext">↗</span></a>`;
+  const statsStrip = st ? `<div class="fsig-stats">
+    ${st.collected != null ? `<span class="fst"><b>${st.collected}</b> items swept</span>` : ""}
+    ${st.terms ? `<span class="fst"><b>${st.terms}</b> search terms</span>` : ""}
+    ${Object.entries(st.sources || {}).map(([s, n]) => `<span class="fst">${_srcIcon(s)} <b>${n}</b></span>`).join("")}
+    ${st.views_analysed ? `<span class="fst"><b>${_compact(st.views_analysed)}</b> views analysed</span>` : ""}
+    ${st.questions ? `<span class="fst"><b>${st.questions}</b> question-comments mined</span>` : ""}
+    ${st.kept != null ? `<span class="fst on"><b>${st.kept}</b> on-topic</span>` : ""}
+    ${st.dropped ? `<span class="fst off"><b>${st.dropped}</b> filtered off-topic</span>` : ""}
+  </div>` : "";
+  const droppedBlock = dropped.length ? `<details class="fsig-dropped"><summary>▸ ${dropped.length} filtered out as off-topic — see what &amp; why</summary>${dropped.map(dropRow).join("")}</details>` : "";
   return `<details class="fsig" open>
-    <summary><span class="fsig-k">◎ Signal — top ${yt ? "videos" : "items"} that scored high</span><span class="fsig-n">${feed.length}</span></summary>
-    <div class="fsig-note">Ranked by velocity (views ÷ days) — the live demand signal behind these ideas. Click any to open ↗</div>
-    ${rows}</details>`;
+    <summary><span class="fsig-k">◎ Signal — top ${kept.some((f) => f.source === "youtube") ? "videos" : "items"} that scored high</span><span class="fsig-n">${kept.length}</span></summary>
+    ${statsStrip}
+    <div class="fsig-note">Ranked by velocity (views ÷ days) — the live demand signal behind these ideas. Only on-topic items shown; each row says why it was kept. Click any to open ↗</div>
+    ${kept.map(keptRow).join("")}
+    ${droppedBlock}</details>`;
 }
 function renderIdeas(stories, franchises) {
   const host = $("#stageIdeas");

@@ -280,6 +280,19 @@
   .fsig-bar{width:54px;height:5px;border-radius:3px;background:var(--line2);overflow:hidden;display:inline-block}
   .fsig-bar>span{display:block;height:100%;background:var(--grn-dim)}
   .fsig-ext{color:var(--dim2);flex:0 0 auto}
+  /* coverage / validity strip */
+  .fsig-stats{display:flex;flex-wrap:wrap;gap:7px;margin:10px 0 4px}
+  .fst{font-family:var(--mono);font-size:10.5px;letter-spacing:.02em;color:var(--dim);background:var(--bg2);border:1px solid var(--line2);border-radius:999px;padding:3px 9px}
+  .fst b{color:var(--txt);font-weight:700}
+  .fst.on{border-color:var(--cyan);color:var(--cyan)} .fst.on b{color:var(--cyan)}
+  .fst.off{border-color:var(--amber);color:var(--amber)} .fst.off b{color:var(--amber)}
+  .fsig-match{color:var(--cyan)}
+  /* dropped (off-topic) list */
+  .fsig-row.drop{opacity:.6} .fsig-row.drop .fsig-title{font-weight:500;text-decoration:line-through;text-decoration-color:var(--line2)}
+  .fsig-dropped{margin-top:8px;border-top:1px dashed var(--line2);padding-top:6px}
+  .fsig-dropped>summary{list-style:none;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--dim2);padding:6px 0}
+  .fsig-dropped>summary::-webkit-details-marker{display:none}
+  .fsig-dropped[open]>summary{color:var(--amber)}
 
   /* ============ FACT-CHECK badge (results page, per idea) =================== */
   .factcheck{margin:12px 0 0;border:1px solid var(--line);border-left:3px solid var(--dim2);border-radius:10px;padding:10px 12px;background:var(--bg2)}
