@@ -129,8 +129,9 @@
   .ref{font-family:var(--mono);font-size:10px;color:var(--cyan);border:1px solid rgba(0,84,101,.3);border-radius:5px;padding:1px 5px;white-space:nowrap}
   /* clause chips — prominent, clickable §-refs for the legal team to jump to the clause */
   .clauses{display:inline-flex;flex-wrap:wrap;gap:6px;margin-top:6px;vertical-align:middle}
-  .clausechip{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--cyan);background:#EAF2F3;border:1px solid rgba(0,84,101,.28);border-radius:999px;padding:3px 10px;white-space:nowrap;cursor:pointer;transition:.14s;line-height:1.3}
-  .clausechip:hover{background:var(--cyan);color:#fff;border-color:var(--cyan)}
+  .clausechip{display:inline-flex;align-items:baseline;gap:5px;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--cyan);background:#EAF2F3;border:1px solid rgba(0,84,101,.28);border-radius:999px;padding:3px 10px;white-space:nowrap;line-height:1.4}
+  .cl-lab{font-family:var(--sans);font-weight:500;font-size:10.5px;color:var(--dim)}
+  .cl-lab::before{content:"·";margin-right:5px;color:var(--line2)}
   .rcheck{display:flex;align-items:center;gap:9px;border-radius:9px;padding:8px 11px;font-size:12.5px;margin-bottom:6px;line-height:1.4}
   .rc-pass{background:#EAF3EC;border:1px solid #BCDBC5}
   .rc-check{background:#FBF6E7;border:1px solid #E7D8A8}

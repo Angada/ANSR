@@ -81,7 +81,7 @@ async function renderHunger() {
         <h3><span class="tick" onclick="route('trend')">✓</span> Trend Spotting
           <a class="ceditlink" onclick="toggleConcepts()">${EDIT_CONCEPTS ? "done" : "⚙ edit concepts"}</a></h3>
         <p class="desc">Pick the demand concepts — the domains job seekers hunger for. Each concept carries the <b>search terms</b> we fire at YouTube/Reddit and routes to a 1Up franchise.</p>
-        ${EDIT_CONCEPTS ? conceptEditor() : `<div class="chips">${trendChips}</div>`}
+        <div class="chips">${trendChips}</div>
       </div>
 
       <div class="mod ${ROUTES.seo ? "sel" : ""}">
@@ -108,8 +108,18 @@ async function renderHunger() {
       <textarea id="sweepPrompt" rows="2" placeholder="anything more to add in your sweep?" oninput="setSweepPrompt(this.value)">${esc(SWEEP_PROMPT)}</textarea>
     </div>
     <div class="process"><button class="sweep-btn" onclick="onProcess()">◎ Run the sweep</button></div>
-    <div id="procMeter"></div>`;
+    <div id="procMeter"></div>
+    ${EDIT_CONCEPTS ? conceptModal() : ""}`;
   rail();
+}
+// full-screen editor overlay — roomy columns, nothing else shifts; "Done" closes it
+function conceptModal() {
+  return `<div class="cmodal-ov" onclick="if(event.target===this)toggleConcepts()">
+    <div class="cmodal">
+      <div class="cmodal-h"><div><b>Edit demand concepts</b><span class="cmodal-s">the search terms fired at YouTube/Reddit · ✨ = AI-suggest, you confirm</span></div>
+        <button class="btn small" onclick="toggleConcepts()">Done ✓</button></div>
+      <div class="cmodal-b">${conceptEditor()}</div>
+    </div></div>`;
 }
 window.setSweepPrompt = (v) => { SWEEP_PROMPT = v; };
 window.route = (k) => { ROUTES[k] = !ROUTES[k]; renderHunger(); };

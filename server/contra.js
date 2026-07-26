@@ -394,6 +394,34 @@ export function mountContra(app, upload) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
   });
 
+  // Clause labels — a 2-4 word topic per cited § (Indemnity, Payment terms…), so the
+  // report chips say what each clause is about. Generated once (gated) + cached on the report.
+  app.post("/api/contra/review/:id/clause-labels", async (req, res) => {
+    const id = Number(req.params.id);
+    const rev = (await q(`select id, extract_md, report from contra_review where id=$1`, [id])).rows[0];
+    if (!rev) return res.status(404).json({ error: "not found" });
+    const rep = rev.report || {};
+    if (rep.clause_labels && Object.keys(rep.clause_labels).length) return res.json({ labels: rep.clause_labels, cached: true });
+    const refs = [...new Set([
+      ...(rep.rule_checks || []).flatMap((c) => c.refs || []),
+      ...(rep.findings || []).flatMap((f) => f.refs || []),
+      ...(rep.verdicts || []).flatMap((v) => v.evidence_refs || []),
+    ].map((x) => String(x || "").trim()).filter(Boolean))];
+    if (!refs.length) return res.json({ labels: {} });
+    try {
+      const out = await runPipeline("contra-clause-label", {
+        system: `Label each clause reference with a 2-4 word topic of what that clause is about (e.g. "Indemnity", "Payment terms", "Governing law", "Termination", "Confidentiality", "Limitation of liability", "Scope of work"). Decide from the contract. Return STRICT JSON {"labels":{"<ref>":"<2-4 words>"}} covering EXACTLY these refs: ${JSON.stringify(refs)}.\n\nContract:\n${(rev.extract_md || "").slice(0, 50000)}`,
+        user: `Refs: ${JSON.stringify(refs)}`,
+        maxTokens: 1200,
+      });
+      const j = jparse(out.text) || {};
+      const labels = (j.labels && typeof j.labels === "object") ? j.labels : {};
+      rep.clause_labels = labels;
+      await q(`update contra_review set report=$2::jsonb where id=$1`, [id, JSON.stringify(rep)]);
+      res.json({ labels });
+    } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
+  });
+
   // Human action on a box (accept / reject / comment) → remembered on the timeline.
   app.post("/api/contra/review/:id/act", async (req, res) => {
     const id = Number(req.params.id);

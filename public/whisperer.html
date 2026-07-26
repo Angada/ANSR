@@ -210,6 +210,14 @@
 
   /* concept editor */
   .ceditlink{font-size:11px;color:var(--grn);cursor:pointer;margin-left:8px;font-weight:600}
+  /* full-screen concept editor overlay */
+  .cmodal-ov{position:fixed;inset:0;z-index:200;background:rgba(0,36,46,.42);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:5vh 20px;overflow:auto}
+  .cmodal{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);width:min(1040px,100%);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 60px rgba(0,36,46,.22)}
+  .cmodal-h{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 22px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);border-radius:var(--r) var(--r) 0 0}
+  .cmodal-h b{font-size:16px}
+  .cmodal-s{display:block;font-family:var(--mono);font-size:11px;color:var(--dim2);margin-top:3px}
+  .cmodal-b{padding:16px 22px 24px;overflow:auto}
+  .cmodal-b .cedit{grid-template-columns:1.2fr 2.4fr 1fr 52px auto auto}
   .cedit-wrap{margin-top:10px}
   .cedit{display:grid;grid-template-columns:1.1fr 2fr 1fr 46px auto auto;gap:6px;align-items:center;margin-bottom:6px}
   .cedit input{font-size:12px;padding:6px 8px;border:1px solid var(--line2);border-radius:8px;background:#fff}

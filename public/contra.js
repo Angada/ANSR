@@ -365,24 +365,32 @@ window.openReviewed = async (id) => {
   RVTAB = "report"; AREA = "contracts"; SUB.contracts = "reviewed"; renderNav();
   Object.values(VIEWS).forEach((v) => ($(v).hidden = true)); $("#view-reviewed").hidden = false;
   renderReviewed(); window.scrollTo({ top: 0, behavior: "smooth" });
+  ensureClauseLabels(); // fill in clause topic-labels (once, cached), then re-render
 };
 const VCLASS = { present: "v-present", non_standard: "v-non_standard", risky: "v-risky", missing: "v-missing" };
 function refs(arr) { return (arr || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" "); }
-// Clause chips — prominent §-refs so the legal team can jump straight to the clause.
+// Clause chips — each § with a short AI topic label (Indemnity, Payment terms…) so
+// the legal team sees at a glance what each clause is about. Static (no jump).
 // Prefix "§" unless the ref already names a section/clause/article/schedule.
 const fmtClause = (x) => { const s = String(x || "").trim(); return /^(§|sec(tion)?\b|cl(ause)?\.?\b|art(icle)?\.?\b|schedule|annex|appendix|exhibit|para)/i.test(s) ? s : "§ " + s; };
 function clauseChips(arr) {
   const a = (arr || []).map((x) => String(x || "").trim()).filter(Boolean);
   if (!a.length) return "";
-  return `<span class="clauses">${a.map((x) => `<button class="clausechip" title="go to this clause — pulls it up in Ask Contract" onclick="event.stopPropagation();askClause('${esc(x).replace(/'/g, "\\'")}')">${esc(fmtClause(x))}</button>`).join("")}</span>`;
+  const L = (RVOPEN && RVOPEN.review && RVOPEN.review.report && RVOPEN.review.report.clause_labels) || {};
+  return `<span class="clauses">${a.map((x) => { const lab = L[x] || L[fmtClause(x)] || ""; return `<span class="clausechip">${esc(fmtClause(x))}${lab ? `<span class="cl-lab">${esc(lab)}</span>` : ""}</span>`; }).join("")}</span>`;
 }
-// jump: pre-fill Ask Contract with the clause and fetch it (grounded, cites the §)
-window.askClause = (ref) => {
-  ASK_BOXKEY = null;
-  const el = document.getElementById("askin");
-  if (el) { el.value = `Quote clause ${ref} verbatim and flag any issues or unusual terms in it.`; el.scrollIntoView({ block: "center" }); el.focus(); }
-  doAsk();
-};
+// lazily generate the clause topic-labels once per review, then re-render the report
+async function ensureClauseLabels() {
+  const r = RVOPEN && RVOPEN.review; if (!r) return;
+  const rep = r.report || {};
+  if (rep.clause_labels && Object.keys(rep.clause_labels).length) return;
+  const hasRefs = [...(rep.rule_checks || []), ...(rep.findings || [])].some((x) => (x.refs || []).length);
+  if (!hasRefs) return;
+  try {
+    const j = await (await fetch(`/api/contra/review/${r.id}/clause-labels`, { method: "POST" })).json();
+    if (j && j.labels) { r.report.clause_labels = j.labels; if (RVTAB === "report" && RVOPEN && RVOPEN.review && RVOPEN.review.id === r.id) renderReviewed(); }
+  } catch { /* labels are best-effort */ }
+}
 const VCOLOR = { present: "#2E7D4F", non_standard: "#8a6d1f", risky: "#C77B2B", missing: "#C0392B" };
 const VLABEL = { present: "Present", non_standard: "Non-std", risky: "Risky", missing: "Missing" };
 function reportView(r) {
