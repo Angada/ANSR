@@ -663,6 +663,16 @@ export function mountWhisperer(app, slug) {
     res.json({ ok: true });
   });
   app.post("/api/wh/topic/:name/delete", async (req, res) => { await wq(`delete from wh_demand_topic where name=$1 and name<>'Emerging'`, [req.params.name]); res.json({ ok: true }); });
+  // AI helper: propose search terms for a concept (human confirms before save → terms stay deterministic config)
+  app.post("/api/wh/topic/suggest-terms", async (req, res) => {
+    const name = String(req.body?.name || "").trim(); if (!name) return res.status(400).json({ error: "name required" });
+    const guard = await getRule("guardrails"); const aud = guard.collection?.audience || "Indian job seekers"; const langs = (guard.collection?.languages || ["en"]).join("/");
+    const { j } = await ai("raydar-terms",
+      `You propose YouTube/Reddit SEARCH TERMS for a demand concept. Audience: ${aud}. Language(s): ${langs}. Return 5-6 SHORT (2-5 words), high-intent queries a person would actually type — no hashtags, no quotes, no numbering. STRICT JSON {"terms":["...","..."]}.`,
+      `Concept: ${name}`, 500);
+    const terms = Array.isArray(j?.terms) ? [...new Set(j.terms.map((t) => String(t).trim().replace(/^["'#]+|["']+$/g, "")).filter(Boolean))].slice(0, 6) : [];
+    res.json({ terms });
+  });
 
   // 1Up franchises (routing targets) — config, editable
   app.get("/api/wh/franchises", async (_req, res) => res.json({ franchises: (await wq(`select * from wh_franchise order by id`)).rows }));

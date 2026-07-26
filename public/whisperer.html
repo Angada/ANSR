@@ -213,6 +213,10 @@
   .cedit-wrap{margin-top:10px}
   .cedit{display:grid;grid-template-columns:1.1fr 2fr 1fr 46px auto auto;gap:6px;align-items:center;margin-bottom:6px}
   .cedit input{font-size:12px;padding:6px 8px;border:1px solid var(--line2);border-radius:8px;background:#fff}
+  .ct-cell{display:flex;gap:5px;align-items:center;min-width:0}
+  .ct-cell input{flex:1;min-width:0}
+  .sugg{flex:0 0 auto;border:1px solid var(--line2);background:var(--bg2);border-radius:8px;padding:5px 8px;font-size:13px;cursor:pointer;line-height:1;transition:.14s}
+  .sugg:hover{border-color:var(--org);background:var(--tint)} .sugg:disabled{opacity:.5;cursor:default}
   .cedit-h span{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2)}
   @media(max-width:640px){.cedit{grid-template-columns:1fr 1fr}.cedit-h{display:none}}
 

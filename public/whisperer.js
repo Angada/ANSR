@@ -122,7 +122,7 @@ function conceptEditor() {
   const rows = ALL_TOPICS.filter((t) => t.name !== "Emerging").map((t, i) => `
     <div class="cedit">
       <input id="cn-${i}" value="${esc(t.name)}" placeholder="concept" style="font-weight:600">
-      <input id="ct-${i}" value="${esc((t.terms || []).join(", "))}" placeholder="search terms → YouTube/Reddit queries (comma-separated)">
+      <div class="ct-cell"><input id="ct-${i}" value="${esc((t.terms || []).join(", "))}" placeholder="search terms → YouTube/Reddit queries (comma-separated)"><button class="sugg" title="AI: suggest search terms (you confirm before saving)" onclick="suggestTerms(${i},'${esc(t.name).replace(/'/g, "\\'")}')">✨</button></div>
       <input id="cf-${i}" value="${esc(t.franchise || "")}" placeholder="1Up franchise" title="franchise">
       <input id="cw-${i}" value="${esc(t.strategic_weight || 1)}" title="strategic weight" style="text-align:center">
       <button class="btn small" onclick="saveConcept('${esc(t.name).replace(/'/g, "\\'")}',${i})">Save</button>
@@ -133,13 +133,27 @@ function conceptEditor() {
     ${rows}
     <div class="cedit">
       <input id="cn-new" placeholder="+ new concept" style="font-weight:600">
-      <input id="ct-new" placeholder="search terms, comma-separated">
+      <div class="ct-cell"><input id="ct-new" placeholder="search terms, comma-separated"><button class="sugg" title="AI: suggest search terms" onclick="suggestTermsNew()">✨</button></div>
       <input id="cf-new" placeholder="franchise">
       <input id="cw-new" value="1" style="text-align:center">
       <button class="btn small" onclick="addConcept()">Add</button><span></span>
     </div></div>`;
 }
 window.toggleConcepts = () => { EDIT_CONCEPTS = !EDIT_CONCEPTS; renderHunger(); };
+// AI "suggest terms" — proposes queries, APPENDS to the field; you edit + Save (stays your config)
+async function _suggestInto(name, el, btn) {
+  if (!name) return rdAlert("Name the concept first", "Type a concept name, then click ✨.");
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  try {
+    const j = await (await fetch("/api/wh/topic/suggest-terms", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }) })).json();
+    const terms = j.terms || [];
+    if (terms.length && el) { const cur = el.value.trim(); el.value = cur ? cur + ", " + terms.join(", ") : terms.join(", "); el.focus(); }
+    else rdAlert("No suggestions", j.error || "Add a keyed AI model in Admin, or type terms manually.");
+  } catch { rdAlert("Suggest failed", "Try again."); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = "✨"; } }
+}
+window.suggestTerms = (i, name) => _suggestInto(($(`#cn-${i}`)?.value.trim() || name), $(`#ct-${i}`), event?.currentTarget);
+window.suggestTermsNew = () => _suggestInto($("#cn-new")?.value.trim(), $("#ct-new"), event?.currentTarget);
 async function refreshTopics() { ALL_TOPICS = (await (await fetch("/api/wh/topics")).json()).topics || []; renderHunger(); }
 window.saveConcept = async (oldName, i) => {
   const body = { old_name: oldName, name: $(`#cn-${i}`).value.trim(), terms: $(`#ct-${i}`).value, franchise: $(`#cf-${i}`).value.trim(), strategic_weight: $(`#cw-${i}`).value.trim() };
