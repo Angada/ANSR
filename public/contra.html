@@ -127,6 +127,10 @@
   .rbox{background:#fff;border:1px solid var(--line);border-radius:12px;padding:13px 14px}
   .rbox .q{background:var(--bg2);border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-size:12.5px;color:var(--dim);margin-top:7px;line-height:1.5}
   .ref{font-family:var(--mono);font-size:10px;color:var(--cyan);border:1px solid rgba(0,84,101,.3);border-radius:5px;padding:1px 5px;white-space:nowrap}
+  /* clause chips — prominent, clickable §-refs for the legal team to jump to the clause */
+  .clauses{display:inline-flex;flex-wrap:wrap;gap:6px;margin-top:6px;vertical-align:middle}
+  .clausechip{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--cyan);background:#EAF2F3;border:1px solid rgba(0,84,101,.28);border-radius:999px;padding:3px 10px;white-space:nowrap;cursor:pointer;transition:.14s;line-height:1.3}
+  .clausechip:hover{background:var(--cyan);color:#fff;border-color:var(--cyan)}
   .rcheck{display:flex;align-items:center;gap:9px;border-radius:9px;padding:8px 11px;font-size:12.5px;margin-bottom:6px;line-height:1.4}
   .rc-pass{background:#EAF3EC;border:1px solid #BCDBC5}
   .rc-check{background:#FBF6E7;border:1px solid #E7D8A8}
@@ -148,7 +152,7 @@
   @media(max-width:640px){.glance{grid-template-columns:repeat(2,1fr)}}
   .rsec-lbl{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2);margin:0 0 11px}
   .rsummary{margin:0 0 22px;font-size:14px;color:#3a3a3a;line-height:1.7}
-  .rcrow{display:flex;align-items:center;gap:11px;padding:9px 0;border-top:1px solid #F0EDE7}
+  .rcrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 11px;padding:9px 0;border-top:1px solid #F0EDE7}
   .rcrow:last-child{border-bottom:1px solid #F0EDE7}
   .rcp{font-size:10px;font-weight:700;border-radius:4px;padding:3px 8px;min-width:58px;text-align:center;flex:0 0 auto}
   .rcp.pass{color:#2E7D4F;background:#EAF3EC}.rcp.check{color:#8a6d1f;background:#FBF6E7}.rcp.breach{color:#C0392B;background:#FBECEB}

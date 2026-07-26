@@ -368,6 +368,21 @@ window.openReviewed = async (id) => {
 };
 const VCLASS = { present: "v-present", non_standard: "v-non_standard", risky: "v-risky", missing: "v-missing" };
 function refs(arr) { return (arr || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" "); }
+// Clause chips — prominent §-refs so the legal team can jump straight to the clause.
+// Prefix "§" unless the ref already names a section/clause/article/schedule.
+const fmtClause = (x) => { const s = String(x || "").trim(); return /^(§|sec(tion)?\b|cl(ause)?\.?\b|art(icle)?\.?\b|schedule|annex|appendix|exhibit|para)/i.test(s) ? s : "§ " + s; };
+function clauseChips(arr) {
+  const a = (arr || []).map((x) => String(x || "").trim()).filter(Boolean);
+  if (!a.length) return "";
+  return `<span class="clauses">${a.map((x) => `<button class="clausechip" title="go to this clause — pulls it up in Ask Contract" onclick="event.stopPropagation();askClause('${esc(x).replace(/'/g, "\\'")}')">${esc(fmtClause(x))}</button>`).join("")}</span>`;
+}
+// jump: pre-fill Ask Contract with the clause and fetch it (grounded, cites the §)
+window.askClause = (ref) => {
+  ASK_BOXKEY = null;
+  const el = document.getElementById("askin");
+  if (el) { el.value = `Quote clause ${ref} verbatim and flag any issues or unusual terms in it.`; el.scrollIntoView({ block: "center" }); el.focus(); }
+  doAsk();
+};
 const VCOLOR = { present: "#2E7D4F", non_standard: "#8a6d1f", risky: "#C77B2B", missing: "#C0392B" };
 const VLABEL = { present: "Present", non_standard: "Non-std", risky: "Risky", missing: "Missing" };
 function reportView(r) {
@@ -382,8 +397,8 @@ function reportView(r) {
       <div class="g"><div class="gv">${findings.length}</div><div class="gl">findings</div></div>
       <div class="g"><div class="gv">${flagged}<span style="font-size:14px;color:var(--line2)">/${verdicts.length || "—"}</span></div><div class="gl">sections flagged</div></div></div>`;
   const summary = rep.summary ? `<p class="rsummary">${esc(rep.summary)}</p>` : "";
-  const rc = checks.length ? `<div class="rsec-lbl">Rule checks</div><div style="margin-bottom:22px">${checks.map((c) => `<div class="rcrow"><span class="rcp ${c.result || "check"}">${String(c.result || "check").toUpperCase()}</span><span style="flex:1">${esc(c.rule || c.section_key || "")} — ${esc(c.note || c.found || "")} ${refs(c.refs)}</span></div>`).join("")}</div>` : "";
-  const fnd = findings.length ? `<div class="rsec-lbl">Whole-contract findings</div><div style="margin-bottom:22px">${findings.map((f) => `<div class="frow ${f.severity === "high" ? "hi" : f.severity === "med" ? "med" : ""}"><b>${esc(String(f.kind || "finding").replace(/_/g, " "))}</b> · ${esc(f.note || "")} ${refs(f.refs)}</div>`).join("")}</div>` : "";
+  const rc = checks.length ? `<div class="rsec-lbl">Rule checks</div><div style="margin-bottom:22px">${checks.map((c) => `<div class="rcrow"><span class="rcp ${c.result || "check"}">${String(c.result || "check").toUpperCase()}</span><span style="flex:1">${esc(c.rule || c.section_key || "")} — ${esc(c.note || c.found || "")}</span>${clauseChips(c.refs)}</div>`).join("")}</div>` : "";
+  const fnd = findings.length ? `<div class="rsec-lbl">Whole-contract findings</div><div style="margin-bottom:22px">${findings.map((f) => `<div class="frow ${f.severity === "high" ? "hi" : f.severity === "med" ? "med" : ""}"><b>${esc(String(f.kind || "finding").replace(/_/g, " "))}</b> · ${esc(f.note || "")}${clauseChips(f.refs)}</div>`).join("")}</div>` : "";
   const secs = verdicts.length ? `<div class="rsec-lbl">Section review <span style="color:var(--dim2);font-weight:400">· click to ask</span></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${verdicts.map((v) => `<div class="schip" onclick="askBox('${esc(v.key)}')"><span style="flex:1">${esc(String(v.key || "").replace(/_/g, " "))}</span><span class="sdot" style="background:${VCOLOR[v.verdict] || "#B4B2A9"}"></span><span style="font-size:11px;font-weight:600;color:${VCOLOR[v.verdict] || "#7A7266"}">${VLABEL[v.verdict] || v.verdict || ""}</span></div>`).join("")}</div>` : "";
   const doc = `<div class="report-doc">${glance}
     <div style="padding:20px 26px 24px">${summary}${rc}${fnd}${secs}
@@ -428,7 +443,7 @@ function timelineView(changes) {
     const ai = c.actor_type === "ai";
     return `<div class="tl-item tl-${ai ? "ai" : "human"}"><span class="tl-dot"></span>
       <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><span class="tl-badge" style="color:${ai ? "#6b3fa0" : "#005465"};background:${ai ? "#F1EBFA" : "#E6EEF0"};border:1px solid ${ai ? "#DDCCF3" : "#cde"}">${ai ? "✦ AI" : "👤 Human"} · ${esc(c.actor_id || "")}</span><span style="font-size:13px;font-weight:600">${esc(String(c.kind || "").replace(/_/g, " "))}</span></div>
-      <div style="font-size:12.5px;color:var(--dim);margin-top:4px;line-height:1.5">${esc(c.body || "")}${c.reasoning ? ` — ${esc(c.reasoning)}` : ""} ${refs(c.refs)}</div>
+      <div style="font-size:12.5px;color:var(--dim);margin-top:4px;line-height:1.5">${esc(c.body || "")}${c.reasoning ? ` — ${esc(c.reasoning)}` : ""}</div>${clauseChips(c.refs)}
       <div class="tl-stamp">${c.created_at ? new Date(c.created_at).toLocaleString() : ""}</div></div>`;
   }).join("")}</div>`;
 }
