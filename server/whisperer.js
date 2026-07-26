@@ -85,14 +85,18 @@ async function fetchYouTube(topic) {
     return { source: "youtube", external_id: v.id, title: v.title, url: `https://youtube.com/watch?v=${v.id}`, body: v.body, meta: { views: st.views || 0, ageDays, comments: cmts[v.id] || [] } };
   });
 }
+// Reddit requires a unique, descriptive User-Agent (platform:appID:version) — generic
+// ones like "Python/urllib" are heavily throttled. Set REDDIT_UA env to append your
+// "(by /u/username)" contact for full compliance with the Data API rules.
+const REDDIT_UA = process.env.REDDIT_UA || "web:in.thekettleblack.qansr-raydar:v1.0";
 // Reddit: search posts → walk comment trees on the top-N. Comment trees are the
 // highest-value demand signal; params (subreddits/topPosts/commentTrees) from the rule.
 async function fetchReddit(topic) {
   const pair = getIntegrationKey("reddit"); if (!pair || !pair.includes(":")) return [];
   const [cid, secret] = pair.split(":");
-  const tok = await timeout(fetch("https://www.reddit.com/api/v1/access_token", { method: "POST", headers: { authorization: "Basic " + Buffer.from(`${cid}:${secret}`).toString("base64"), "content-type": "application/x-www-form-urlencoded", "user-agent": "qansr-whisperer/1.0" }, body: "grant_type=client_credentials" }));
+  const tok = await timeout(fetch("https://www.reddit.com/api/v1/access_token", { method: "POST", headers: { authorization: "Basic " + Buffer.from(`${cid}:${secret}`).toString("base64"), "content-type": "application/x-www-form-urlencoded", "user-agent": REDDIT_UA }, body: "grant_type=client_credentials" }));
   const tj = await tok.json(); if (!tj.access_token) return [];
-  const H = { authorization: `Bearer ${tj.access_token}`, "user-agent": "qansr-whisperer/1.0" };
+  const H = { authorization: `Bearer ${tj.access_token}`, "user-agent": REDDIT_UA };
   const rule = (await getRule("reddit")).collection || {};
   const r = await timeout(fetch(`https://oauth.reddit.com/search?q=${encodeURIComponent(topic)}&limit=${Math.min(rule.topPosts || 10, 15)}&sort=relevance&t=${rule.timeframe || "month"}`, { headers: H }));
   const j = await r.json(); const posts = (j.data?.children || []).map((c) => c.data).filter(Boolean);
