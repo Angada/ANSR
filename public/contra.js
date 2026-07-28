@@ -3,6 +3,10 @@
 // Archetype Library with plain-English review rules (type → Enter → chip).
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
+// India time (IST) — always show Asia/Kolkata regardless of the viewer's device
+const IST = { timeZone: "Asia/Kolkata" };
+const fmtDT = (ts) => ts ? new Date(ts).toLocaleString("en-IN", { ...IST, day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "";
+const fmtD = (ts) => ts ? new Date(ts).toLocaleDateString("en-IN", { ...IST, day: "2-digit", month: "short", year: "numeric" }) : "";
 const rid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 
 let AREA = "contracts";
@@ -86,12 +90,12 @@ function sectionEditor() {
   const saved = ARCH.status === "saved";
   const vers = ARCH.versions || [];
   const verDrop = (saved && vers.length) ? `<label class="metalbl" style="width:auto;padding-top:0">View version</label>
-      <select id="verpick" onchange="loadVersion(this.value)">${vers.map((v) => `<option value="${v.version}" ${v.version === (ARCH._viewing || ARCH.version) ? "selected" : ""}>v${v.version}${v.version === ARCH.version ? " · current" : ""} · ${new Date(v.created_at).toLocaleDateString()}</option>`).join("")}</select>` : "";
+      <select id="verpick" onchange="loadVersion(this.value)">${vers.map((v) => `<option value="${v.version}" ${v.version === (ARCH._viewing || ARCH.version) ? "selected" : ""}>v${v.version}${v.version === ARCH.version ? " · current" : ""} · ${fmtD(v.created_at)}</option>`).join("")}</select>` : "";
   const meta = `<div class="arch-meta">
       <div class="arch-meta-row"><label class="metalbl">Name</label><input id="archname" value="${esc(ARCH.name)}" oninput="onName(this.value)" placeholder="e.g. MSA — India GCC"></div>
       <div class="arch-meta-row"><label class="metalbl">Description</label><textarea id="archdesc" rows="2" oninput="onDesc(this.value)" placeholder="What this contract type is for — with examples (e.g. master services for GCC build-and-operate; Acme, Northwind).">${esc(ARCH.description || "")}</textarea></div>
       <div class="arch-meta-row2">
-        <span class="metastamp">${saved ? `${vers.length ? `Version <b>v${ARCH.version}</b> · ` : ""}created ${ARCH.created_at ? new Date(ARCH.created_at).toLocaleDateString() : "—"}` : "draft · not yet saved"}</span>
+        <span class="metastamp">${saved ? `${vers.length ? `Version <b>v${ARCH.version}</b> · ` : ""}created ${ARCH.created_at ? fmtD(ARCH.created_at) : "—"}` : "draft · not yet saved"}</span>
         ${ARCH._viewing ? `<span class="viewnote">viewing v${ARCH._viewing} — Save to restore it as v${(ARCH.version || 1) + 1}</span>` : ""}
         <span style="margin-left:auto;display:flex;align-items:center;gap:8px">${verDrop}</span>
       </div></div>`;
@@ -200,7 +204,7 @@ function renderLibrary() {
       <td class="tdesc" onclick="editArch(${a.id})">${a.description ? esc(a.description) : "<span style='color:var(--dim2)'>—</span>"}</td>
       <td onclick="editArch(${a.id})">${a.sections}</td>
       <td onclick="editArch(${a.id})">${a.rules != null ? a.rules : "—"}</td>
-      <td onclick="editArch(${a.id})">${a.updated_at ? new Date(a.updated_at).toLocaleDateString() : (a.created_at ? new Date(a.created_at).toLocaleDateString() : "")}</td>
+      <td onclick="editArch(${a.id})">${fmtD(a.updated_at || a.created_at)}</td>
       <td class="tacts"><button class="btn small" onclick="editArch(${a.id})">Open</button> <button class="btn small" onclick="delArch(${a.id},'${esc(a.name).replace(/'/g, "\\'")}')">✕</button></td>
     </tr>`).join("");
   host.innerHTML = `<p class="intro"><b>ARCHETYPE LIBRARY</b> — your saved contract types. The 10 most recent show here; type to search all. Open one to edit its rules, name, and versions.</p>`
@@ -328,7 +332,7 @@ function renderReviewed() {
       <td>${esc([r.party1, r.party2].filter(Boolean).join(" ⟷ ")) || "<span style='color:var(--dim2)'>—</span>"}</td>
       <td>${esc(r.archetype || "—")}</td>
       <td>${r.issue_count ? `<span style="color:var(--red);font-weight:600">${r.issue_count}</span>` : `<span style="color:var(--grn)">clean</span>`}</td>
-      <td>${r.created_at ? new Date(r.created_at).toLocaleString() : ""}</td>
+      <td>${fmtDT(r.created_at)}</td>
     </tr>`).join("");
   host.innerHTML = `<p class="intro"><b>REVIEWED</b> — every contract you've reviewed. The 10 most recent show here; type to search all. Click a row for its report, redlines and timeline.</p>`
     + (REVIEWS.length
@@ -351,7 +355,7 @@ function contractHeader(r) {
       <div class="chead-facts">
         ${fact("Effective", meta.effective_date)}${fact("Expiry", meta.expiry_date)}
         ${fact("Archetype", (rep.archetypes || []).join(" + "))}
-        ${fact("Reviewed", new Date(rep.generated_at || Date.now()).toLocaleDateString())}
+        ${fact("Reviewed", fmtD(rep.generated_at || Date.now()))}
         ${fact("File", r.contract_name)}
       </div>
     </div>
@@ -452,7 +456,7 @@ function timelineView(changes) {
     return `<div class="tl-item tl-${ai ? "ai" : "human"}"><span class="tl-dot"></span>
       <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap"><span class="tl-badge" style="color:${ai ? "#6b3fa0" : "#005465"};background:${ai ? "#F1EBFA" : "#E6EEF0"};border:1px solid ${ai ? "#DDCCF3" : "#cde"}">${ai ? "✦ AI" : "👤 Human"} · ${esc(c.actor_id || "")}</span><span style="font-size:13px;font-weight:600">${esc(String(c.kind || "").replace(/_/g, " "))}</span></div>
       <div style="font-size:12.5px;color:var(--dim);margin-top:4px;line-height:1.5">${esc(c.body || "")}${c.reasoning ? ` — ${esc(c.reasoning)}` : ""}</div>${clauseChips(c.refs)}
-      <div class="tl-stamp">${c.created_at ? new Date(c.created_at).toLocaleString() : ""}</div></div>`;
+      <div class="tl-stamp">${fmtDT(c.created_at)}</div></div>`;
   }).join("")}</div>`;
 }
 

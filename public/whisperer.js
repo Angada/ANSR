@@ -6,6 +6,8 @@
 // pipelines with mock fallback. All endpoints preserved from the prior build.
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+// India time (IST) — always show Asia/Kolkata regardless of the viewer's device
+const fmtDT = (ts) => ts ? new Date(ts).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "";
 
 let ROUTES = { trend: false, seo: false, talentmind: false };
 let TOPICS = [];        // selected trend-spotting demand topics (names)
@@ -218,7 +220,7 @@ function renderTMWriteup() {
       <div class="chips" style="margin:4px 0 8px">${chips.map((c, i) => `<span class="chip">${esc(c)}<a class="x" onclick="rmChip(${i});return false" href="#">✕</a></span>`).join("")}</div>
       <div class="row"><input id="tmNewChip" placeholder="add a chip" style="flex:1;min-width:120px"><button class="btn small" onclick="addChip()">+ chip</button></div>
       <label class="fld">Batch name</label>
-      <div class="row"><input id="tmBatch" value="${esc("Batch " + new Date().toLocaleString())}" style="flex:1;min-width:160px"><button class="btn small" onclick="saveTM()">Save</button></div>
+      <div class="row"><input id="tmBatch" value="${esc("Batch " + fmtDT(Date.now()))}" style="flex:1;min-width:160px"><button class="btn small" onclick="saveTM()">Save</button></div>
       <div id="tmMsg" class="chip" style="border:none;background:none;padding:6px 0;color:var(--grn)"></div>
     </div>`;
 }
@@ -660,7 +662,7 @@ async function renderBatches() {
       <span class="bm">${esc(b.source)}</span>
       <span class="bm">${b.story_count || 0} ideas</span>
       <span class="chip ${b.status === "swept" ? "tag-grn" : ""}" style="cursor:default">${esc(b.status)}</span>
-      <span class="bm">${b.created_at ? new Date(b.created_at).toLocaleString() : ""}</span>
+      <span class="bm">${fmtDT(b.created_at)}</span>
     </div>`).join("") : `<div class="empty">// no batches yet — run a sweep //</div>`);
 }
 window.openBatch = async (id, name) => { BATCH = { id, name }; FR = "all"; setView("sweep"); await loadIdeas(); toIdeas(); renderBatchPick(); };

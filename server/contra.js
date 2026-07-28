@@ -31,7 +31,9 @@ function snapKeys(verdicts, keys, labels) {
 const nextSeq = async (id) => Number((await q(`select coalesce(max(seq),-1)+1 s from contra_change where review_id=$1`, [id])).rows[0].s);
 
 const slugify = (s) => String(s || "archetype").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 48);
-const stamp = () => new Date().toISOString().slice(0, 16).replace("T", "·").replace(/:/g, "");
+// India time (IST) — server runs UTC on Cloud Run
+const istStamp = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).replace(",", "");
+const stamp = () => istStamp().replace(" ", "·").replace(":", "");
 
 // pull the first JSON object out of an LLM reply (tolerates prose / code fences)
 function jparse(text) {
@@ -243,7 +245,7 @@ export function mountContra(app, upload) {
     if (!files.length) return res.status(400).json({ error: "no files" });
     try {
       const archetypes = (await q(`select id, name, review_outline from contra_archetype where status='saved'`)).rows;
-      const bname = req.body.name || `Batch ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+      const bname = req.body.name || `Batch ${istStamp()}`;
       const b = (await q(`insert into contra_batch(name,status,contract_count) values($1,'detecting',$2) returning id, name`, [bname, files.length])).rows[0];
       const reviews = [];
       for (const f of files) {

@@ -27,6 +27,8 @@ function extractSeoTerms(text) {
 const jsonFrom = (text) => { const m = String(text || "").match(/\{[\s\S]*\}/); if (!m) return null; try { return JSON.parse(m[0]); } catch { return null; } };
 const enabled = (id) => { try { return !!publicIntegrations()[id]?.enabled && !!getIntegrationKey(id); } catch { return false; } };
 const timeout = (p, ms = 9000) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms))]);
+// India time (IST) stamp — "YYYY-MM-DD HH:MM" in Asia/Kolkata (server runs UTC on Cloud Run)
+const istStamp = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).replace(",", "");
 
 // ---- Business rules per integration (editable in Settings; "80% no code") ---
 // Each: how we query it (collection) + the AI prompt + a model override
@@ -479,7 +481,7 @@ export function mountWhisperer(app, slug, upload) {
   // (optionally) a TalentMind-simulation cohort. Saved with name + timestamp.
   app.post("/api/wh/batch", async (req, res) => {
     const { name, trend_topics, talentmind_cohort_id, seo, prompt } = req.body || {};
-    const nm = name || `Batch ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+    const nm = name || `Batch ${istStamp()}`;
     const extra = (prompt || "").trim();
     const routes = { trend: !!(trend_topics || []).length, seo: !!seo, talentmind: !!talentmind_cohort_id, prompt: !!extra };
     let cohortId = null, hunger = null, topics = [], source = "trend";
