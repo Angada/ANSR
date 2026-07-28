@@ -89,7 +89,10 @@ async function renderHunger() {
         <h3><span class="tick" onclick="route('seo')">✓</span> SEO Inputs</h3>
         <p class="desc">Paste raw research — keyword lists, GSC queries, competitor gaps, trend exports.</p>
         <textarea id="seoText" rows="3" placeholder="paste raw research…"></textarea>
-        <div class="row" style="margin-top:8px"><button class="btn small" onclick="addSeo()">+ Add</button></div>
+        <div class="row" style="margin-top:8px;display:flex;gap:8px;align-items:center">
+          <button class="btn small" onclick="addSeo()">+ Add</button>
+          <label class="btn small" style="cursor:pointer;margin:0">⤒ Excel / CSV<input type="file" id="seoFile" accept=".xlsx,.xls,.csv,.ods" style="display:none" onchange="uploadSeo(this.files[0])"></label>
+        </div>
         <div class="chips" style="margin-top:10px">${seoChips}</div>
       </div>
 
@@ -125,6 +128,17 @@ window.setSweepPrompt = (v) => { SWEEP_PROMPT = v; };
 window.route = (k) => { ROUTES[k] = !ROUTES[k]; renderHunger(); };
 window.toggleTopic = (name) => { ROUTES.trend = true; TOPICS = TOPICS.includes(name) ? TOPICS.filter((t) => t !== name) : [...TOPICS, name]; renderHunger(); };
 window.addSeo = async () => { const content = $("#seoText")?.value.trim(); if (!content) return; ROUTES.seo = true; await fetch("/api/wh/seo", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "keywords", content }) }); renderHunger(); };
+window.uploadSeo = async (file) => {
+  if (!file) return;
+  ROUTES.seo = true;
+  const fd = new FormData(); fd.append("file", file);
+  try {
+    const j = await (await fetch("/api/wh/seo/upload", { method: "POST", body: fd })).json();
+    if (j.ok) rdAlert("SEO file read", `Pulled ${(j.terms || []).length} search keyword${(j.terms || []).length === 1 ? "" : "s"} from ${esc(j.file || file.name)}${(j.terms || []).length ? ` — e.g. ${(j.terms || []).slice(0, 3).map(esc).join(", ")}` : ""}. These become YouTube/Reddit queries on your next sweep.`);
+    else rdAlert("Upload failed", j.error || "");
+  } catch { rdAlert("Upload failed", "Try again."); }
+  renderHunger();
+};
 window.delSeo = async (id) => { await fetch(`/api/wh/seo/${id}/delete`, { method: "POST" }); renderHunger(); };
 
 // ---- Trend Spotting concept editor — edit terms, add/remove concepts, save --

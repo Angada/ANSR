@@ -736,7 +736,7 @@ app.post("/api/integrations/:id/test", async (req, res) => {
 });
 
 // Whisperer routes (demand↔supply content intelligence — Journey 1, mock-first)
-mountWhisperer(app, slug);
+mountWhisperer(app, slug, upload);
 
 // multer / upload errors → clean JSON (e.g. file too large)
 app.use((err, _req, res, _next) => {

@@ -1,9 +1,26 @@
 // Whisperer backend — Journey 1 (mock-first): candidates → ClientMind → cohort →
 // Hunger → Feed Stories. Every AI step runs through a gated pipeline (runPipeline)
 // with a deterministic MOCK fallback so the whole journey works with no key.
+import { rmSync } from "node:fs";
 import { q } from "./db/client.js";
 import { runPipeline } from "./ai.js";
+import { extractFile } from "./extract.js";
 import { getIntegrationKey, publicIntegrations } from "./store.js";
+
+// SEO research (pasted or Excel/CSV) → real search phrases. Splits lines/table
+// rows, keeps 2-6 word query-like phrases (drops urls, numbers, headers), dedupes.
+// These become actual YouTube/Reddit queries so SEO genuinely steers the sweep.
+function extractSeoTerms(text) {
+  const out = [];
+  for (const line of String(text || "").split(/[\r\n]+/)) {
+    const cells = line.split(/\t|,|\||;/).map((c) => c.trim()).filter(Boolean);
+    // the query cell = the most letter-heavy one (GSC exports lead with the query, but be robust)
+    const cand = (cells.sort((a, b) => (b.match(/[a-z]/gi)?.length || 0) - (a.match(/[a-z]/gi)?.length || 0))[0] || line).trim();
+    const words = cand.split(/\s+/);
+    if (words.length >= 2 && words.length <= 6 && cand.length >= 4 && cand.length <= 60 && /[a-z]/i.test(cand) && !/^[#>]/.test(cand) && !/^https?:|^www\.|@/i.test(cand) && !/^[\d.,%$₹\s]+$/.test(cand)) out.push(cand.toLowerCase());
+  }
+  return [...new Set(out)].slice(0, 12);
+}
 
 const jsonFrom = (text) => { const m = String(text || "").match(/\{[\s\S]*\}/); if (!m) return null; try { return JSON.parse(m[0]); } catch { return null; } };
 const enabled = (id) => { try { return !!publicIntegrations()[id]?.enabled && !!getIntegrationKey(id); } catch { return false; } };
@@ -383,7 +400,7 @@ function mockChips(m) {
   return chips;
 }
 
-export function mountWhisperer(app, slug) {
+export function mountWhisperer(app, slug, upload) {
   const wq = (t, p) => q(t, p).catch(() => ({ rows: [] }));
 
   // seed mock candidates + a ClientMind for each
@@ -531,13 +548,20 @@ export function mountWhisperer(app, slug) {
     const extra = (hunger.extra_prompt || "").trim();    // the user's free-text sweep brief
     const feedTopics = topicRows.map((t) => ({ name: t.name, terms: t.terms }));
     if (extra) feedTopics.push({ name: "__extra__", terms: [extra] });   // also search the user's prompt
+    // SEO route → the uploaded/pasted research becomes real search queries (this is how SEO steers the sweep)
+    let seoTerms = [];
+    if (batch.routes && batch.routes.seo) {
+      const seoText = (await wq(`select content from wh_seo_input order by id desc limit 20`)).rows.map((r) => r.content).join("\n");
+      seoTerms = extractSeoTerms(seoText);
+      if (seoTerms.length) feedTopics.push({ name: "__seo__", terms: seoTerms.slice(0, 8) });
+    }
     const feed = await collectFeed(feedTopics).catch(() => []);
     await classifyFeed(feed).catch(() => {});            // Stage 2 — channel through each source's rule prompt
     await wq(`update wh_batch set feed_signal=$2::jsonb where id=$1`, [bid, JSON.stringify(rankFeedSignal(feed, allowedLangs))]).catch(() => {}); // results-page "top videos" snapshot
     const made = [];
     for (const t of topicRows) {
       const research = await researchTopic(extra ? `${t.name} — ${extra}` : t.name).catch(() => null);
-      const items = feed.filter((f) => !langExcludeReason(f.title, allowedLangs) && (f.topic === t.name || f.topic === "__extra__" || (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase()))).slice(0, 5); // rule-enforced: excluded-language items never ground an idea
+      const items = feed.filter((f) => !langExcludeReason(f.title, allowedLangs) && (f.topic === t.name || f.topic === "__extra__" || f.topic === "__seo__" || (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase()))).slice(0, 5); // rule-enforced: excluded-language items never ground an idea; SEO-sourced items ground too
       const sig = topicSignals(items, GAPMAP[t.name]);          // Stage 3 — real demand/supply/velocity when live
       const velocity = sig.velocity != null ? sig.velocity : Math.min(1, 0.4 + items.length * 0.1);
       const strategic = Math.min(1, (Number(t.strategic_weight) || 1) / 1.5);
@@ -701,5 +725,17 @@ export function mountWhisperer(app, slug) {
   // SEO research workspace — a 2nd write source (paste keyword/GSC/competitor/trend research)
   app.get("/api/wh/seo", async (_req, res) => res.json({ inputs: (await wq(`select id, kind, content, created_at from wh_seo_input order by id desc limit 50`)).rows }));
   app.post("/api/wh/seo", async (req, res) => { const { kind, content } = req.body || {}; if (!content) return res.status(400).json({ error: "content required" }); await wq(`insert into wh_seo_input(kind, content) values($1,$2)`, [kind || "keywords", content]); res.json({ ok: true }); });
+  // Excel/CSV upload → SheetJS extract → stored as an SEO input; returns the search phrases it found
+  app.post("/api/wh/seo/upload", upload.single("file"), async (req, res) => {
+    try {
+      const f = req.file; if (!f) return res.status(400).json({ error: "no file" });
+      const ex = await extractFile(f.path, f.originalname);
+      const text = ex.text || (ex.sheets && ex.sheets.length ? ex.sheets.map((s) => s.csv || "").join("\n") : "");
+      const terms = extractSeoTerms(text);
+      await wq(`insert into wh_seo_input(kind, content) values('excel',$1)`, [text.slice(0, 20000)]);
+      res.json({ ok: true, file: f.originalname, terms });
+    } catch (e) { console.error("seo/upload:", e.message); res.status(500).json({ error: "could not read file" }); }
+    finally { if (req.file?.path) rmSync(req.file.path, { force: true }); }
+  });
   app.post("/api/wh/seo/:id/delete", async (req, res) => { await wq(`delete from wh_seo_input where id=$1`, [Number(req.params.id)]); res.json({ ok: true }); });
 }
