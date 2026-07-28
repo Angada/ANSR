@@ -21,7 +21,7 @@ function extractSeoTerms(text) {
       if (words.length >= 2 && words.length <= 7 && c.length >= 5 && c.length <= 70 && /[a-z]/i.test(c) && !SEO_HEADER.test(c) && !/^[#>]/.test(c) && !/^https?:|^www\.|@/i.test(c) && !/^[\d.,%$₹\s]+$/.test(c)) out.push(c.toLowerCase());
     }
   }
-  return [...new Set(out)].slice(0, 40);
+  return [...new Set(out)].slice(0, 80);
 }
 
 const jsonFrom = (text) => { const m = String(text || "").match(/\{[\s\S]*\}/); if (!m) return null; try { return JSON.parse(m[0]); } catch { return null; } };
@@ -732,10 +732,13 @@ export function mountWhisperer(app, slug, upload) {
     try {
       const f = req.file; if (!f) return res.status(400).json({ error: "no file" });
       const ex = await extractFile(f.path, f.originalname);
+      // read EVERY sheet/tab: extract.js concatenates all sheets into ex.text (+ per-sheet csv)
       const text = ex.text || (ex.sheets && ex.sheets.length ? ex.sheets.map((s) => s.csv || "").join("\n") : "");
       const terms = extractSeoTerms(text);
-      await wq(`insert into wh_seo_input(kind, content) values('excel',$1)`, [text.slice(0, 20000)]);
-      res.json({ ok: true, file: f.originalname, terms });
+      const sheetNames = (ex.sheets || []).map((s) => s.name);
+      // store the extracted keywords (not raw text) so nothing is truncated + the sweep uses exactly these
+      await wq(`insert into wh_seo_input(kind, content) values('excel',$1)`, [terms.length ? terms.join("\n") : text.slice(0, 20000)]);
+      res.json({ ok: true, file: f.originalname, sheets: sheetNames, terms });
     } catch (e) { console.error("seo/upload:", e.message); res.status(500).json({ error: "could not read file" }); }
     finally { if (req.file?.path) rmSync(req.file.path, { force: true }); }
   });

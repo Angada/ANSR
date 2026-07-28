@@ -134,7 +134,7 @@ window.uploadSeo = async (file) => {
   const fd = new FormData(); fd.append("file", file);
   try {
     const j = await (await fetch("/api/wh/seo/upload", { method: "POST", body: fd })).json();
-    if (j.ok) rdAlert("SEO file read", `Pulled ${(j.terms || []).length} search keyword${(j.terms || []).length === 1 ? "" : "s"} from ${esc(j.file || file.name)}${(j.terms || []).length ? ` — e.g. ${(j.terms || []).slice(0, 3).map(esc).join(", ")}` : ""}. These become YouTube/Reddit queries on your next sweep.`);
+    if (j.ok) rdAlert("SEO file read", `${(j.sheets || []).length > 1 ? `Read ${j.sheets.length} tabs (${j.sheets.map(esc).join(", ")}). ` : ""}Pulled ${(j.terms || []).length} search keyword${(j.terms || []).length === 1 ? "" : "s"} from ${esc(j.file || file.name)}${(j.terms || []).length ? ` — e.g. ${(j.terms || []).slice(0, 3).map(esc).join(", ")}` : ""}. These become YouTube/Reddit queries on your next sweep.`);
     else rdAlert("Upload failed", j.error || "");
   } catch { rdAlert("Upload failed", "Try again."); }
   renderHunger();
