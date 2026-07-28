@@ -589,9 +589,10 @@ function feedSignalBlock() {
     else if (v.comments) b.push(`${v.comments} comments`);
     return b.join(" · ") || "collected signal";
   };
-  const keptRow = (v, i) => `<a class="fsig-row" href="${esc(v.url)}" target="_blank" rel="noopener" title="open on ${esc(v.source)} ↗">
+  const grp = (v) => v.topic === "__seo__" ? "seo" : (v.source || "other");
+  const keptRow = (v, i) => `<a class="fsig-row" data-g="${grp(v)}" href="${esc(v.url)}" target="_blank" rel="noopener" title="open on ${esc(v.source)} ↗">
     <span class="fsig-rank">#${i + 1}</span><span class="fsig-src">${_srcIcon(v.source)}</span>
-    <span class="fsig-main"><span class="fsig-title">${esc(v.title || "(untitled)")}</span><span class="fsig-why">${esc(why(v))}${v.match ? ` · <span class="fsig-match">matches “${esc(v.match)}”</span>` : ""}</span></span>
+    <span class="fsig-main"><span class="fsig-title">${esc(v.title || "(untitled)")}</span><span class="fsig-why">${esc(why(v))}${v.topic === "__seo__" && v.term ? ` · <span class="fsig-match">from your SEO “${esc(v.term)}”</span>` : v.match ? ` · <span class="fsig-match">matches “${esc(v.match)}”</span>` : ""}</span></span>
     <span class="fsig-vel"><span class="fsig-bar"><span style="width:${Math.round((v.velocity || 0) * 100)}%"></span></span><b>${(v.velocity || 0).toFixed(2)}</b></span>
     <span class="fsig-ext">↗</span></a>`;
   const dropRow = (v) => `<a class="fsig-row drop" href="${esc(v.url)}" target="_blank" rel="noopener" title="open ↗">
@@ -608,13 +609,27 @@ function feedSignalBlock() {
     ${st.dropped ? `<span class="fst off"><b>${st.dropped}</b> filtered off-topic</span>` : ""}
   </div>` : "";
   const droppedBlock = dropped.length ? `<details class="fsig-dropped"><summary>▸ ${dropped.length} filtered out as off-topic — see what &amp; why</summary>${dropped.map(dropRow).join("")}</details>` : "";
+  // tabs by source (YouTube · Reddit · SEO), only when more than one group is present
+  const TAB_META = { youtube: { i: "▶️", l: "YouTube" }, reddit: { i: "👽", l: "Reddit" }, seo: { i: "✨", l: "SEO" }, other: { i: "🌐", l: "Other" } };
+  const counts = kept.reduce((m, v) => { const g = grp(v); m[g] = (m[g] || 0) + 1; return m; }, {});
+  const order = ["youtube", "reddit", "seo", "other"].filter((g) => counts[g]);
+  const tabs = order.length > 1 ? `<div class="fsig-tabs">
+    <button class="ft on" onclick="fsigTab(this,'all')">All <b>${kept.length}</b></button>
+    ${order.map((g) => `<button class="ft" onclick="fsigTab(this,'${g}')">${TAB_META[g].i} ${TAB_META[g].l} <b>${counts[g]}</b></button>`).join("")}
+  </div>` : "";
   return `<details class="fsig" open>
     <summary><span class="fsig-k">◎ Signal — top ${kept.some((f) => f.source === "youtube") ? "videos" : "items"} that scored high</span><span class="fsig-n">${kept.length}</span></summary>
     ${statsStrip}
-    <div class="fsig-note">Ranked by velocity (views ÷ days) — the live demand signal behind these ideas. Only on-topic items shown; each row says why it was kept. Click any to open ↗</div>
-    ${kept.map(keptRow).join("")}
+    <div class="fsig-note">Ranked by velocity (views ÷ days) — the live demand signal behind these ideas.${counts.seo ? " The <b>SEO</b> tab is what your uploaded keywords pulled in." : ""} Click any to open ↗</div>
+    ${tabs}
+    <div class="fsig-rows" data-tab="all">${kept.map(keptRow).join("")}</div>
     ${droppedBlock}</details>`;
 }
+window.fsigTab = (btn, t) => {
+  const wrap = btn.closest(".fsig"); if (!wrap) return;
+  wrap.querySelectorAll(".fsig-tabs .ft").forEach((b) => b.classList.toggle("on", b === btn));
+  const rows = wrap.querySelector(".fsig-rows"); if (rows) rows.dataset.tab = t;
+};
 function renderIdeas(stories, franchises) {
   const host = $("#stageIdeas");
   if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each concept becomes a <b>story board</b>: a lead idea plus alternative angles, all ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }

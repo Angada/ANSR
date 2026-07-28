@@ -10,16 +10,18 @@ import { getIntegrationKey, publicIntegrations } from "./store.js";
 // SEO research (pasted or Excel/CSV) → real search phrases. Splits lines/table
 // rows, keeps 2-6 word query-like phrases (drops urls, numbers, headers), dedupes.
 // These become actual YouTube/Reddit queries so SEO genuinely steers the sweep.
+const SEO_HEADER = /^(keyword|volume|kd|query|clicks|impressions|ctr|position|difficulty|search volume|cpc|intent|url|page|topic|cluster|competition|trend)s?$/i;
 function extractSeoTerms(text) {
   const out = [];
+  // consider EVERY cell (keyword sheets often have several keyword columns side by side)
   for (const line of String(text || "").split(/[\r\n]+/)) {
-    const cells = line.split(/\t|,|\||;/).map((c) => c.trim()).filter(Boolean);
-    // the query cell = the most letter-heavy one (GSC exports lead with the query, but be robust)
-    const cand = (cells.sort((a, b) => (b.match(/[a-z]/gi)?.length || 0) - (a.match(/[a-z]/gi)?.length || 0))[0] || line).trim();
-    const words = cand.split(/\s+/);
-    if (words.length >= 2 && words.length <= 6 && cand.length >= 4 && cand.length <= 60 && /[a-z]/i.test(cand) && !/^[#>]/.test(cand) && !/^https?:|^www\.|@/i.test(cand) && !/^[\d.,%$₹\s]+$/.test(cand)) out.push(cand.toLowerCase());
+    for (const raw of line.split(/\t|,|\||;/)) {
+      const c = raw.trim().replace(/^["']|["']$/g, "").trim();
+      const words = c.split(/\s+/);
+      if (words.length >= 2 && words.length <= 7 && c.length >= 5 && c.length <= 70 && /[a-z]/i.test(c) && !SEO_HEADER.test(c) && !/^[#>]/.test(c) && !/^https?:|^www\.|@/i.test(c) && !/^[\d.,%$₹\s]+$/.test(c)) out.push(c.toLowerCase());
+    }
   }
-  return [...new Set(out)].slice(0, 12);
+  return [...new Set(out)].slice(0, 40);
 }
 
 const jsonFrom = (text) => { const m = String(text || "").match(/\{[\s\S]*\}/); if (!m) return null; try { return JSON.parse(m[0]); } catch { return null; } };
