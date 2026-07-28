@@ -585,7 +585,7 @@ export function mountWhisperer(app, slug, upload) {
         s.contradiction_of = s.contradiction ? (s.contradiction_of || null) : null;
         // No TalentMind cohort on this batch → don't fabricate a cohort reason (nil).
         if (!cohortId) s.why_cohort = null;
-        const srcRefs = [...items.map((x) => ({ title: x.title, url: x.url, source: x.source })), ...((research?.refs) || [])].slice(0, 8);
+        const srcRefs = [...items.map((x) => ({ title: x.title, url: x.url, source: x.source, via_seo: x.topic === "__seo__" ? x.term : undefined })), ...((research?.refs) || [])].slice(0, 8);
         // Contradiction & Evidence — validate this idea against the research (real when keyed)
         const val = await validateIdea(s, research).catch(() => null);
         if (val) {

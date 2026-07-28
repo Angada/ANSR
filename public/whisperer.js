@@ -382,8 +382,8 @@ function sourcesBox(s) {
   return `<div class="srcbox">
     <div class="srcbox-h">${ic("external")} Sources gathered${refs.length ? ` · ${refs.length}` : ""}</div>
     ${refs.length ? refs.map((r) => `<a class="srclink" href="${esc(r.url)}" target="_blank" rel="noopener">
-        <span class="stag">${esc(r.source || "web")}</span>
-        <span class="stt">${esc(r.title || r.url)}</span>
+        <span class="stag${r.via_seo ? " seo" : ""}">${r.via_seo ? "✨ SEO" : esc(r.source || "web")}</span>
+        <span class="stt">${esc(r.title || r.url)}${r.via_seo ? ` <span class="svia">via “${esc(r.via_seo)}”</span>` : ""}</span>
         <span class="sgo">open ↗</span></a>`).join("")
       : `<div class="srcbox-empty">LLM only — no external sources for this idea yet. Add YouTube / Reddit / Tavily / Serper keys in the Vault to ground it with links.</div>`}
   </div>`;
