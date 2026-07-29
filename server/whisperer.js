@@ -562,10 +562,17 @@ export function mountWhisperer(app, slug, upload) {
     const feed = await collectFeed(feedTopics).catch(() => []);
     await classifyFeed(feed).catch(() => {});            // Stage 2 — channel through each source's rule prompt
     await wq(`update wh_batch set feed_signal=$2::jsonb where id=$1`, [bid, JSON.stringify(rankFeedSignal(feed, allowedLangs))]).catch(() => {}); // results-page "top videos" snapshot
+    // SEO gets its OWN idea board, grounded ONLY in the SEO feed → visible in the output with ✨-tagged sources
+    if (seoTerms.length && feed.some((f) => f.topic === "__seo__")) {
+      topicRows = [...topicRows, { name: "SEO research", franchise: topicRows[0]?.franchise || "Emerging", format_home: "", strategic_weight: 1, question: `high-intent keywords from your SEO upload: ${seoTerms.slice(0, 8).join(", ")}`, terms: seoTerms, __seo: true }];
+    }
     const made = [];
     for (const t of topicRows) {
       const research = await researchTopic(extra ? `${t.name} — ${extra}` : t.name).catch(() => null);
-      const items = feed.filter((f) => !langExcludeReason(f.title, allowedLangs) && (f.topic === t.name || f.topic === "__extra__" || f.topic === "__seo__" || (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase()))).slice(0, 5); // rule-enforced: excluded-language items never ground an idea; SEO-sourced items ground too
+      const items = (t.__seo
+        ? feed.filter((f) => f.topic === "__seo__")   // SEO idea grounds ONLY on the SEO feed (all via_seo)
+        : feed.filter((f) => f.topic === t.name || f.topic === "__extra__" || (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase()))
+      ).filter((f) => !langExcludeReason(f.title, allowedLangs)).slice(0, 5); // rule-enforced: excluded-language items never ground an idea
       const sig = topicSignals(items, GAPMAP[t.name]);          // Stage 3 — real demand/supply/velocity when live
       const velocity = sig.velocity != null ? sig.velocity : Math.min(1, 0.4 + items.length * 0.1);
       const strategic = Math.min(1, (Number(t.strategic_weight) || 1) / 1.5);
