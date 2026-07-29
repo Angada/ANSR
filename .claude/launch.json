@@ -7,6 +7,10 @@
       "runtimeArgs": ["start"],
       "port": 4100,
       "autoPort": true
+    },
+    {
+      "name": "qansr-dev",
+      "url": "http://localhost:4180"
     }
   ]
 }

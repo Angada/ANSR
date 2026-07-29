@@ -93,7 +93,7 @@ window.qHeader = (activeTab = "home") => {
     const st = document.createElement("style"); st.id = "qterm-css"; st.textContent = QTERM_CSS;
     document.head.appendChild(st);
   }
-  const tabs = [["raydar", "RayDar", "/whisperer.html"], ["contra", "Contra", "/contra.html"], ["mint", "Mint", "/mint.html"], ["admin", "Admin", "/admin.html"]];
+  const tabs = [["raydar", "RayDar", "/whisperer.html"], ["contra", "Contra", "/contra.html"], ["qlegal", "Q-Legal", "/qlegal.html"], ["mint", "Mint", "/mint.html"], ["admin", "Admin", "/admin.html"]];
   // Render the bar synchronously (no await) so it never pops in late / shifts
   // the page. The username + role fill in after /api/me resolves, without moving
   // anything (their spans already occupy the row).
@@ -135,7 +135,7 @@ window.aiSpin = (on, label) => {
 
 // Auto-show the spinner for AI-backed endpoints — covers every page, no per-call
 // wiring needed. Deterministic endpoints (compute, runs, config) are excluded.
-const _AI_RE = /\/api\/(box\/[^/]+\/chat|mint\/(clarify|roster\/map|run)\b|ai\/)/;
+const _AI_RE = /\/api\/(box\/[^/]+\/chat|mint\/(clarify|roster\/map|run)\b|qlegal\/(upload|ask)\b|ai\/)/;
 const _origFetch = window.fetch.bind(window);
 window.fetch = (...args) => {
   const url = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url) || "";

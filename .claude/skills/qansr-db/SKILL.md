@@ -94,6 +94,18 @@ description: Q&ANSR / BigFlex Postgres schema — the complete data model (38 ta
 | **approval** | run_id, object_type, level (maker/checker), decision — immutable release |
 | **audit_log** | at, actor, action, object_type, object_id, detail (jsonb) — append-only |
 
+### 7b · Q-Legal (ring-fenced ql_* — db/init/022_qlegal.sql; see the `qlegal` skill)
+| Table | Key columns · notes |
+|---|---|
+| **ql_document** | filename, title, doc_type, parties, status, **latest_version**, **facts** jsonb (C2 meta), tags, **parent_id** doc-tree + relation_kind/status, sp_item_id uniq |
+| **ql_version** | document_id, version_no (uniq pair), sha256, storage_path (vault), c1_doc_id (docstore), **c1_text** (GIN FTS expr index), **c2** jsonb (meta·clauses·notice register), diff_summary, ocr, is_executed |
+| **ql_obligation** | kind (expiry/renewal/termination_notice/deliverable/sla/notice), what, who_owes, **owner** (doer), due_date, lead_days, **ref** §, status proposed→confirmed→done |
+| **ql_rule** | code uniq, title, body, **scope** (global/ingestion/search/obligations/drafting), status, version — editable business rules injected into qlegal-* pipelines |
+| **ql_confirm** | kind (classification/link/lineage/fact), proposal jsonb, confidence, why, status — the one confirm queue |
+| **ql_feedback** | append-only learning-loop events (replayed on rebuild) |
+| **ql_log** | append-only AI activity (pipeline, model, **rules_applied**) |
+| **ql_tag_vocab** | controlled tag vocabulary (auto/free) |
+
 ### 7 · Atlas (cross-contract learning)
 | Table | Key columns · notes |
 |---|---|

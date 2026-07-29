@@ -94,6 +94,22 @@
 | **contract_fingerprint** | customer_id, archetype_id, signals, similarity, decision (`matched`/`partial`/`novel`/`forked`/`preintake-confirmed`), candidates, **embedding**, **drift** (jsonb). `unique(customer_id)` |
 | **norm_federation** | scope (`contract`/`archetype`/`global`), scope_ref, layer, raw_label, **canonical**, votes, conflicts, status (`proposed`/`promoted`/`conflicted`). `unique(scope, scope_ref, layer, raw_label)` |
 
+## 8. Q-Legal — legal repository intelligence (`db/init/022_qlegal.sql`)
+Ring-fenced `ql_*` namespace; storage tenant `Q-LEGAL`. SharePoint/upload = source of truth; everything here is a rebuildable derived layer.
+
+| Table | Key columns |
+|---|---|
+| **ql_document** | filename, title, doc_type, party1/party2/counterparty, status, **latest_version**, **facts** (jsonb C2 meta), summary, tags (jsonb), **parent_id** (doc tree) + relation_kind/status (`proposed`/`confirmed`), sp_item_id (SharePoint id, unique) |
+| **ql_version** | document_id, **version_no** (`unique(document_id, version_no)`), sha256, storage_path (T1 vault), c1_doc_id (docstore T2), **c1_text** (FTS source, GIN expression index), **c2** (jsonb: meta · clause map w/ § anchors · notice register · tags), diff_summary, ocr, is_executed, status |
+| **ql_obligation** | document_id, kind (`expiry`/`renewal`/`termination_notice`/`deliverable`/`sla`/`notice`), what, who_owes, **owner** (the doer), due_date, frequency, lead_days, **ref** (§), status (`proposed`/`confirmed`/`done`/`dismissed`) |
+| **ql_rule** | **code** (uniq), title, **body** (plain English), **scope** (`global`/`ingestion`/`search`/`obligations`/`drafting`), status, version — editable business rules injected into the qlegal-* pipelines by scope |
+| **ql_confirm** | kind (`classification`/`link`/`lineage`/`fact`), document_id, proposal (jsonb), confidence, why, status (`open`/`accepted`/`rejected`) — ONE confirm queue for every AI proposal |
+| **ql_feedback** | surface, document_id, field, was → corrected, actor — *append-only* learning-loop event store, replayed on rebuild |
+| **ql_log** | pipeline, provider, model, ref, **rules_applied** (jsonb), input/output summaries, status — *append-only* AI activity log |
+| **ql_tag_vocab** | tag (uniq), kind (`auto`/`free`) — controlled vocabulary (anti-sprawl) |
+
+FK spine: `ql_document ─┬─ ql_version · ql_obligation · ql_confirm` (cascade) · `ql_document.parent_id → ql_document` (tree). Seeds: 7 business rules + 14 vocabulary tags.
+
 ---
 
 ## The FK spine
