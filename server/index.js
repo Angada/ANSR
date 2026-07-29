@@ -92,8 +92,11 @@ app.use((req, res, next) => {
   return res.redirect("/login.html");
 });
 
-app.use(express.static(join(root, "public")));
-app.use("/brand", express.static(join(root, "brand"))); // tokens.css + logo for the UI
+// Always revalidate code/markup so a deploy shows up immediately (ETag → 304 when
+// unchanged, fresh 200 after a deploy) — no more stale cached whisperer.js/contra.js.
+const revalidate = (res, p) => { if (/\.(js|css|html)$/i.test(p)) res.setHeader("Cache-Control", "no-cache"); };
+app.use(express.static(join(root, "public"), { setHeaders: revalidate }));
+app.use("/brand", express.static(join(root, "brand"), { setHeaders: revalidate })); // tokens.css + logo for the UI
 const MAX_UPLOAD = 25 * 1024 * 1024; // 25 MB
 const upload = multer({ dest: uploads, limits: { fileSize: MAX_UPLOAD } });
 mountContra(app, upload); // Contra — contract review (archetype maker + review)
