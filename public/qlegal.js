@@ -1,113 +1,262 @@
-// Q-Legal — legal repository intelligence. Areas: Repository (Registry · Search
-// & Ask) · Tasks (Obligations) · Governance (Confirm queue · Business rules ·
-// AI activity). SharePoint/upload is the source of truth; everything here is the
-// derived layer: C1/C2 per version, wiki drill-in, doc tree, grounded answers.
+// Q-Legal — legal repository intelligence.
+// The journey: ASK is the front door (one command bar — live text search as you
+// type, a real conversation on Enter, answers with clickable contract chips).
+// BROWSE is the estate with smart filter chips. MANAGE holds the queues
+// (obligations · confirm · rules · SharePoint scanner · AI activity).
+// SharePoint/upload is the source of truth; everything here is the derived layer.
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
 // ts_headline highlights hits with <b>…</b> — escape everything else, keep the <b>s
 const snip = (s) => esc(s).replace(/&lt;b&gt;/g, "<b>").replace(/&lt;\/b&gt;/g, "</b>");
-// India sequence, always Asia/Kolkata. Compact dd-mm-yyyy for timestamps/tables;
-// the weekday only where a human plans around it (due dates): "Mon, 9 Jun, 2026".
+// minimal markdown for AI answers: **bold**, bullet lines — nothing else
+const mdlite = (s) => esc(s).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/^[-•] (.*)$/gm, "&bull; $1").replace(/\n/g, "<br>");
+// India sequence, always Asia/Kolkata. Compact dd-mm-yyyy; weekday only where a
+// human plans around it (due dates): "Mon, 9 Jun, 2026".
 const IST = { timeZone: "Asia/Kolkata" };
 const _parts = (ts, opts) => new Intl.DateTimeFormat("en-IN", { ...IST, ...opts }).formatToParts(new Date(ts)).reduce((o, p) => ((o[p.type] = p.value), o), {});
 const fmtD = (ts) => { if (!ts) return ""; const p = _parts(ts, { day: "2-digit", month: "2-digit", year: "numeric" }); return `${p.day}-${p.month}-${p.year}`; };
 const fmtDay = (ts) => { if (!ts) return ""; const p = _parts(ts, { weekday: "short", day: "numeric", month: "short", year: "numeric" }); return `${p.weekday}, ${p.day} ${p.month}, ${p.year}`; };
 const fmtDT = (ts) => { if (!ts) return ""; const p = _parts(ts, { day: "2-digit", month: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }); return `${p.day}-${p.month}-${p.year} · ${p.hour}:${p.minute} ${(p.dayPeriod || "").toLowerCase()}`; };
+const fmtNice = (ts) => { if (!ts) return "—"; const p = _parts(ts, { day: "numeric", month: "short", year: "numeric" }); return `${p.day} ${p.month} ${p.year}`; };
 
-let AREA = "repository";
-let SUB = { repository: "registry", tasks: "obligations", governance: "confirm" };
+let AREA = "ask";
+let SUB = { ask: "chat", browse: "contracts", manage: "obligations" };
 let DOCS = [], BY_TYPE = [], LOADED = false;
-let OPEN = null;                 // wiki payload { document, versions, c2, obligations, children, parent, confirms, registers }
-let HITS = null;
-let THREAD = [];                 // the Ask conversation: [{q, a, sources, rungs}] — follow-ups keep context
-let ASKING = false;
+let CATS = [];                    // the Legal Setting taxonomy (growing)
+let OPEN = null;                  // wiki payload
+let LIVE = null, LIVE_T = null;   // search-as-you-type hits + debounce timer
+let THREAD = [], ASKING = false;  // the Ask conversation
 let OBLIGS = [], CONFIRMS = [], RULES = [], LOG = [];
-let REGISTERS = [], REG_TOTAL = 0, REG_OPEN = null;   // Registers: list + the open estate-wide answer table
+let REGISTERS = [], REG_TOTAL = 0, REG_OPEN = null;
 let CONF_N = null;
+let FILTERS = { cat: null, gem: null, text: "" };   // browse filters
+let SP = null;                    // sharepoint settings payload
 
-const VIEWS = { registry: "#view-registry", search: "#view-search", registers: "#view-registers", obligations: "#view-obligations", confirm: "#view-confirm", rules: "#view-rules", log: "#view-log" };
+const VIEWS = { chat: "#view-chat", registers: "#view-registers", contracts: "#view-registry", obligations: "#view-obligations", confirm: "#view-confirm", rules: "#view-rules", sharepoint: "#view-sharepoint", log: "#view-log" };
 
-window.filterTable = (tid, v) => {
-  const term = (v || "").toLowerCase().trim();
-  const rows = [...document.querySelectorAll(`#${tid} tbody tr`)];
-  let shown = 0;
-  rows.forEach((tr) => { const m = (tr.dataset.k || "").includes(term); const show = term ? m : shown < 12; tr.style.display = show ? "" : "none"; if (show) shown++; });
-  const note = document.getElementById(tid + "-note");
-  if (note) note.textContent = term ? `${shown} match${shown === 1 ? "" : "es"} of ${rows.length}` : `showing ${Math.min(12, rows.length)} of ${rows.length}`;
-};
-async function runWithMeter(hostId, steps, promise) {
-  const host = document.getElementById(hostId); if (!host) return promise;
-  let i = 0;
-  const render = () => { host.innerHTML = `<div class="meter"><div class="cmeter-steps">${steps.map((s, idx) => `<div class="cmstep ${idx < i ? "done" : idx === i ? "now" : ""}"><span class="cmi">${idx < i ? '<span class="ck">✓</span>' : idx === i ? '<img class="potspin" src="/brand/assets/logos/pot.png" alt="">' : '<span class="cmdot"></span>'}</span><span>${esc(s)}</span></div>`).join("")}</div><div class="track"><div class="fill" style="width:${Math.round((i / steps.length) * 100)}%"></div></div></div>`; };
-  render();
-  const timer = setInterval(() => { if (i < steps.length - 1) { i++; render(); } }, 1600);
-  try { const r = await promise; i = steps.length; render(); return r; }
-  finally { clearInterval(timer); }
+// staggered reveal — output feels generated, not dumped
+function sequenceReveal(root, sel = ".reveal", step = 140, startDelay = 60) {
+  const els = [...(root || document).querySelectorAll(sel)];
+  els.forEach((el) => el.classList.add("gen"));
+  els.forEach((el, i) => setTimeout(() => { el.classList.remove("gen"); el.classList.add("gen--in"); }, startDelay + i * step));
 }
 
 function renderNav() {
-  $("#mainnav").innerHTML = [["repository", "Repository"], ["tasks", "Tasks"], ["governance", "Governance"]]
+  const needsYou = (CONF_N || 0);
+  $("#mainnav").innerHTML = [["ask", "Ask"], ["browse", "Browse"], ["manage", `Manage${needsYou ? ` <span class="count" style="color:var(--org)">●${needsYou}</span>` : ""}`]]
     .map(([k, l]) => `<button class="${AREA === k ? "on" : ""}" onclick="setArea('${k}')">${l}</button>`).join("");
-  const subs = AREA === "repository"
-    ? [["registry", "Registry", LOADED ? DOCS.length : null], ["search", "Search & Ask", null], ["registers", "Registers", REGISTERS.length || null]]
-    : AREA === "tasks"
-      ? [["obligations", "Obligations", OBLIGS.length || null]]
-      : [["confirm", "Confirm queue", CONF_N], ["rules", "Business rules", RULES.length || null], ["log", "AI activity", null]];
+  const subs = AREA === "ask"
+    ? [["chat", "Ask the repository", null], ["registers", "Standing questions", REGISTERS.length || null]]
+    : AREA === "browse"
+      ? [["contracts", "Contracts", LOADED ? DOCS.length : null]]
+      : [["obligations", "Obligations", null], ["confirm", "Confirm queue", CONF_N], ["rules", "Business rules", RULES.length || null], ["sharepoint", "SharePoint", null], ["log", "AI activity", null]];
   $("#subnav").innerHTML = subs.map(([k, l, n]) => `<button class="${SUB[AREA] === k ? "on" : ""}" onclick="setSub('${k}')">${l}${n ? `<span class="count">${n}</span>` : ""}</button>`).join("");
 }
 window.setArea = (a) => { AREA = a; setSub(SUB[a]); };
 window.setSub = (s) => { SUB[AREA] = s; renderNav(); Object.values(VIEWS).forEach((v) => ($(v).hidden = true)); $(VIEWS[s]).hidden = false; renderView(s); };
-function renderView(s) { ({ registry: renderRegistry, search: renderSearch, registers: renderRegisters, obligations: renderObligations, confirm: renderConfirm, rules: renderRules, log: renderLog }[s])(); }
+function renderView(s) { ({ chat: renderChat, registers: renderRegisters, contracts: renderRegistry, obligations: renderObligations, confirm: renderConfirm, rules: renderRules, sharepoint: renderSharePoint, log: renderLog }[s])(); }
 
 async function loadRegistry() {
   try { const j = await (await fetch("/api/qlegal/registry")).json(); DOCS = j.documents || []; BY_TYPE = j.by_type || []; LOADED = true; } catch { DOCS = []; }
 }
-async function loadConfirmCount() {
-  try { CONF_N = ((await (await fetch("/api/qlegal/confirms")).json()).confirms || []).length || null; } catch { CONF_N = null; }
-}
+async function loadConfirmCount() { try { CONF_N = ((await (await fetch("/api/qlegal/confirms")).json()).confirms || []).length || null; } catch { CONF_N = null; } }
+async function loadRegisters() { try { const j = await (await fetch("/api/qlegal/registers")).json(); REGISTERS = j.registers || []; REG_TOTAL = j.total_documents || 0; } catch { REGISTERS = []; } }
+async function loadCats() { try { CATS = ((await (await fetch("/api/qlegal/categories")).json()).categories) || []; } catch { CATS = []; } }
 async function init() {
-  await loadRegistry(); loadConfirmCount().then(renderNav); loadRegisters().then(renderNav);
+  await loadRegistry();
+  loadConfirmCount().then(renderNav); loadRegisters().then(renderNav); loadCats();
   renderNav();
   Object.values(VIEWS).forEach((v) => ($(v).hidden = true));
   $(VIEWS[SUB[AREA]]).hidden = false;
   renderView(SUB[AREA]);
 }
 
-// ---- Repository · Registry (dropzone + estate table + wiki drill-in) --------
+// ==========================================================================
+// ASK — the front door
+// ==========================================================================
+const expiringIn = (days) => DOCS.filter((d) => {
+  const x = (d.facts || {}).expiry_date; if (!x) return false;
+  const dd = (new Date(x) - Date.now()) / 86400000; return dd >= 0 && dd <= days;
+});
+function docChip(d, extra = "") {
+  const name = d.title || d.filename || d.name || ("#" + d.id);
+  return `<span class="docchip touch" onclick="openDoc(${d.id})"><span class="emb">Q</span>${esc(String(name).slice(0, 44))}${d.doc_type ? ` <span class="am">· ${esc(d.doc_type)}</span>` : ""}${extra}</span>`;
+}
+function renderChat() {
+  const host = $("#view-chat");
+  const exp30 = expiringIn(31), exp180 = expiringIn(183);
+  const catGems = BY_TYPE.filter((t) => t.t !== "unclassified").slice(0, 6)
+    .map((t) => `<span class="sg touch" onclick="gemBrowse('cat','${esc(t.t)}')">${esc(t.t)} <b>${t.c}</b></span>`).join("");
+  const welcome = THREAD.length ? "" : `
+    <div class="hero reveal">
+      <h2>What do you need?</h2>
+      <p class="sub">Find a contract, explore one, or ask the whole repository — every answer cites the document and the §.</p>
+    </div>`;
+  const gems = THREAD.length ? "" : `
+    <div class="sugg reveal">
+      ${exp30.length ? `<span class="sg touch" style="color:var(--red);border-color:#F0CFCF" onclick="gemBrowse('gem','exp30')">⚠ Expiring this month · ${exp30.length}</span>` : ""}
+      ${exp180.length ? `<span class="sg touch" style="color:var(--amber);border-color:#EAD3AE" onclick="gemBrowse('gem','exp180')">Expiring in 6 months · ${exp180.length}</span>` : ""}
+      ${CONF_N ? `<span class="sg touch" style="color:var(--org)" onclick="setArea('manage')">Needs your eye · ${CONF_N}</span>` : ""}
+      ${catGems}
+      <span class="sg touch" onclick="setArea('browse')">Browse all ${DOCS.length} ▸</span>
+    </div>
+    <div class="sugg reveal" style="margin-top:2px">
+      ${REGISTERS.slice(0, 3).map((r) => `<span class="sg touch" onclick="askPreset('${esc(r.question).replace(/'/g, "&#39;")}')">✦ ${esc(r.name)}?</span>`).join("")}
+      <span class="sg touch" onclick="askPreset('What expires in the next 90 days and what must we do about each?')">✦ What's expiring soon?</span>
+    </div>`;
+  const turns = THREAD.map((t) => `
+    <div class="msg-u reveal"><span class="b">${esc(t.q)}</span></div>
+    <div class="msg-a reveal">${mdlite(t.a)}
+      ${(t.sources || []).length ? `<div class="srcrow">${t.sources.map((s) => docChip(s)).join("")}</div>` : ""}
+      ${(t.rungs || []).length ? `<div class="rungline">read: ${t.rungs.map((r) => `<span class="rk">✓</span> ${esc(r)}`).join(" → ")}</div>` : ""}
+      ${t.mode && t.mode !== "ai" ? `<div class="rungline" style="color:var(--amber)">no keyed model — point the Q-Legal pipelines at one in AI Skills &amp; Pipelines</div>` : ""}
+    </div>`).join("");
+  const thinking = ASKING ? `
+    <div class="msg-u"><span class="b">${esc(ASKING)}</span></div>
+    <div class="thinking" id="thinkcard">
+      <div class="tstep on" data-t="0"><span class="ti"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""></span>Checking the registers &amp; facts — every contract</div>
+      <div class="tstep" data-t="1"><span class="ti">·</span>Reading the contents &amp; clause wikis of the closest matches</div>
+      <div class="tstep" data-t="2"><span class="ti">·</span>Deep-reading the C1 transcripts</div>
+      <div class="tstep" data-t="3"><span class="ti">·</span>Composing the cited answer</div>
+    </div>` : "";
+  const live = (!ASKING && LIVE && LIVE.q) ? `
+    <div class="livehits">
+      ${LIVE.hits.length
+        ? `<div class="rsec-lbl">“${esc(LIVE.q)}” in the text · click to open</div>` + LIVE.hits.slice(0, 5).map((h) => `
+          <div class="hit touch" onclick="openDoc(${h.id})">
+            <div class="hn">${esc(h.title || h.filename)} ${h.doc_type ? `<span class="typebadge">${esc(h.doc_type)}</span>` : ""}</div>
+            ${h.snippet ? `<div class="hs">${snip(h.snippet)}</div>` : ""}
+          </div>`).join("")
+        : `<div class="rungline" style="text-align:center">no literal match for “${esc(LIVE.q)}” — press Enter to ask the AI</div>`}
+    </div>` : "";
+  host.innerHTML = welcome + `
+    <div class="chat">
+      <div class="cmd reveal">
+        <span class="glyph">✦</span>
+        <input id="askin" placeholder="${THREAD.length ? "ask a follow-up…" : "Search a contract, or ask anything — e.g. which contracts need notice on change of control?"}"
+          oninput="liveSearch(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();doAsk()}">
+        <button class="go" onclick="doAsk()">Ask ▸</button>
+      </div>
+      ${live}
+      ${gems}
+      ${THREAD.length ? "" : `<div class="estateline reveal">${DOCS.length ? `<b>${DOCS.length}</b> contracts indexed · ${BY_TYPE.map((t) => `${esc(t.t)} ${t.c}`).join(" · ")}` : "the repository is empty — add contracts in Browse, or connect SharePoint in Manage"}</div>`}
+      ${turns}${thinking}
+      ${THREAD.length ? `<div style="text-align:center;margin-top:14px"><button class="btn small touch" onclick="clearThread()">New conversation</button></div>` : ""}
+    </div>`;
+  sequenceReveal(host, ".reveal", 110, 40);
+  if (!ASKING) setTimeout(() => $("#askin")?.focus(), 80);
+  if (ASKING) animateThinking();
+}
+function animateThinking() {
+  const card = document.getElementById("thinkcard"); if (!card) return;
+  let i = 0;
+  const tick = () => {
+    if (!document.getElementById("thinkcard")) return;
+    const steps = [...card.querySelectorAll(".tstep")];
+    if (i < steps.length - 1) {
+      steps[i].classList.remove("on"); steps[i].classList.add("done");
+      steps[i].querySelector(".ti").innerHTML = '<span style="color:var(--grn)">✓</span>';
+      i++;
+      steps[i].classList.add("on");
+      steps[i].querySelector(".ti").innerHTML = '<img class="potspin" src="/brand/assets/logos/pot.png" alt="">';
+      setTimeout(tick, 1500 + Math.random() * 800);
+    }
+  };
+  setTimeout(tick, 1300);
+}
+window.liveSearch = (v) => {
+  clearTimeout(LIVE_T);
+  const term = (v || "").trim();
+  if (!term || term.length < 3) { LIVE = null; const lh = document.querySelector(".livehits"); if (lh) lh.remove(); return; }
+  LIVE_T = setTimeout(async () => {
+    try {
+      const j = await (await fetch(`/api/qlegal/search?q=${encodeURIComponent(term)}`)).json();
+      LIVE = { q: term, hits: j.hits || [] };
+      if (!ASKING && document.getElementById("askin")) {
+        const el = document.getElementById("askin"); const pos = el.selectionStart;
+        renderChat();
+        const el2 = document.getElementById("askin"); if (el2) { el2.value = term; el2.focus(); el2.setSelectionRange(pos, pos); }
+      }
+    } catch { /* live search is best-effort */ }
+  }, 350);
+};
+window.askPreset = (qtext) => { const el = $("#askin"); if (el) el.value = qtext; doAsk(); };
+window.gemBrowse = (kind, val) => { FILTERS = { cat: kind === "cat" ? val : null, gem: kind === "gem" ? val : null, text: "" }; setArea("browse"); };
+window.clearThread = () => { THREAD = []; LIVE = null; renderChat(); };
+window.doAsk = async () => {
+  const el = $("#askin"); const qtext = (el?.value || "").trim(); if (!qtext || ASKING) return;
+  ASKING = qtext; LIVE = null; renderChat();
+  try {
+    const history = THREAD.slice(-4).map((t) => ({ q: t.q, a: t.a }));
+    const r = await fetch("/api/qlegal/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: qtext, history }) });
+    const j = await r.json();
+    ASKING = false;
+    if (!r.ok) { renderChat(); return rdAlert("Ask failed", j.error || ""); }
+    THREAD.push({ q: qtext, a: j.answer, sources: j.sources || [], rungs: j.rungs || [], mode: j.mode });
+    renderChat(); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  } catch (e) { ASKING = false; renderChat(); rdAlert("Ask failed", String(e.message || e)); }
+};
+
+// ==========================================================================
+// BROWSE — the estate, with smart filter chips
+// ==========================================================================
+function applyFilters(docs) {
+  let out = docs;
+  if (FILTERS.cat) out = out.filter((d) => (d.doc_type || "unclassified") === FILTERS.cat);
+  if (FILTERS.gem === "exp30") out = out.filter((d) => expiringIn(31).includes(d));
+  if (FILTERS.gem === "exp180") out = out.filter((d) => expiringIn(183).includes(d));
+  if (FILTERS.gem === "scans") out = out.filter((d) => d.scanned);
+  if (FILTERS.gem === "oblig") out = out.filter((d) => Number(d.open_obligations));
+  if (FILTERS.text) { const t = FILTERS.text.toLowerCase(); out = out.filter((d) => [d.filename, d.title, d.doc_type, d.party1, d.party2, d.counterparty, (d.tags || []).join(" ")].join(" ").toLowerCase().includes(t)); }
+  return out;
+}
 function renderRegistry() {
   const host = $("#view-registry");
-  if (OPEN) { host.innerHTML = wikiView(); return; }
-  const drop = `<div class="drop" onclick="document.getElementById('qfile').click()"
+  if (OPEN) { host.innerHTML = wikiView(); sequenceReveal(host, ".reveal", 120, 50); return; }
+  const drop = `<div class="drop touch" onclick="document.getElementById('qfile').click()"
       ondragover="dzOver(event)" ondragenter="dzOver(event)" ondragleave="dzLeave(event)" ondrop="dzDrop(event)">
     <span class="ic">⇊</span>
     <div><div class="t">Drop contracts — or select files (up to 20)</div>
-      <div class="s">PDF / DOCX / scans (vision-OCR) · each becomes C1 transcript + C2 key · same filename = a new version of that document</div></div>
+      <div class="s">PDF / DOCX / scans (vision-OCR) · read once into transcript + key + wikis · same filename = a new version · or let the nightly SharePoint scan bring them in</div></div>
     <input type="file" id="qfile" accept=".pdf,.docx,.doc,.txt,.md" multiple onchange="qUpload(this.files)">
   </div>`;
-  const types = BY_TYPE.length ? `<div class="typerow">${BY_TYPE.map((t) => `<span class="typect">${esc(t.t)} <b>${t.c}</b></span>`).join("")}</div>` : "";
-  const rows = DOCS.map((d) => {
+  const gem = (id, label, n, color) => n ? `<span class="fchip touch ${FILTERS.gem === id ? "on" : ""}" ${color && FILTERS.gem !== id ? `style="color:${color}"` : ""} onclick="setGem('${id}')">${label}<span class="n">${n}</span></span>` : "";
+  const strip = `<div class="fstrip">
+      <span class="fchip touch ${!FILTERS.cat && !FILTERS.gem ? "on" : ""}" onclick="clearFilters()">All<span class="n">${DOCS.length}</span></span>
+      ${BY_TYPE.map((t) => `<span class="fchip touch ${FILTERS.cat === t.t ? "on" : ""}" onclick="setCat('${esc(t.t)}')">${esc(t.t)}<span class="n">${t.c}</span></span>`).join("")}
+      <span style="width:1px;height:20px;background:var(--line2)"></span>
+      ${gem("exp30", "⚠ Expiring 30d", expiringIn(31).length, "var(--red)")}
+      ${gem("exp180", "Expiring 6mo", expiringIn(183).length, "var(--amber)")}
+      ${gem("oblig", "Has obligations", DOCS.filter((d) => Number(d.open_obligations)).length)}
+      ${gem("scans", "Scanned", DOCS.filter((d) => d.scanned).length)}
+      <input class="rinput" style="max-width:220px;margin-left:auto" placeholder="filter by name, party, tag…" value="${esc(FILTERS.text)}" oninput="FILTERS.text=this.value;renderRegistry()">
+    </div>`;
+  const list = applyFilters(DOCS);
+  const rows = list.map((d) => {
     const f = d.facts || {};
-    const dates = [f.effective_date, f.expiry_date].filter(Boolean).join(" → ");
-    const tags = (d.tags || []).slice(0, 4).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ");
-    return `<tr class="clk" data-k="${esc([d.filename, d.title, d.doc_type, d.party1, d.party2, d.counterparty, (d.tags || []).join(" ")].join(" ").toLowerCase())}" onclick="openDoc(${d.id})">
+    const conf = f.doc_type_confirmed ? "" : (f.doc_type_confidence ? ` <span class="am" title="AI classification — confirm it on the contract page">AI ${Math.round(Number(f.doc_type_confidence) * 100)}%</span>` : "");
+    return `<tr class="clk touch" data-k="1" onclick="openDoc(${d.id})">
       <td><b>${esc(d.title || d.filename)}</b>${d.title ? `<div class="am">${esc(d.filename)}</div>` : ""}</td>
-      <td>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>` : "<span class='am'>—</span>"}</td>
+      <td>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>${conf}` : "<span class='am'>—</span>"}</td>
       <td>${esc([d.party1, d.party2].filter(Boolean).join(" ⟷ ")) || "<span class='am'>—</span>"}</td>
-      <td>${esc(dates) || "<span class='am'>—</span>"}</td>
-      <td>${tags || "<span class='am'>—</span>"}</td>
-      <td>v${d.latest_version}${d.scanned ? ' <span class="am">· scan</span>' : ""}</td>
+      <td>${[f.effective_date, f.expiry_date].filter(Boolean).map(fmtNice).join(" → ") || "<span class='am'>—</span>"}</td>
+      <td>${(d.tags || []).slice(0, 3).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ") || "<span class='am'>—</span>"}</td>
+      <td>v${d.latest_version}${d.source === "sharepoint" ? ' <span class="am" title="synced from SharePoint">· SP</span>' : ""}${d.scanned ? ' <span class="am">· scan</span>' : ""}</td>
       <td>${Number(d.open_obligations) ? `<span class="duechip due-soon">${d.open_obligations}</span>` : "<span class='am'>—</span>"}</td>
       <td class="am">${fmtD(d.updated_at)}</td>
     </tr>`;
   }).join("");
-  host.innerHTML = `<p class="intro"><b>REGISTRY</b> — the estate. Every document lands once, is transcribed (C1), keyed (C2: parties, dates, clauses, notice machinery), tagged and versioned. Click a row for its wiki page.</p>`
-    + drop + `<div id="qproc"></div>` + types
-    + (DOCS.length
-      ? `<div class="cfilter"><input placeholder="filter by name, type, party, tag…" oninput="filterTable('regtable',this.value)"><span class="am" id="regtable-note"></span></div>
-         <div class="scroll-x"><table class="ctable" id="regtable"><thead><tr><th>Contract</th><th>Type</th><th>Parties</th><th>Dates</th><th>Tags</th><th>Ver</th><th>Oblig.</th><th>Updated</th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : `<div class="empty">// the repository is empty — drop the first contracts above //</div>`);
-  if (DOCS.length) filterTable("regtable", "");
+  host.innerHTML = `<p class="intro"><b>CONTRACTS</b> — the estate. Filter by Legal Setting, expiry, or anything; click a contract for its page.</p>`
+    + drop + `<div id="qproc"></div>` + strip
+    + (list.length
+      ? `<div class="scroll-x reveal"><table class="ctable"><thead><tr><th>Contract</th><th>Legal setting</th><th>Parties</th><th>Dates</th><th>Tags</th><th>Ver</th><th>Oblig.</th><th>Updated</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : DOCS.length ? `<div class="empty">// nothing matches these filters //</div>`
+      : `<div class="empty">// the repository is empty — drop the first contracts above, or connect SharePoint in Manage //</div>`);
+  sequenceReveal(host, ".reveal", 120, 60);
 }
+window.setCat = (c) => { FILTERS.cat = FILTERS.cat === c ? null : c; renderRegistry(); };
+window.setGem = (g) => { FILTERS.gem = FILTERS.gem === g ? null : g; renderRegistry(); };
+window.clearFilters = () => { FILTERS = { cat: null, gem: null, text: "" }; renderRegistry(); };
 window.dzOver = (e) => { e.preventDefault(); e.dataTransfer && (e.dataTransfer.dropEffect = "copy"); e.currentTarget.classList.add("over"); };
 window.dzLeave = (e) => { e.currentTarget.classList.remove("over"); };
 window.dzDrop = (e) => { e.preventDefault(); e.currentTarget.classList.remove("over"); const fs = e.dataTransfer?.files; if (fs && fs.length) qUpload(fs); };
@@ -116,208 +265,178 @@ window.qUpload = async (files) => {
   const fd = new FormData(); [...files].forEach((f) => fd.append("files", f));
   const req = (async () => { const r = await fetch("/api/qlegal/upload", { method: "POST", body: fd }); return { ok: r.ok, j: await r.json() }; })();
   try {
-    const { ok, j } = await runWithMeter("qproc", ["Reading file(s) · vision-OCR for scans", "Vault snapshot + C1 transcript", "Concise key (C2) · facts · tags · notice register", "Mapping obligations & deadlines", "Proposing doc-tree links"], req);
+    const { ok, j } = await runWithMeter("qproc", ["Reading file(s) · vision-OCR for scans", "Vault snapshot + C1 transcript", "Concise key · Legal Setting · contents & clause wikis", "Standing questions & obligations", "Family links & lineage"], req);
     const p = $("#qproc"); if (p) p.innerHTML = "";
     if (!ok) return rdAlert("Upload failed", j.error || "");
     const done = (j.results || []).filter((r) => r.document_id).length;
     const dups = (j.results || []).filter((r) => r.skipped).length;
     const errs = (j.results || []).filter((r) => r.error);
-    await loadRegistry(); loadConfirmCount().then(renderNav); renderNav(); renderRegistry();
-    let msg = `${done} document${done === 1 ? "" : "s"} indexed.`;
+    await loadRegistry(); loadConfirmCount().then(renderNav); loadCats(); renderNav(); renderRegistry();
+    let msg = `${done} document${done === 1 ? "" : "s"} indexed and classified.`;
     if (dups) msg += ` ${dups} skipped (already in the repository).`;
     if (errs.length) msg += ` ${errs.length} failed: ${errs.map((e) => `${e.filename} — ${e.error}`).join("; ")}`;
     rdAlert("Ingestion complete", msg);
     const stub = (j.results || []).find((r) => r.mode && r.mode !== "ai");
-    if (stub) rdAlert("No keyed model", "Documents landed with a generic key. Point the Q-Legal pipelines at a keyed model in AI Skills & Pipelines for the real C2 extraction.");
+    if (stub) rdAlert("No keyed model", "Documents landed with a generic key. Point the Q-Legal pipelines at a keyed model in AI Skills & Pipelines for real extraction.");
   } catch (e) { const p = $("#qproc"); if (p) p.innerHTML = ""; rdAlert("Upload failed", String(e.message || e)); }
 };
 
-// ---- wiki page ---------------------------------------------------------------
+// ==========================================================================
+// The contract page — blocks by importance
+// ==========================================================================
 window.openDoc = async (id) => {
   try { OPEN = await (await fetch(`/api/qlegal/document/${id}`)).json(); } catch { return; }
-  AREA = "repository"; SUB.repository = "registry"; renderNav();
+  AREA = "browse"; SUB.browse = "contracts"; renderNav();
   Object.values(VIEWS).forEach((v) => ($(v).hidden = true)); $("#view-registry").hidden = false;
   renderRegistry(); window.scrollTo({ top: 0, behavior: "smooth" });
 };
 window.closeDoc = () => { OPEN = null; renderRegistry(); };
-// The three ways into any document + the family jump — available from every page.
-function openRow(d) {
-  const latest = (OPEN.versions || []).find((v) => v.version_no === d.latest_version) || (OPEN.versions || [])[0];
-  if (!latest) return "";
-  const fam = (OPEN.parent ? 1 : 0) + (OPEN.children || []).length;
-  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:-8px 0 18px">
-    <button class="btn small" onclick="window.open('/api/qlegal/original/${latest.id}','_blank')" title="our vault snapshot of the file itself — the authority">📄 Open the file</button>
-    <button class="btn small" onclick="window.open('/api/qlegal/c1/${latest.id}','_blank')" title="the comprehensive transcript — every clause, table and field">📖 C1 · full transcript</button>
-    <button class="btn small" onclick="window.open('/api/qlegal/c2/${latest.id}','_blank')" title="the concise key + the contents and clause wikis">🔑 C2 · key + wikis</button>
-    ${fam ? `<button class="btn small" onclick="document.getElementById('famcard')?.scrollIntoView({behavior:'smooth'})" title="the related contracts">🌳 Family · ${fam}</button>` : ""}
-  </div>`;
-}
 function factCell(k, key, v) {
   return `<span class="cfact" title="click to correct" onclick="fixFact('${key}','${esc(String(v ?? "")).replace(/'/g, "&#39;")}')"><span class="cfk">${k}</span>${esc(v || "—")}</span>`;
 }
 function wikiView() {
   const d = OPEN.document, f = d.facts || {}, c2 = OPEN.c2 || {};
-  const head = `<span class="backlnk" onclick="closeDoc()">‹ back to registry</span>
-    <div class="chead">
-      <div class="chead-emb">Q</div>
-      <div class="chead-body">
-        <div class="chead-titlerow"><span class="chead-title">${esc(d.title || d.filename)}</span>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>` : ""}${(d.tags || []).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ")}</div>
-        ${(d.party1 || d.party2) ? `<div class="chead-parties">${esc(d.party1 || "?")}<span class="vs">⟷</span>${esc(d.party2 || "?")}</div>` : ""}
-        <div class="chead-facts">
-          ${factCell("Effective", "effective_date", f.effective_date)}${factCell("Expiry", "expiry_date", f.expiry_date)}
-          ${factCell("Governing law", "governing_law", f.governing_law)}${factCell("Value", "value", f.value)}
-          ${factCell("Auto-renewal", "auto_renewal", f.auto_renewal === true ? "yes" : f.auto_renewal === false ? "no" : "")}
-          ${factCell("Notice period", "notice_period", f.notice_period)}${factCell("Status", "status", d.status)}
-        </div>
+  const latest = (OPEN.versions || []).find((v) => v.version_no === d.latest_version) || (OPEN.versions || [])[0];
+  const expDays = f.expiry_date ? Math.round((new Date(f.expiry_date) - Date.now()) / 86400000) : null;
+
+  // ---- HIGHLIGHT block: the dates that run the contract + the document reel
+  const dtile = (label, val, warnDays) => `<div class="dtile ${warnDays != null && warnDays <= 31 ? "warn" : warnDays != null && warnDays <= 183 ? "soon" : ""}">
+      <div class="dl">${label}</div><div class="dv">${val ? fmtDay(val) : "—"}</div>
+      ${warnDays != null ? `<div class="dd">${warnDays < 0 ? `expired ${-warnDays}d ago` : `in ${warnDays} days`}</div>` : ""}</div>`;
+  const reel = (OPEN.versions || []).map((v) => `<div class="vcard touch ${v.is_executed ? "exec" : ""}">
+      <div class="vhead"><span class="vno">v${v.version_no}</span>${v.is_executed ? '<span class="ochip o-done">signed</span>' : ""}${v.ocr ? '<span class="am">scan</span>' : ""}</div>
+      <div class="vmeta">${fmtD(v.created_at)}</div>
+      ${v.diff_summary ? `<div class="vdiff">${esc(v.diff_summary).slice(0, 160)}</div>` : ""}
+      <div class="vlinks"><a class="ref" href="/api/qlegal/original/${v.id}" target="_blank">📄 file</a><a class="ref" href="/api/qlegal/c1/${v.id}" target="_blank">📖 C1</a><a class="ref" href="/api/qlegal/c2/${v.id}" target="_blank">🔑 C2</a></div>
+    </div>`).join("");
+  const highlight = `<div class="wikicard reveal hl">
+      <div class="hlrow">
+        ${dtile("Starts", f.effective_date)}
+        ${dtile("Ends", f.expiry_date, expDays)}
+        <div class="dtile"><div class="dl">Status</div><div class="dv">${esc(d.status || "active")}${f.auto_renewal ? '<div class="dd">auto-renews</div>' : ""}</div></div>
       </div>
-      <button class="btn small" onclick="delDoc(${d.id})" title="remove from the derived layer (the original stays in the source of truth)">✕</button>
-    </div>` + openRow(d);
-  const summary = d.summary ? `<div class="wikicard"><div class="rsec-lbl">Summary</div><p class="rsummary">${esc(d.summary)}</p></div>` : "";
+      <div class="rsec-lbl" style="margin-top:14px">Document reel · every version, three ways in</div>
+      <div class="reel">${reel || "—"}</div>
+    </div>`;
+
+  // ---- PARTIES block
+  const parties = `<div class="wikicard reveal"><div class="rsec-lbl">Parties</div>
+      <div class="chead-facts">
+        ${factCell("Party 1", "party1", d.party1)}${factCell("Party 2", "party2", d.party2)}
+        ${factCell("ANSR party", "ansr_party", f.ansr_party)}${factCell("Counterparty", "counterparty", d.counterparty)}
+        ${factCell("Nationality / jurisdiction", "jurisdiction", f.jurisdiction)}${factCell("Governing law", "governing_law", f.governing_law)}
+        ${factCell("Value", "value", f.value)}${factCell("Notice period", "notice_period", f.notice_period)}
+      </div></div>`;
+
+  // ---- LEGAL SETTING block: AI classification + confidence + the growing taxonomy
+  const confPct = f.doc_type_confidence ? Math.round(Number(f.doc_type_confidence) * 100) : null;
+  const confirmed = !!f.doc_type_confirmed;
+  const catChips = CATS.map((c) => `<span class="fchip touch ${d.doc_type === c.name ? "on" : ""}" onclick="setDocCategory(${d.id},'${esc(c.name).replace(/'/g, "&#39;")}')">${esc(c.name)}${Number(c.docs) ? `<span class="n">${c.docs}</span>` : ""}</span>`).join("");
+  const setting = `<div class="wikicard reveal"><div class="rsec-lbl">Legal setting · the classification</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:11px">
+        ${d.doc_type ? `<span class="typebadge" style="font-size:13px;padding:6px 14px">${esc(d.doc_type)}</span>` : '<span class="am">unclassified</span>'}
+        ${confirmed ? '<span class="ochip o-done">confirmed by you</span>'
+          : confPct != null ? `<span class="am">AI recommendation · ${confPct}% confident — pick to confirm or change:</span>`
+          : '<span class="am">pick the category:</span>'}
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:7px">${catChips}
+        <span class="fchip touch" style="border-style:dashed" onclick="addCategory(${d.id})">+ new category</span></div>
+    </div>`;
+
+  const summary = d.summary ? `<div class="wikicard reveal"><div class="rsec-lbl">What this contract is</div><p class="rsummary">${esc(d.summary)}</p></div>` : "";
+  const confs = (OPEN.confirms || []).length ? `<div class="wikicard reveal" style="border-left:3px solid var(--amber)"><div class="rsec-lbl">Awaiting your confirmation</div>${OPEN.confirms.map((c) => confCard(c, true)).join("")}</div>` : "";
+
+  // registers · notice · obligations · family · wikis (importance order)
+  const P = { yes: "due-ok", no: "due-none", unclear: "due-soon" };
+  const regs = (OPEN.registers || []);
+  const regCard = regs.length ? `<div class="wikicard reveal"><div class="rsec-lbl">Standing questions · this contract's answers</div>
+      ${regs.map((r) => `<div style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)">
+        <span class="duechip ${P[r.present] || "due-none"}">${esc(r.present)}</span>
+        <span style="flex:1;min-width:220px;font-size:13px;line-height:1.5"><b>${esc(r.name)}</b>${r.value ? ` · ${esc(r.value)}` : ""}<div class="am" style="margin-top:2px">${esc(r.answer || "")}</div></span>
+        ${(r.refs || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" ")}
+        <button class="btn small touch" onclick="fixHit(${r.id},'${esc(r.present)}','${esc(r.answer || "").replace(/'/g, "&#39;")}','${esc(r.value || "").replace(/'/g, "&#39;")}')">Correct</button>
+      </div>`).join("")}</div>` : "";
   const notice = c2.notice || {};
   const nrows = [
     ...(notice.notice_clauses || []).map((n) => `<div class="rsummary" style="margin-bottom:6px">• notify — ${esc(n.what || "")} ${n.method ? `· ${esc(n.method)}` : ""} ${n.days ? `· ${esc(String(n.days))} days` : ""} <span class="ref">${esc(n.ref || "")}</span></div>`),
     ...(notice.change_of_control || []).map((n) => `<div class="rsummary" style="margin-bottom:6px">• change of control — requires <b>${esc(n.requires || "notice")}</b> <span class="ref">${esc(n.ref || "")}</span></div>`),
   ].join("");
-  const noticeCard = nrows ? `<div class="wikicard"><div class="rsec-lbl">Notice machinery · the change-of-guard register</div>${nrows}${(notice.notice_contacts || []).filter(Boolean).length ? `<div class="am" style="margin-top:6px">contacts: ${esc((notice.notice_contacts || []).filter(Boolean).join(" · "))}</div>` : ""}</div>` : "";
-  const vrows = (OPEN.versions || []).map((v) => `<div class="vrow">
-      <span class="vno">v${v.version_no}</span>
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
-          ${v.is_executed ? '<span class="ochip o-done">executed</span>' : ""}${v.ocr ? '<span class="chip">scan · OCR</span>' : ""}
-          ${v.status === "error" ? `<span class="ochip o-proposed">error: ${esc(v.error || "")}</span>` : ""}
-          <a class="ref" href="/api/qlegal/c1/${v.id}" target="_blank" title="the C1 transcript (doc×api switch — never the original)">C1 transcript ↗</a>
-        </div>
-        ${v.diff_summary ? `<div class="vdiff" style="margin-top:6px">${esc(v.diff_summary)}</div>` : ""}
-        <div class="vmeta">${fmtDT(v.created_at)} · sha ${esc((v.sha256 || "").slice(0, 10))}</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
-          <a class="ref" href="/api/qlegal/original/${v.id}" target="_blank">📄 file</a>
-          <a class="ref" href="/api/qlegal/c1/${v.id}" target="_blank">📖 C1</a>
-          <a class="ref" href="/api/qlegal/c2/${v.id}" target="_blank">🔑 C2</a>
-        </div>
-      </div>
-    </div>`).join("");
-  const rail = `<div class="wikicard"><div class="rsec-lbl">Version rail · one document, many versions</div><div class="vrail">${vrows || "—"}</div></div>`;
+  const noticeCard = nrows ? `<div class="wikicard reveal"><div class="rsec-lbl">Notice machinery · the change-of-guard register</div>${nrows}${(notice.notice_contacts || []).filter(Boolean).length ? `<div class="am" style="margin-top:6px">contacts: ${esc((notice.notice_contacts || []).filter(Boolean).join(" · "))}</div>` : ""}</div>` : "";
   const obls = (OPEN.obligations || []).map((o) => obligationRow(o, true)).join("");
-  const oblCard = `<div class="wikicard"><div class="rsec-lbl">Obligations & deadlines</div>${obls || '<span class="am">none extracted</span>'}</div>`;
-  const parent = OPEN.parent ? `<div class="treecard" onclick="openDoc(${OPEN.parent.id})">↑ <b>${esc(OPEN.parent.title || OPEN.parent.filename)}</b> <span class="relk">${esc(d.relation_kind || "parent")}${d.relation_status === "confirmed" ? " ✓" : " · proposed"}</span> <span class="am" style="margin-left:auto">open ›</span></div>` : "";
-  const kids = (OPEN.children || []).map((k) => `<div class="treecard" onclick="openDoc(${k.id})">↳ <b>${esc(k.title || k.filename)}</b> ${k.doc_type ? `<span class="typebadge">${esc(k.doc_type)}</span>` : ""} <span class="relk">${esc(k.relation_kind || "child")}</span> <span class="am" style="margin-left:auto">open ›</span></div>`).join("");
-  const treeCard = (parent || kids) ? `<div class="wikicard" id="famcard"><div class="rsec-lbl">Document family · click through to a related contract</div>${parent}${kids}</div>` : "";
-  // register answers — this contract's answer to every standing question
-  const P = { yes: "due-ok", no: "due-none", unclear: "due-soon" };
-  const regs = (OPEN.registers || []);
-  const regCard = regs.length ? `<div class="wikicard"><div class="rsec-lbl">Standing questions · this contract's answers</div>
-      ${regs.map((r) => `<div style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)">
-        <span class="duechip ${P[r.present] || "due-none"}">${esc(r.present)}</span>
-        <span style="flex:1;min-width:220px;font-size:13px;line-height:1.5"><b>${esc(r.name)}</b>${r.value ? ` · ${esc(r.value)}` : ""}<div class="am" style="margin-top:2px">${esc(r.answer || "")}</div></span>
-        ${(r.refs || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" ")}
-        <button class="btn small" onclick="fixHit(${r.id},'${esc(r.present)}','${esc(r.answer || "").replace(/'/g, "&#39;")}','${esc(r.value || "").replace(/'/g, "&#39;")}')">Correct</button>
-      </div>`).join("")}</div>` : "";
-  // the contents wiki (navigate the document without re-reading it)
+  const oblCard = `<div class="wikicard reveal"><div class="rsec-lbl">Deliverables, SLAs &amp; deadlines</div>${obls || '<span class="am">none extracted</span>'}</div>`;
+  const parent = OPEN.parent ? `<div class="treecard touch" onclick="openDoc(${OPEN.parent.id})">↑ <b>${esc(OPEN.parent.title || OPEN.parent.filename)}</b> <span class="relk">${esc(d.relation_kind || "parent")}${d.relation_status === "confirmed" ? " ✓" : " · proposed"}</span> <span class="am" style="margin-left:auto">open ›</span></div>` : "";
+  const kids = (OPEN.children || []).map((k) => `<div class="treecard touch" onclick="openDoc(${k.id})">↳ <b>${esc(k.title || k.filename)}</b> ${k.doc_type ? `<span class="typebadge">${esc(k.doc_type)}</span>` : ""} <span class="relk">${esc(k.relation_kind || "child")}</span> <span class="am" style="margin-left:auto">open ›</span></div>`).join("");
+  const treeCard = (parent || kids) ? `<div class="wikicard reveal" id="famcard"><div class="rsec-lbl">Document family</div>${parent}${kids}</div>` : "";
   const contents = (c2.contents || []);
-  const contentsCard = contents.length ? `<div class="wikicard"><div class="rsec-lbl">Contents wiki · the document's own structure</div>
+  const contentsCard = contents.length ? `<div class="wikicard reveal"><div class="rsec-lbl">Contents wiki</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">${contents.slice(0, 80).map((c) => `<span class="tagchip">${esc(c.ref || "")} ${esc(c.heading || "")}</span>`).join("")}</div>
       ${(c2.exhibits || []).length ? `<div class="am" style="margin-top:8px">exhibits &amp; schedules: ${esc((c2.exhibits || []).map((x) => `${x.ref || ""} ${x.title || ""}`.trim()).join(" · "))}</div>` : ""}</div>` : "";
   const clauses = (c2.clauses || []);
-  const clauseCard = clauses.length ? `<div class="wikicard"><div class="rsec-lbl">Clause wiki · ${clauses.length} clauses (hover for what each says)</div><div style="display:flex;flex-wrap:wrap;gap:6px">${clauses.slice(0, 80).map((c) => `<span class="tagchip" title="${esc(c.gist || "")}">${esc(c.ref || "")} ${esc(c.label || "")}</span>`).join("")}${clauses.length > 80 ? `<span class="am">+ ${clauses.length - 80} more</span>` : ""}</div></div>` : "";
-  const confs = (OPEN.confirms || []).length ? `<div class="wikicard" style="border-left:3px solid var(--amber)"><div class="rsec-lbl">Awaiting your confirmation</div>${OPEN.confirms.map((c) => confCard(c, true)).join("")}</div>` : "";
-  return head + summary + confs + regCard + noticeCard + oblCard + treeCard + contentsCard + clauseCard + rail;
+  const clauseCard = clauses.length ? `<div class="wikicard reveal"><div class="rsec-lbl">Clause wiki · ${clauses.length} clauses (hover for the gist)</div><div style="display:flex;flex-wrap:wrap;gap:6px">${clauses.slice(0, 80).map((c) => `<span class="tagchip" title="${esc(c.gist || "")}">${esc(c.ref || "")} ${esc(c.label || "")}</span>`).join("")}${clauses.length > 80 ? `<span class="am">+ ${clauses.length - 80} more</span>` : ""}</div></div>` : "";
+
+  const head = `<span class="backlnk" onclick="closeDoc()">‹ all contracts</span>
+    <div class="chead reveal">
+      <div class="chead-emb">Q</div>
+      <div class="chead-body">
+        <div class="chead-titlerow"><span class="chead-title">${esc(d.title || d.filename)}</span>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>` : ""}${(d.tags || []).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ")}</div>
+        ${(d.party1 || d.party2) ? `<div class="chead-parties">${esc(d.party1 || "?")}<span class="vs">⟷</span>${esc(d.party2 || "?")}</div>` : ""}
+        ${d.source === "sharepoint" && f.sp_web_url ? `<div class="am" style="margin-top:6px">from SharePoint · <a class="ref" href="${esc(f.sp_web_url)}" target="_blank">open in SharePoint ↗</a> — the source of truth</div>` : ""}
+      </div>
+      <button class="btn small touch" onclick="delDoc(${d.id})" title="remove from the derived layer only">✕</button>
+    </div>`;
+  return head + highlight + setting + parties + summary + confs + regCard + noticeCard + oblCard + treeCard + contentsCard + clauseCard;
 }
+window.setDocCategory = async (id, name) => {
+  await fetch(`/api/qlegal/document/${id}/category`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ doc_type: name }) });
+  await loadRegistry(); await loadCats(); loadConfirmCount().then(renderNav); openDoc(id);
+};
+window.addCategory = (docId) => rdForm("New category (Legal Setting)", [{ k: "name", label: "Category name — it joins the taxonomy for every future contract", ph: "e.g. Welfare Agreement" }], async (o) => {
+  if (!o.name) return;
+  await fetch("/api/qlegal/categories", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: o.name }) });
+  if (docId) setDocCategory(docId, o.name); else { await loadCats(); if (OPEN) openDoc(OPEN.document.id); }
+});
 window.fixFact = (field, current) => rdForm(`Correct · ${field.replace(/_/g, " ")}`, [{ k: "v", label: "Correct value (applies instantly + teaches the extractor)", v: current === "—" ? "" : current }], async (o) => {
   if (o.v === undefined) return;
   await fetch("/api/qlegal/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ surface: "fact", document_id: OPEN.document.id, field, was: current, corrected: o.v }) });
   await loadRegistry(); openDoc(OPEN.document.id);
 });
-window.delDoc = (id) => rdConfirm("Remove from the repository?", "Only the derived layer is removed — the original file in the source of truth is untouched.", async () => {
+window.delDoc = (id) => rdConfirm("Remove from the repository?", "Only the derived layer is removed — the original in the source of truth is untouched.", async () => {
   await fetch(`/api/qlegal/document/${id}`, { method: "DELETE" });
-  OPEN = null; await loadRegistry(); renderNav(); renderRegistry();
+  OPEN = null; await loadRegistry(); loadCats(); renderNav(); renderRegistry();
 });
 
-// ---- Repository · Search & Ask (conversational) ---------------------------------
-function renderSearch() {
-  const host = $("#view-search");
-  const hits = HITS === null ? "" : (HITS.length
-    ? `<div class="rsec-lbl" style="margin-top:4px">Text matches · ${HITS.length}</div>` + HITS.map((h) => `<div class="hit" onclick="openDoc(${h.id})">
-        <div class="hn">${esc(h.title || h.filename)} ${h.doc_type ? `<span class="typebadge">${esc(h.doc_type)}</span>` : ""} <span class="am">· ${h.via === "text" ? "clause text" : "facts"}</span></div>
-        ${h.snippet ? `<div class="hs">${snip(h.snippet)}</div>` : ""}
-        <div class="am" style="margin-top:4px">${esc([h.party1, h.party2].filter(Boolean).join(" ⟷ "))}</div>
-      </div>`).join("")
-    : `<div class="empty">// no literal text match — ask the question below instead //</div>`);
-  const turns = THREAD.map((t, i) => `<div class="askbox-a">
-      <div class="askbox-q">🧑 ${esc(t.q)}</div>
-      <div class="askbox-ans">${esc(t.a)}</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
-        ${(t.sources || []).map((s) => `<span class="srcchip" onclick="openDocFromAsk(${s.id})">${esc(s.name)} ↗</span>`).join("")}
-        ${(t.rungs || []).length ? `<span class="am" title="the retrieval ladder this answer used">read: ${esc((t.rungs || []).join(" → "))}</span>` : ""}
-        ${t.mode && t.mode !== "ai" ? `<span class="am" style="color:var(--amber)">no keyed model — add one in AI Skills &amp; Pipelines</span>` : ""}
-      </div></div>`).join("");
-  const ask = `<div class="askbox">
-      <div class="askbox-h">✦ Ask the repository <span class="askbox-s">conversational · follow-ups keep context · cites document + § · says what's missing</span>
-        ${THREAD.length ? `<button class="btn small" style="margin-left:auto" onclick="clearThread()">New conversation</button>` : ""}</div>
-      ${turns}
-      ${ASKING ? `<div class="askbox-a"><div class="askbox-ans"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""> reading the estate…</div></div>` : ""}
-      <div class="askbox-in"><input id="askin" placeholder="${THREAD.length ? "ask a follow-up…" : "e.g. which contracts require notification on change of control?"}" onkeydown="if(event.key==='Enter'){event.preventDefault();doAsk()}"><button class="btn btn--org small" onclick="doAsk()">Ask ▸</button></div>
-    </div>`;
-  host.innerHTML = `<p class="intro"><b>SEARCH & ASK</b> — one box, the whole estate. <b>Search</b> finds literal wording in the C1 transcripts. <b>Ask</b> answers in plain English, climbing the ladder: the structured estate (facts + register answers, covering every contract) → the contents &amp; clause wikis → the deep C1 text of the closest documents.</p>
-    <div class="searchbar"><input id="qsearch" placeholder="search terms, parties, clauses… (e.g. data breach notification)" value="${esc(window._lastQ || "")}" onkeydown="if(event.key==='Enter'){event.preventDefault();doSearch()}"><button class="btn btn--primary" onclick="doSearch()">Search</button></div>
-    ` + ask + `<div id="hits">${hits}</div>`;
-  setTimeout(() => { const el = $("#askin"); if (el && !ASKING) el.focus(); }, 30);
-}
-window.doSearch = async () => {
-  const term = ($("#qsearch")?.value || "").trim(); if (!term) return;
-  window._lastQ = term;
-  try { HITS = ((await (await fetch(`/api/qlegal/search?q=${encodeURIComponent(term)}`)).json()).hits) || []; } catch { HITS = []; }
-  renderSearch();
-};
-window.openDocFromAsk = (id) => { SUB.repository = "registry"; openDoc(id); };
-window.clearThread = () => { THREAD = []; renderSearch(); };
-window.doAsk = async () => {
-  const el = $("#askin"); const qtext = (el?.value || "").trim(); if (!qtext || ASKING) return;
-  ASKING = true; el.value = ""; renderSearch();
-  try {
-    // send the last few turns so follow-ups ("and the SOW?") keep their context
-    const history = THREAD.slice(-4).map((t) => ({ q: t.q, a: t.a }));
-    const r = await fetch("/api/qlegal/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: qtext, history }) });
-    const j = await r.json();
-    ASKING = false;
-    if (!r.ok) { renderSearch(); return rdAlert("Ask failed", j.error || ""); }
-    THREAD.push({ q: qtext, a: j.answer, sources: j.sources || [], rungs: j.rungs || [], mode: j.mode });
-    renderSearch();
-  } catch (e) { ASKING = false; renderSearch(); rdAlert("Ask failed", String(e.message || e)); }
-};
-
-// ---- Repository · Registers (the open-ended layer: whatever they ask) ----------
-async function loadRegisters() {
-  try { const j = await (await fetch("/api/qlegal/registers")).json(); REGISTERS = j.registers || []; REG_TOTAL = j.total_documents || 0; } catch { REGISTERS = []; }
-}
+// ==========================================================================
+// Standing questions (registers)
+// ==========================================================================
 async function renderRegisters() {
   const host = $("#view-registers");
-  if (REG_OPEN) { host.innerHTML = registerHitsView(); return; }
+  if (REG_OPEN) { host.innerHTML = registerHitsView(); sequenceReveal(host, ".reveal", 100, 40); return; }
   host.innerHTML = `<div class="empty">loading…</div>`;
   await loadRegisters(); renderNav();
   const rows = REGISTERS.map((r) => {
     const answered = Number(r.answered), pending = Math.max(0, REG_TOTAL - answered);
-    return `<tr class="clk" data-k="${esc((r.name + " " + r.question).toLowerCase())}" onclick="openRegister(${r.id})">
-      <td><b>${esc(r.name)}</b>${r.builtin ? ' <span class="tagchip">built-in</span>' : ""}${r.status === "off" ? ' <span class="chip">off</span>' : ""}
+    return `<tr class="clk touch" data-k="${esc((r.name + " " + r.question).toLowerCase())}" onclick="openRegister(${r.id})">
+      <td><b>${esc(r.name)}</b>${r.builtin ? ' <span class="tagchip">built-in</span>' : ""}
         <div class="am" style="max-width:60ch;margin-top:3px">${esc(r.question)}</div></td>
       <td><span class="duechip due-ok">${r.yes_count} yes</span></td>
       <td>${Number(r.unclear_count) ? `<span class="duechip due-soon">${r.unclear_count} unclear</span>` : "<span class='am'>—</span>"}</td>
       <td class="am">${answered}/${REG_TOTAL}${pending ? ` <span style="color:var(--amber)">· ${pending} pending</span>` : ""}</td>
-      <td class="tacts"><button class="btn small" onclick="event.stopPropagation();editRegister(${r.id})">Edit</button>
-        <button class="btn small" onclick="event.stopPropagation();delRegister(${r.id},'${esc(r.name).replace(/'/g, "&#39;")}')">✕</button></td>
+      <td class="tacts"><button class="btn small touch" onclick="event.stopPropagation();editRegister(${r.id})">Edit</button>
+        <button class="btn small touch" onclick="event.stopPropagation();delRegister(${r.id},'${esc(r.name).replace(/'/g, "&#39;")}')">✕</button></td>
     </tr>`;
   }).join("");
   const pendingAny = REGISTERS.some((r) => Number(r.answered) < REG_TOTAL);
-  host.innerHTML = `<p class="intro"><b>REGISTERS</b> — the answer to "they could ask anything". Write a standing question once in plain English; it is answered for <b>every contract</b> at ingestion and backfilled across the estate, with § evidence. That turns an infinite set of questions into instant, filterable columns — no code change, no re-reading 1,000 documents.</p>
+  host.innerHTML = `<p class="intro"><b>STANDING QUESTIONS</b> — write a question once, in plain English; it is answered for <b>every contract</b> (now and future) with § evidence. An infinite set of "which of our contracts…" becomes instant, filterable columns.</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-      <button class="btn btn--primary" onclick="addRegister()">+ Ask a standing question</button>
-      ${pendingAny ? `<button class="btn btn--org" onclick="runRegisterSweep(null)">Answer across the estate ▸</button>` : ""}
-    </div>
-    <div id="regproc"></div>`
+      <button class="btn btn--primary touch" onclick="addRegister()">+ Ask a standing question</button>
+      ${pendingAny ? `<button class="btn btn--org touch" onclick="runRegisterSweep(null)">Answer across the estate ▸</button>` : ""}
+    </div><div id="regproc"></div>`
     + (REGISTERS.length
       ? `<div class="cfilter"><input placeholder="filter questions…" oninput="filterTable('regstable',this.value)"><span class="am" id="regstable-note"></span></div>
-         <div class="scroll-x"><table class="ctable" id="regstable"><thead><tr><th>Standing question</th><th>Yes</th><th>Unclear</th><th>Coverage</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+         <div class="scroll-x reveal"><table class="ctable" id="regstable"><thead><tr><th>Standing question</th><th>Yes</th><th>Unclear</th><th>Coverage</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
       : `<div class="empty">// no standing questions yet //</div>`);
   if (REGISTERS.length) filterTable("regstable", "");
+  sequenceReveal(host, ".reveal", 120, 60);
 }
 window.openRegister = async (id) => {
   try { REG_OPEN = await (await fetch(`/api/qlegal/register/${id}/hits`)).json(); } catch { return; }
@@ -327,36 +446,36 @@ window.closeRegister = () => { REG_OPEN = null; renderRegisters(); };
 function registerHitsView() {
   const r = REG_OPEN.register, hits = REG_OPEN.hits || [];
   const P = { yes: "due-ok", no: "due-none", unclear: "due-soon" };
-  const rows = hits.map((h) => `<tr class="clk" data-k="${esc(((h.title || h.filename) + " " + (h.answer || "") + " " + h.present).toLowerCase())}">
+  const rows = hits.map((h) => `<tr class="clk touch" data-k="${esc(((h.title || h.filename) + " " + (h.answer || "") + " " + h.present).toLowerCase())}">
       <td onclick="openDoc(${h.document_id})"><b>${esc(h.title || h.filename)}</b>${h.doc_type ? ` <span class="typebadge">${esc(h.doc_type)}</span>` : ""}
         <div class="am">${esc([h.party1, h.party2].filter(Boolean).join(" ⟷ "))}</div></td>
       <td><span class="duechip ${P[h.present] || "due-none"}">${esc(h.present)}</span>${h.status !== "auto" ? ' <span class="tagchip">confirmed</span>' : ""}</td>
       <td>${esc(h.value) || "<span class='am'>—</span>"}</td>
       <td style="max-width:44ch">${esc(h.answer || "")}</td>
       <td>${(h.refs || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" ") || "<span class='am'>—</span>"}</td>
-      <td class="tacts"><button class="btn small" onclick="fixHit(${h.id},'${esc(h.present)}','${esc(h.answer || "").replace(/'/g, "&#39;")}','${esc(h.value || "").replace(/'/g, "&#39;")}')">Correct</button></td>
+      <td class="tacts"><button class="btn small touch" onclick="fixHit(${h.id},'${esc(h.present)}','${esc(h.answer || "").replace(/'/g, "&#39;")}','${esc(h.value || "").replace(/'/g, "&#39;")}')">Correct</button></td>
     </tr>`).join("");
-  return `<span class="backlnk" onclick="closeRegister()">‹ back to registers</span>
-    <div class="wikicard"><div class="rsec-lbl">Standing question</div>
+  return `<span class="backlnk" onclick="closeRegister()">‹ all standing questions</span>
+    <div class="wikicard reveal"><div class="rsec-lbl">Standing question</div>
       <p class="rsummary"><b>${esc(r.name)}</b> — ${esc(r.question)}</p>
-      ${REG_OPEN.not_yet_answered ? `<div style="margin-top:10px"><button class="btn btn--org small" onclick="runRegisterSweep(${r.id})">Answer the remaining ${REG_OPEN.not_yet_answered} contract${REG_OPEN.not_yet_answered === 1 ? "" : "s"} ▸</button></div>` : ""}
+      ${REG_OPEN.not_yet_answered ? `<div style="margin-top:10px"><button class="btn btn--org small touch" onclick="runRegisterSweep(${r.id})">Answer the remaining ${REG_OPEN.not_yet_answered} ▸</button></div>` : ""}
     </div><div id="regproc"></div>`
     + (hits.length
       ? `<div class="cfilter"><input placeholder="filter the estate…" oninput="filterTable('hitstable',this.value)"><span class="am" id="hitstable-note"></span></div>
-         <div class="scroll-x"><table class="ctable" id="hitstable"><thead><tr><th>Contract</th><th>Answer</th><th>Value</th><th>Detail</th><th>§</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+         <div class="scroll-x reveal"><table class="ctable" id="hitstable"><thead><tr><th>Contract</th><th>Answer</th><th>Value</th><th>Detail</th><th>§</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
       : `<div class="empty">// not answered on any contract yet — run it across the estate //</div>`);
 }
 window.addRegister = () => registerForm("Ask a standing question", {}, async (o) => {
   if (!o.name || !o.question) return;
   const j = await (await fetch("/api/qlegal/registers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) })).json();
   await renderRegisters();
-  if (j.register) rdConfirm("Answer it across the estate now?", `“${o.name}” will be answered for every contract already in the repository (new contracts answer it automatically on ingestion).`, () => runRegisterSweep(j.register.id));
+  if (j.register) rdConfirm("Answer it across the estate now?", `“${o.name}” will be answered for every contract already in the repository (new arrivals answer it automatically).`, () => runRegisterSweep(j.register.id));
 });
 window.editRegister = (id) => { const r = REGISTERS.find((x) => Number(x.id) === Number(id)); if (!r) return; registerForm("Edit standing question", r, async (o) => { await fetch(`/api/qlegal/register/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) }); renderRegisters(); }); };
 window.delRegister = (id, name) => rdConfirm("Delete this standing question?", `“${name}” and its answers across the estate will be removed.`, async () => { await fetch(`/api/qlegal/register/${id}`, { method: "DELETE" }); renderRegisters(); });
 window.runRegisterSweep = async (registerId) => {
   const host = document.getElementById("regproc"); let total = 0;
-  for (let pass = 0; pass < 40; pass++) {          // resumable: keeps going while work remains
+  for (let pass = 0; pass < 40; pass++) {
     if (host) host.innerHTML = `<div class="meter"><div class="cmstep now"><span class="cmi"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""></span><span>reading the estate — ${total} contract${total === 1 ? "" : "s"} answered…</span></div></div>`;
     let j; try { j = await (await fetch("/api/qlegal/registers/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ register_id: registerId, limit: 10 }) })).json(); } catch { break; }
     total += j.processed || 0;
@@ -391,7 +510,9 @@ function registerForm(title, r, onOk) {
   ov.querySelector("[data-ok]").onclick = () => { const o = {}; ov.querySelectorAll("[data-k]").forEach((el) => (o[el.dataset.k] = el.value.trim())); close(); onOk(o); };
 }
 
-// ---- Tasks · Obligations -------------------------------------------------------
+// ==========================================================================
+// MANAGE — obligations (task manager) · confirm · rules · sharepoint · log
+// ==========================================================================
 function dueChip(o) {
   if (!o.due_date) return `<span class="duechip due-none">${esc(o.frequency || "undated")}</span>`;
   const d = new Date(o.due_date), today = new Date(); today.setHours(0, 0, 0, 0);
@@ -401,13 +522,13 @@ function dueChip(o) {
 }
 function obligationRow(o, compact) {
   const acts = o.status === "done" ? "" : `<span style="display:inline-flex;gap:5px;flex-wrap:wrap">
-    ${o.status === "proposed" ? `<button class="btn small" onclick="oblAct(${o.id},'confirmed')">Confirm</button>` : ""}
-    <button class="btn small" onclick="oblOwner(${o.id},'${esc(o.owner || "").replace(/'/g, "&#39;")}')">${o.owner ? "Doer: " + esc(o.owner) : "Assign doer"}</button>
-    <button class="btn small" onclick="oblAct(${o.id},'done')">Done</button>
-    ${compact ? "" : `<button class="btn small" onclick="oblAct(${o.id},'dismissed')">✕</button>`}</span>`;
+    ${o.status === "proposed" ? `<button class="btn small touch" onclick="oblAct(${o.id},'confirmed')">Track it</button>` : ""}
+    <button class="btn small touch" onclick="oblOwner(${o.id},'${esc(o.owner || "").replace(/'/g, "&#39;")}')">${o.owner ? "Doer: " + esc(o.owner) : "Assign doer"}</button>
+    <button class="btn small btn--org touch" onclick="oblAct(${o.id},'done')">✓ Completed</button>
+    <button class="btn small touch" onclick="oblAct(${o.id},'dismissed')">Dismiss</button></span>`;
   return `<div style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)">
     ${dueChip(o)}<span class="ochip o-${esc(o.status)}">${esc(o.status)}</span>
-    <span style="flex:1;min-width:200px;font-size:13px;line-height:1.5">${esc(o.what)} <span class="am">· ${esc(o.kind)} · ${esc(o.who_owes || "")}</span> ${o.ref ? `<span class="ref">${esc(o.ref)}</span>` : ""}${compact ? "" : ` <span class="am">— ${esc(o.title || o.filename || "")}</span>`}</span>
+    <span style="flex:1;min-width:200px;font-size:13px;line-height:1.5">${esc(o.what)} <span class="am">· ${esc(o.kind)} · ${esc(o.who_owes || "")}</span> ${o.ref ? `<span class="ref">${esc(o.ref)}</span>` : ""}${compact ? "" : ` <span class="am">— <span style="cursor:pointer;color:var(--org)" onclick="openDoc(${o.document_id})">${esc(o.title || o.filename || "")}</span></span>`}</span>
     ${acts}</div>`;
 }
 async function loadObligations() { try { OBLIGS = ((await (await fetch("/api/qlegal/obligations")).json()).obligations) || []; } catch { OBLIGS = []; } }
@@ -417,9 +538,10 @@ async function renderObligations() {
   await loadObligations(); renderNav();
   const upcoming = OBLIGS.filter((o) => o.status !== "done");
   const done = OBLIGS.filter((o) => o.status === "done");
-  host.innerHTML = `<p class="intro"><b>OBLIGATIONS</b> — the task engine. Renewal & termination deadlines + post-execution deliverables/SLAs mapped from every live contract, each citing its §. Confirm, assign the doer, mark done. Deliberately tiny — workflow stays in SharePoint.</p>`
-    + (upcoming.length ? `<div class="wikicard">${upcoming.map((o) => obligationRow(o)).join("")}</div>` : `<div class="empty">// nothing tracked yet — obligations appear as contracts are ingested //</div>`)
-    + (done.length ? `<div class="wikicard" style="opacity:.7"><div class="rsec-lbl">Done</div>${done.map((o) => obligationRow(o)).join("")}</div>` : "");
+  host.innerHTML = `<p class="intro"><b>OBLIGATIONS</b> — the task manager. Renewal &amp; termination deadlines and each contract's deliverables/SLAs, every one citing its §. Track it → assign the doer → ✓ Completed (or Dismiss). Reminders ride these dates.</p>`
+    + (upcoming.length ? `<div class="wikicard reveal">${upcoming.map((o) => obligationRow(o)).join("")}</div>` : `<div class="empty">// nothing tracked yet — obligations appear as contracts are ingested //</div>`)
+    + (done.length ? `<div class="wikicard reveal" style="opacity:.7"><div class="rsec-lbl">Completed</div>${done.map((o) => obligationRow(o)).join("")}</div>` : "");
+  sequenceReveal(host, ".reveal", 120, 60);
 }
 window.oblAct = async (id, status) => { await fetch(`/api/qlegal/obligation/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) }); if (OPEN) openDoc(OPEN.document.id); else renderObligations(); };
 window.oblOwner = (id, cur) => rdForm("Assign the doer", [{ k: "owner", label: "Who owns this obligation?", v: cur, ph: "name or email" }], async (o) => {
@@ -427,57 +549,58 @@ window.oblOwner = (id, cur) => rdForm("Assign the doer", [{ k: "owner", label: "
   if (OPEN) openDoc(OPEN.document.id); else renderObligations();
 });
 
-// ---- Governance · Confirm queue ------------------------------------------------
 function confCard(c, compact) {
   const p = c.proposal || {};
   const what = c.kind === "link" ? `link to parent #${p.parent_id} as <b>${esc(p.relation_kind || "")}</b>`
-    : c.kind === "lineage" ? `same contract as #${p.other_id} (draft ↔ executed)`
+    : c.kind === "lineage" ? `same contract as #${p.other_id} (draft ↔ signed)`
     : c.kind === "classification" ? `classify this document${p.doc_type ? ` as <b>${esc(p.doc_type)}</b>` : ""}`
     : esc(JSON.stringify(p));
-  return `<div class="conf"><div class="conf-h"><span class="kindb">${esc(c.kind)}</span>
+  return `<div class="conf reveal"><div class="conf-h"><span class="kindb">${esc(c.kind)}</span>
       ${compact ? "" : `<b style="cursor:pointer" onclick="openDoc(${c.document_id})">${esc(c.title || c.filename || "#" + c.document_id)}</b>`}
       ${c.confidence != null ? `<span class="am">${Math.round(Number(c.confidence) * 100)}%</span>` : ""}</div>
     <div class="why">${what}${c.why ? ` — ${esc(c.why)}` : ""}</div>
     <div style="display:flex;gap:7px;margin-top:9px">
-      <button class="btn small btn--org" onclick="confAct(${c.id},'accept','${esc(c.kind)}')">Accept</button>
-      <button class="btn small" onclick="confAct(${c.id},'reject','${esc(c.kind)}')">Reject</button></div></div>`;
+      <button class="btn small btn--org touch" onclick="confAct(${c.id},'accept','${esc(c.kind)}')">Accept</button>
+      <button class="btn small touch" onclick="confAct(${c.id},'reject','${esc(c.kind)}')">Reject</button></div></div>`;
 }
 async function renderConfirm() {
   const host = $("#view-confirm");
   host.innerHTML = `<div class="empty">loading…</div>`;
   try { CONFIRMS = ((await (await fetch("/api/qlegal/confirms")).json()).confirms) || []; } catch { CONFIRMS = []; }
   CONF_N = CONFIRMS.length || null; renderNav();
-  host.innerHTML = `<p class="intro"><b>CONFIRM QUEUE</b> — the AI proposes, you decide. Classifications, document-family links and draft↔executed lineage land here; every decision teaches the system (it's recorded in the learning loop).</p>`
+  host.innerHTML = `<p class="intro"><b>CONFIRM QUEUE</b> — the AI proposes, you decide. Every decision teaches the system.</p>`
     + (CONFIRMS.length ? CONFIRMS.map((c) => confCard(c)).join("") : `<div class="empty">// nothing awaiting confirmation //</div>`);
+  sequenceReveal(host, ".reveal", 110, 50);
 }
 window.confAct = async (id, action, kind) => {
   const go = async (doc_type) => {
     await fetch(`/api/qlegal/confirm/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, doc_type }) });
     if (OPEN) openDoc(OPEN.document.id); else renderConfirm();
-    loadRegistry();
+    loadRegistry(); loadCats();
   };
   if (action === "accept" && kind === "classification") {
-    return rdForm("Classify the document", [{ k: "t", label: "Contract type", ph: "MSA / SOW / NDA / Amendment / DPA / Employment / Lease / SaaS / Services / Supply / Other" }], (o) => go(o.t || undefined));
+    const cats = CATS.map((c) => c.name).join(" / ");
+    return rdForm("Classify the document", [{ k: "t", label: `Category (${cats || "MSA / SOW / …"})`, ph: "pick or type a new one" }], (o) => go(o.t || undefined));
   }
   go();
 };
 
-// ---- Governance · Business rules ----------------------------------------------
-const SCOPES = ["global", "ingestion", "search", "obligations", "drafting"];
+const SCOPES = ["global", "ingestion", "registers", "search", "obligations", "drafting"];
 async function renderRules() {
   const host = $("#view-rules");
   host.innerHTML = `<div class="empty">loading…</div>`;
   try { RULES = ((await (await fetch("/api/qlegal/rules")).json()).rules) || []; } catch { RULES = []; }
   renderNav();
   const byScope = SCOPES.map((s) => [s, RULES.filter((r) => r.scope === s)]).filter(([, rs]) => rs.length);
-  host.innerHTML = `<p class="intro"><b>BUSINESS RULES</b> — the editable rulebook. Each rule is injected into the matching pipeline step at call time (scope <b>ingestion</b> → the C2 key & tree linker · <b>search</b> → Ask · <b>obligations</b> → the obligation mapper · <b>global</b> → every step). Edit here; the very next run obeys.</p>
-    <div style="margin-bottom:16px"><button class="btn btn--primary" onclick="addRule()">+ Add a rule</button></div>`
+  host.innerHTML = `<p class="intro"><b>BUSINESS RULES</b> — the editable rulebook. Each rule is injected into its pipeline step at call time (<b>ingestion</b> → the key &amp; linker · <b>registers</b> → standing questions · <b>search</b> → Ask · <b>obligations</b> → the mapper · <b>global</b> → every step). Edit here; the very next run obeys.</p>
+    <div style="margin-bottom:16px"><button class="btn btn--primary touch" onclick="addRule()">+ Add a rule</button></div>`
     + byScope.map(([s, rs]) => `<div class="rsec-lbl" style="margin-top:18px">${esc(s)} · ${rs.length}</div>` + rs.map((r) => `
-      <div class="rulecard ${r.status === "off" ? "off" : ""}">
+      <div class="rulecard reveal ${r.status === "off" ? "off" : ""}">
         <div class="rh"><span class="rt">${esc(r.title)}</span><span class="scopeb">${esc(r.scope)}</span><span class="am">v${r.version}</span>
-          <button class="btn small" onclick="editRule(${r.id})">Edit</button>
-          <button class="btn small" onclick="toggleRule(${r.id},'${r.status === "active" ? "off" : "active"}')">${r.status === "active" ? "Switch off" : "Switch on"}</button></div>
+          <button class="btn small touch" onclick="editRule(${r.id})">Edit</button>
+          <button class="btn small touch" onclick="toggleRule(${r.id},'${r.status === "active" ? "off" : "active"}')">${r.status === "active" ? "Switch off" : "Switch on"}</button></div>
         <div class="rb">${esc(r.body)}</div></div>`).join("")).join("");
+  sequenceReveal(host, ".reveal", 90, 50);
 }
 window.addRule = () => ruleForm("Add a business rule", {}, async (o) => {
   if (!o.title || !o.body) return;
@@ -496,7 +619,64 @@ function ruleForm(title, r, onOk) {
   ov.querySelector("[data-ok]").onclick = () => { const o = {}; ov.querySelectorAll("[data-k]").forEach((el) => (o[el.dataset.k] = el.value.trim())); close(); onOk(o); };
 }
 
-// ---- Governance · AI activity ---------------------------------------------------
+// ---- SharePoint scanner (settings + instructions) ----------------------------
+async function renderSharePoint() {
+  const host = $("#view-sharepoint");
+  host.innerHTML = `<div class="empty">loading…</div>`;
+  try { SP = await (await fetch("/api/qlegal/sharepoint")).json(); } catch { SP = {}; }
+  const lr = SP.last_result;
+  const fld = (k, label, ph, type = "text") => `<div class="arch-meta-row" style="display:flex;gap:12px;align-items:center;margin-bottom:10px">
+      <label style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim2);width:110px;flex:0 0 auto">${label}</label>
+      <input id="sp-${k}" type="${type}" value="${type === "password" ? "" : esc(SP[k] || "")}" placeholder="${ph}" style="flex:1;font-family:var(--sans);font-size:13px;border:1px solid var(--line2);border-radius:9px;padding:9px 12px"></div>`;
+  host.innerHTML = `<p class="intro"><b>SHAREPOINT SCANNER</b> — read-only. Every night at <b>2:00 AM IST</b> Q-Legal scans the legal library for new and changed files and runs each through the full pipeline (transcript → key → standing questions → obligations → family links). SharePoint remains the source of truth; Q-Legal cannot write to it.</p>
+    <div class="wikicard reveal"><div class="rsec-lbl">Connection (from your IT — see the setup guide below)</div>
+      ${fld("tenant_id", "Tenant ID", "xxxxxxxx-xxxx-…")}
+      ${fld("client_id", "Client ID", "the app registration's id")}
+      ${fld("client_secret", "Client secret", SP.hasSecret ? "•••••• saved — type to replace" : "paste the secret", "password")}
+      ${fld("site_id", "Site ID", "contoso.sharepoint.com,guid,guid — or the site's Graph id")}
+      ${fld("drive_id", "Library ID", "optional — blank = the site's default document library")}
+      ${fld("folder", "Folder", "optional — e.g. Contracts/Live (blank = whole library)")}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+        <button class="btn btn--primary touch" onclick="spSave()">Save</button>
+        <button class="btn touch" onclick="spTest()">Test connection</button>
+        <button class="btn btn--org touch" onclick="spScan()">Scan now ▸</button>
+        <label style="display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--dim);margin-left:auto">
+          <input type="checkbox" id="sp-nightly" ${SP.nightly ? "checked" : ""} onchange="spSave()" style="width:16px;height:16px"> nightly 2:00 AM scan</label>
+      </div>
+      <div id="sp-msg" style="margin-top:10px"></div>
+      <div class="am" style="margin-top:8px">${SP.last_run ? `last scan ${fmtDT(SP.last_run)} — ${lr ? (lr.ok ? `${lr.ingested} ingested · ${lr.skipped} unchanged/skipped · ${(lr.errors || []).length} errors` : `failed: ${esc(lr.error || "")}`) : ""}` : "never scanned yet"}${SP.delta ? " · delta cursor saved (scans only see changes)" : ""}</div>
+    </div>
+    <div class="wikicard reveal"><div class="rsec-lbl">Setup guide — the 4 flows (send this to IT)</div>
+      <div class="rsummary" style="line-height:1.8">
+      <b>1 · One-time access (IT, ~15 minutes).</b> In Entra ID create an <b>app registration</b> ("Q-Legal Scanner"). Add the <b>Application</b> permission <code>Sites.Selected</code> (Microsoft Graph) and grant admin consent. Then grant that app <b>read</b> on the legal site only (Graph: <code>POST /sites/{site-id}/permissions</code> with roles ["read"]). Create a <b>client secret</b>. Hand over: tenant ID, client ID, secret, site ID, library ID. Nothing outside the legal site is ever visible, and there is no write scope.<br><br>
+      <b>2 · Connect &amp; first scan.</b> Fill the form above → Test connection → <b>Scan now</b>. The first scan walks the whole library (every existing contract is read once: transcript, key, wikis, standing questions, obligations, family links). After that a delta cursor means each scan sees only what changed.<br><br>
+      <b>3 · The nightly flow.</b> Every night at 2:00 AM IST the scanner picks up new files, new <b>versions</b> of known files (same document, version rail grows, diff computed), renames/moves (identity = the SharePoint item id, so nothing duplicates), and freshly signed PDFs (matched to their final draft via lineage → confirm queue). Anything low-confidence lands in Manage → Confirm queue, never silently.<br><br>
+      <b>4 · The working flow for the legal team.</b> Keep working entirely in SharePoint/Word — drafting, tracked changes, approvals, e-sign via Zoho — and just file executed contracts into the library as today. They appear here, indexed and answerable, by the next morning. Corrections you make here (categories, facts, register answers) stay here and teach the extractor; the originals are never touched.
+      </div></div>`;
+  sequenceReveal(host, ".reveal", 130, 60);
+}
+window.spSave = async () => {
+  const val = (k) => document.getElementById("sp-" + k)?.value?.trim();
+  const body = { tenant_id: val("tenant_id"), client_id: val("client_id"), site_id: val("site_id"), drive_id: val("drive_id"), folder: val("folder"), nightly: document.getElementById("sp-nightly")?.checked };
+  const sec = val("client_secret"); if (sec) body.client_secret = sec;
+  await fetch("/api/qlegal/sharepoint", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const m = document.getElementById("sp-msg"); if (m) m.innerHTML = `<span class="am" style="color:var(--grn)">saved</span>`;
+};
+window.spTest = async () => {
+  const m = document.getElementById("sp-msg"); if (m) m.innerHTML = `<img class="potspin" src="/brand/assets/logos/pot.png" alt=""> testing…`;
+  const j = await (await fetch("/api/qlegal/sharepoint/test", { method: "POST" })).json();
+  if (m) m.innerHTML = `<span style="color:${j.ok ? "var(--grn)" : "var(--red)"};font-size:13px">${j.ok ? "✓ " : "✕ "}${esc(j.detail)}</span>`;
+};
+window.spScan = async () => {
+  const m = document.getElementById("sp-msg"); if (m) m.innerHTML = `<img class="potspin" src="/brand/assets/logos/pot.png" alt=""> scanning the library — new files run the full pipeline, this can take a while…`;
+  try {
+    const j = await (await fetch("/api/qlegal/sharepoint/scan", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).json();
+    if (j.error) { if (m) m.innerHTML = `<span style="color:var(--red);font-size:13px">✕ ${esc(j.error)}</span>`; return; }
+    if (m) m.innerHTML = `<span style="color:var(--grn);font-size:13px">✓ scan done — ${j.ingested} ingested, ${j.skipped} unchanged, ${(j.errors || []).length} errors</span>`;
+    loadRegistry(); loadCats(); renderNav();
+  } catch (e) { if (m) m.innerHTML = `<span style="color:var(--red)">✕ ${esc(String(e.message || e))}</span>`; }
+};
+
 async function renderLog() {
   const host = $("#view-log");
   host.innerHTML = `<div class="empty">loading…</div>`;
@@ -510,12 +690,29 @@ async function renderLog() {
       <td style="max-width:30ch">${esc(l.output_summary || "")}</td>
       <td class="am">${(l.rules_applied || []).length ? esc((l.rules_applied || []).join(", ")) : "—"}</td>
     </tr>`).join("");
-  host.innerHTML = `<p class="intro"><b>AI ACTIVITY</b> — every gated pipeline call, append-only: which step ran, on which model, with which business rules injected. Full traceability.</p>`
+  host.innerHTML = `<p class="intro"><b>AI ACTIVITY</b> — every gated pipeline call, append-only: which step, which model, which business rules were injected.</p>`
     + (LOG.length ? `<div class="scroll-x"><table class="ctable"><thead><tr><th>When</th><th>Pipeline</th><th>Mode</th><th>Ref</th><th>Input</th><th>Output</th><th>Rules applied</th></tr></thead><tbody>${rows}</tbody></table></div>`
       : `<div class="empty">// no AI activity yet //</div>`);
 }
 
-// ---- modals ---------------------------------------------------------------------
+// ---- shared bits --------------------------------------------------------------
+window.filterTable = (tid, v) => {
+  const term = (v || "").toLowerCase().trim();
+  const rows = [...document.querySelectorAll(`#${tid} tbody tr`)];
+  let shown = 0;
+  rows.forEach((tr) => { const m = (tr.dataset.k || "").includes(term); const show = term ? m : shown < 12; tr.style.display = show ? "" : "none"; if (show) shown++; });
+  const note = document.getElementById(tid + "-note");
+  if (note) note.textContent = term ? `${shown} match${shown === 1 ? "" : "es"} of ${rows.length}` : `showing ${Math.min(12, rows.length)} of ${rows.length}`;
+};
+async function runWithMeter(hostId, steps, promise) {
+  const host = document.getElementById(hostId); if (!host) return promise;
+  let i = 0;
+  const render = () => { host.innerHTML = `<div class="meter"><div class="cmeter-steps">${steps.map((s, idx) => `<div class="cmstep ${idx < i ? "done" : idx === i ? "now" : ""}"><span class="cmi">${idx < i ? '<span class="ck">✓</span>' : idx === i ? '<img class="potspin" src="/brand/assets/logos/pot.png" alt="">' : '<span class="cmdot"></span>'}</span><span>${esc(s)}</span></div>`).join("")}</div><div class="track"><div class="fill" style="width:${Math.round((i / steps.length) * 100)}%"></div></div></div>`; };
+  render();
+  const timer = setInterval(() => { if (i < steps.length - 1) { i++; render(); } }, 1600);
+  try { const r = await promise; i = steps.length; render(); return r; }
+  finally { clearInterval(timer); }
+}
 function _ov(inner) { const ov = document.createElement("div"); ov.className = "ov"; ov.innerHTML = `<div class="box">${inner}</div>`; document.body.appendChild(ov); const close = () => ov.remove(); ov.onclick = (e) => { if (e.target === ov) close(); }; return { ov, close }; }
 function rdAlert(title, msg) { const { ov, close } = _ov(`<h3>${esc(title)}</h3>${msg ? `<p>${esc(msg)}</p>` : ""}<div class="row"><button class="btn btn--primary" data-ok>OK</button></div>`); ov.querySelector("[data-ok]").onclick = close; }
 function rdConfirm(title, msg, onOk) { const { ov, close } = _ov(`<h3>${esc(title)}</h3><p>${esc(msg)}</p><div class="row"><button class="btn" data-x>Cancel</button><button class="btn btn--org" data-ok>Confirm</button></div>`); ov.querySelector("[data-x]").onclick = close; ov.querySelector("[data-ok]").onclick = () => { close(); onOk && onOk(); }; }

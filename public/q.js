@@ -135,7 +135,7 @@ window.aiSpin = (on, label) => {
 
 // Auto-show the spinner for AI-backed endpoints — covers every page, no per-call
 // wiring needed. Deterministic endpoints (compute, runs, config) are excluded.
-const _AI_RE = /\/api\/(box\/[^/]+\/chat|mint\/(clarify|roster\/map|run)\b|qlegal\/(upload|ask)\b|ai\/)/;
+const _AI_RE = /\/api\/(box\/[^/]+\/chat|mint\/(clarify|roster\/map|run)\b|qlegal\/(upload|ask|registers\/run)\b|ai\/)/;
 const _origFetch = window.fetch.bind(window);
 window.fetch = (...args) => {
   const url = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url) || "";

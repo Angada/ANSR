@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="preload" as="image" href="/brand/assets/logos/pot.png">
   <style>
   /* ===== Q-Legal — self-contained. RayDar design language. ================= */
   :root{
@@ -178,6 +179,80 @@
   .cmstep .cmi .ck{color:var(--grn);font-weight:700}
   .cmstep .cmi .cmdot{width:8px;height:8px;border-radius:50%;background:var(--line2)}
 
+  /* ===== generation motion (staggered reveal) ===== */
+  @keyframes gen-shimmer{0%{background-position:-150% 0}100%{background-position:250% 0}}
+  @keyframes gen-pop{0%{opacity:0;transform:translateY(10px) scale(.985)}100%{opacity:1;transform:none}}
+  @keyframes gen-pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,84,0,0)}50%{box-shadow:0 0 0 5px rgba(255,84,0,.14)}}
+  @media (prefers-reduced-motion: reduce){.gen,.gen::after,.gen--in{animation:none!important}.gen>*{opacity:1!important;filter:none!important}}
+  .gen{position:relative;border:1.5px dashed var(--line2)!important}
+  .gen>*{opacity:.25;filter:blur(.5px);transition:opacity .4s ease,filter .4s ease}
+  .gen::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:3;
+    background:linear-gradient(100deg,transparent 30%,rgba(255,84,0,.10) 48%,rgba(0,84,101,.08) 56%,transparent 72%);
+    background-size:220% 100%;animation:gen-shimmer 1.05s linear infinite}
+  .gen--in{animation:gen-pop .42s cubic-bezier(.22,1,.36,1) both}
+  .touch{transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease}
+  .touch:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,36,46,.10)}
+  .touch:active{transform:translateY(0) scale(.97)}
+
+  /* ===== Ask — the front door ===== */
+  .hero{max-width:860px;margin:6px auto 8px;text-align:center}
+  .hero h2{font-size:26px;font-weight:700;margin:0 0 6px}
+  .hero .sub{font-size:13.5px;color:var(--dim);margin:0 0 18px}
+  .cmd{display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid var(--line2);border-radius:16px;padding:6px 8px 6px 18px;
+    box-shadow:0 14px 40px -28px rgba(0,36,46,.5);transition:border-color .2s ease, box-shadow .2s ease}
+  .cmd:focus-within{border-color:var(--org);box-shadow:0 0 0 4px rgba(206,69,2,.10),0 14px 40px -24px rgba(0,36,46,.5)}
+  .cmd .glyph{color:var(--org);font-size:18px;flex:0 0 auto}
+  .cmd input{flex:1;border:none;outline:none;font-family:var(--sans);font-size:16px;color:var(--txt);background:none;min-height:48px}
+  .cmd .go{background:var(--org);color:#fff;border:none;border-radius:11px;padding:11px 20px;font-family:var(--sans);font-size:14px;font-weight:600;cursor:pointer;transition:.15s}
+  .cmd .go:hover{background:var(--org-dim)}
+  .sugg{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin:14px 0 4px}
+  .sugg .sg{font-size:12.5px;color:var(--dim);background:#fff;border:1px solid var(--line2);border-radius:999px;padding:6px 13px;cursor:pointer}
+  .sugg .sg:hover{color:var(--org);border-color:var(--org-dim)}
+  .estateline{font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;color:var(--dim2);text-align:center;margin:12px 0 22px}
+  .estateline b{color:var(--org)}
+  /* live text hits under the bar (search-as-you-type) */
+  .livehits{max-width:860px;margin:10px auto 0;text-align:left}
+  /* the conversation */
+  .chat{max-width:860px;margin:8px auto 0}
+  .msg-u{display:flex;justify-content:flex-end;margin:16px 0 8px}
+  .msg-u .b{background:#141414;color:#fff;border-radius:14px 14px 4px 14px;padding:10px 15px;font-size:13.5px;max-width:78%;line-height:1.5}
+  .msg-a{background:#fff;border:1.5px solid var(--line);border-radius:14px 14px 14px 4px;padding:14px 17px;font-size:13.5px;line-height:1.7;color:#2c2c2c}
+  .msg-a b{color:var(--txt)}
+  .msg-a .srcrow{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px;padding-top:10px;border-top:1px solid var(--line)}
+  .docchip{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--txt);background:var(--bg2);border:1px solid var(--line2);border-radius:999px;padding:5px 12px 5px 7px;cursor:pointer;transition:.15s}
+  .docchip:hover{border-color:var(--org);background:var(--tint)}
+  .docchip .emb{width:20px;height:20px;border-radius:50%;background:var(--org);color:#fff;display:grid;place-items:center;font-size:10.5px;font-weight:700}
+  .rungline{font-family:var(--mono);font-size:10.5px;color:var(--dim2);margin-top:8px}
+  .rungline .rk{color:var(--grn)}
+  /* thinking card: rungs tick as it reads */
+  .thinking{background:#fff;border:1.5px dashed var(--line2);border-radius:14px;padding:14px 17px;margin-top:8px}
+  .thinking .tstep{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--dim2);padding:3px 0;transition:.2s}
+  .thinking .tstep.on{color:var(--txt);font-weight:600}
+  .thinking .tstep.done{color:var(--dim)}
+  .thinking .tstep .ti{width:16px;display:grid;place-items:center}
+  /* contract page: highlight block, date tiles, document reel */
+  .hl{border-left:3px solid var(--org)}
+  .hlrow{display:flex;gap:10px;flex-wrap:wrap}
+  .dtile{flex:1;min-width:150px;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+  .dtile .dl{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2);margin-bottom:5px}
+  .dtile .dv{font-size:16.5px;font-weight:700;line-height:1.3}
+  .dtile .dd{font-family:var(--mono);font-size:11px;color:var(--dim2);margin-top:3px}
+  .dtile.warn{background:#FBECEB;border-color:#F0CFCF}.dtile.warn .dv,.dtile.warn .dd{color:var(--red)}
+  .dtile.soon{background:#FBF1E2;border-color:#EAD3AE}.dtile.soon .dd{color:var(--amber)}
+  .reel{display:flex;gap:10px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 0 8px}
+  .vcard{flex:0 0 auto;width:210px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:11px 13px}
+  .vcard.exec{border-color:#BCDBC5;background:#FBFEFB}
+  .vcard .vhead{display:flex;align-items:center;gap:7px;margin-bottom:5px}
+  .vcard .vdiff{font-size:11px;color:var(--dim);line-height:1.5;margin:6px 0;white-space:pre-line;max-height:64px;overflow:hidden}
+  .vcard .vlinks{display:flex;gap:6px;margin-top:6px}
+
+  /* browse filter strip */
+  .fstrip{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin:0 0 14px}
+  .fchip{font-size:12.5px;font-weight:600;color:var(--dim);background:#fff;border:1.5px solid var(--line2);border-radius:999px;padding:6px 14px;cursor:pointer;transition:.15s}
+  .fchip:hover{border-color:var(--org-dim)}
+  .fchip.on{color:#fff;background:var(--org);border-color:var(--org)}
+  .fchip .n{opacity:.75;font-weight:500;margin-left:4px}
+
   /* modal */
   .ov{position:fixed;inset:0;z-index:50;background:rgba(0,24,31,.42);backdrop-filter:blur(4px);display:grid;place-items:center;padding:20px}
   .ov .box{width:min(480px,100%);background:var(--panel-solid);border:1px solid var(--line2);border-radius:var(--r);padding:22px;box-shadow:0 30px 80px -30px #000}
@@ -209,12 +284,13 @@
     <div class="mainnav" id="mainnav"></div>
     <div class="subnav" id="subnav"></div>
 
-    <div id="view-registry"></div>
-    <div id="view-search" hidden></div>
+    <div id="view-chat"></div>
+    <div id="view-registry" hidden></div>
     <div id="view-registers" hidden></div>
     <div id="view-obligations" hidden></div>
     <div id="view-confirm" hidden></div>
     <div id="view-rules" hidden></div>
+    <div id="view-sharepoint" hidden></div>
     <div id="view-log" hidden></div>
 
     <div class="foot">
