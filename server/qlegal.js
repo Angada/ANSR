@@ -11,7 +11,7 @@ import { q } from "./db/client.js";
 import { extractFile, toMarkdown } from "./extract.js";
 import { putOriginal, putExtract, getExtract, getOriginal } from "./storage.js";
 import { runPipeline } from "./ai.js";
-import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan } from "./qlegal-sync.js";
+import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan, listSharePoint, ingestSharePointItem } from "./qlegal-sync.js";
 
 const TENANT = "Q-LEGAL"; // ring-fenced storage namespace (vault + docstore)
 // business-rule scopes → which pipeline step each rule set is injected into
@@ -96,9 +96,96 @@ const LINK_CONTRACT = `Return STRICT JSON only, no prose:
  "relation_kind": "amends|governed_by|supersedes|references|null", "confidence": 0-1, "why": "one line citing the tell-tale (e.g. 'pursuant to the MSA dated…')"}
 Only propose a parent when the document itself references it (by name/date/parties) — never guess from topic similarity alone.`;
 
-// ---- shared per-file ingestion (upload path now; SharePoint sync later) ------
+// ---- derive: everything downstream of C1 --------------------------------------
+// C2 key (facts · tags · contents & clause wikis · notice) → classification vs the
+// LIVE Legal Setting taxonomy → obligations → registers. Called by ingestFile on
+// every new version AND by the re-index sweep on stored C1 — one pipeline, two doors.
+async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false }) {
+  const cats = (await q(`select name from ql_category where status='active' order by name`)).rows.map((r) => r.name);
+  const rules = await rulesFor("ingestion");
+  const out = await runPipeline("qlegal-key", {
+    system: [rules.text, keyContract(cats.length ? cats : ["MSA", "SOW", "NDA", "Other"])].filter(Boolean).join("\n\n"),
+    user: `Document filename: ${filename}\n\nContract:\n${clip(c1, 60000)}`,
+    maxTokens: 4000,
+  });
+  await logRun(out, { ref_type: "version", ref_id: verId, rules: rules.codes, input: filename, output: "concise key (C2)" });
+  const kp = jparse(out.text) || {};
+  const meta = kp.meta || {};
+  const tags = [...new Set([...(Array.isArray(kp.tags) ? kp.tags : []).map((t) => String(t).toLowerCase().trim()).filter(Boolean),
+    ...(ocr ? ["scanned-source"] : []), ...(meta.executed ? ["executed"] : [])])].slice(0, 12);
+  const c2 = { meta, summary: kp.summary || "", tags,
+    contents: (kp.contents || []).slice(0, 300),      // the contents wiki (navigate without re-reading)
+    clauses: (kp.clauses || []).slice(0, 400),        // the clause wiki (what each § actually says)
+    exhibits: (kp.exhibits || []).slice(0, 60),
+    notice: kp.notice || {}, mode: out.mode };
+  await q(`update ql_version set c2=$2::jsonb, is_executed=$3, status='done', error=null where id=$1`,
+    [verId, JSON.stringify(c2), !!meta.executed]);
+  // a human-confirmed category is never clobbered by a re-run (confirm-don't-guess)
+  const confirmed = (await q(`select (facts->>'doc_type_confirmed')='true' as c from ql_document where id=$1`, [docId])).rows[0]?.c;
+  await q(
+    `update ql_document set title=coalesce(nullif($2,''), title), doc_type=case when $11 then doc_type else coalesce(nullif($3,''), doc_type) end,
+      party1=coalesce(nullif($4,''), party1), party2=coalesce(nullif($5,''), party2),
+      counterparty=coalesce(nullif($6,''), counterparty), summary=coalesce(nullif($7,''), summary),
+      facts=coalesce(facts,'{}'::jsonb) || $8::jsonb, tags=$9::jsonb, latest_version=greatest(coalesce(latest_version,0),$10), updated_at=now() where id=$1`,
+    [docId, clip(meta.title, 200), clip(meta.doc_type, 40), clip(meta.party1, 160), clip(meta.party2, 160),
+     clip(meta.counterparty || meta.party2, 160), clip(kp.summary, 1200), JSON.stringify(meta), JSON.stringify(tags), versionNo, !!confirmed]
+  );
+  // grow the tag vocabulary with new free tags (suggest-first lives in the UI)
+  for (const t of tags) await q(`insert into ql_tag_vocab(tag, kind) values($1,'free') on conflict (tag) do nothing`, [t]).catch(() => {});
+
+  // Classification governance: an AI-proposed NEW category joins the taxonomy
+  // (marked source 'ai'); low confidence or no model → the confirm queue (no dups).
+  if (out.mode === "ai" && meta.doc_type && !cats.some((c) => c.toLowerCase() === String(meta.doc_type).toLowerCase())) {
+    await q(`insert into ql_category(name, source) values($1,'ai') on conflict (name) do nothing`, [clip(meta.doc_type, 40)]).catch(() => {});
+  }
+  const typeConf = Number(meta.doc_type_confidence);
+  if (!confirmed && (out.mode !== "ai" || !meta.doc_type || (typeConf && typeConf < 0.7))) {
+    const open = (await q(`select 1 from ql_confirm where document_id=$1 and kind='classification' and status='open' limit 1`, [docId])).rows[0];
+    if (!open) await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why) values('classification',$1,$2::jsonb,$3,$4)`,
+      [docId, JSON.stringify({ doc_type: meta.doc_type || null }), out.mode === "ai" ? (typeConf || 0.4) : 0,
+       out.mode !== "ai" ? "no keyed model — classify this document manually"
+         : !meta.doc_type ? "the model could not classify this document"
+         : `low-confidence classification (${Math.round(typeConf * 100)}%) — confirm or change it`]);
+  }
+
+  // obligations — gated qlegal-obligations + obligations business rules
+  try {
+    const orules = await rulesFor("obligations");
+    const oout = await runPipeline("qlegal-obligations", {
+      system: [orules.text, OBLIG_CONTRACT].filter(Boolean).join("\n\n"),
+      user: `Today is ${new Date().toISOString().slice(0, 10)}.\n\nContract:\n${clip(c1, 50000)}`,
+      maxTokens: 2500,
+    });
+    await logRun(oout, { ref_type: "document", ref_id: docId, rules: orules.codes, input: filename, output: "obligations" });
+    const op = jparse(oout.text) || {};
+    await q(`delete from ql_obligation where document_id=$1 and status='proposed'`, [docId]); // re-propose on re-run; confirmed rows kept
+    for (const o of (op.obligations || []).slice(0, 60)) {
+      if (!o || !o.what) continue;
+      await q(`insert into ql_obligation(document_id, kind, what, who_owes, due_date, frequency, ref) values($1,$2,$3,$4,$5,$6,$7)`,
+        [docId, clip(o.kind, 30) || "deliverable", clip(o.what, 300), clip(o.who_owes, 20) || "unknown",
+         validDate(o.due_date), clip(o.frequency, 20) || "one_time", clip(o.ref, 60)]).catch(() => {});
+    }
+  } catch { /* obligations are best-effort — the document still lands */ }
+
+  // registers — every standing question, answered for this contract
+  try { await runRegisters(docId, { c1, docType: meta.doc_type }); }
+  catch { /* registers are best-effort */ }
+
+  return { mode: out.mode, docType: meta.doc_type || null };
+}
+
+// re-index one document from its stored C1 (no re-download, no re-OCR)
+async function refreshDoc(docId) {
+  const v = (await q(
+    `select v.id, v.version_no, v.c1_text, v.ocr, d.filename from ql_version v
+      join ql_document d on d.id=v.document_id and v.version_no=d.latest_version where d.id=$1`, [docId])).rows[0];
+  if (!v?.c1_text) return null;
+  return deriveFromC1({ docId, verId: v.id, versionNo: v.version_no, c1: v.c1_text, filename: v.filename, ocr: v.ocr });
+}
+
+// ---- shared per-file ingestion (upload path + SharePoint scan) ---------------
 // Writes per step as it completes (resumable spirit): version row first, then C1,
-// then C2, then obligations — a crash never loses finished work.
+// then the derive chain — a crash never loses finished work.
 export async function ingestFile(f, { source = "upload", spItemId = null, spMeta = null } = {}) {
   const buf = readFileSync(f.path);
   const sha256 = createHash("sha256").update(buf).digest("hex");
@@ -145,76 +232,10 @@ export async function ingestFile(f, { source = "upload", spItemId = null, spMeta
     await logRun({ pipeline: "qlegal-c1", mode: extract.ocr ? "vision-ocr" : "deterministic", model: extract.ocr ? "munshi3:read" : null },
       { ref_type: "version", ref_id: ver.id, input: f.originalname, output: `C1 · ${c1.length} chars${extract.ocr ? ` · ${extract.pages || "?"} pages via vision` : ""}` });
 
-    // STEP · concise key (C2) — gated qlegal-key + ingestion business rules.
-    // Classification runs against the LIVE category taxonomy (Legal Setting).
-    const cats = (await q(`select name from ql_category where status='active' order by name`)).rows.map((r) => r.name);
-    const rules = await rulesFor("ingestion");
-    const out = await runPipeline("qlegal-key", {
-      system: [rules.text, keyContract(cats.length ? cats : ["MSA", "SOW", "NDA", "Other"])].filter(Boolean).join("\n\n"),
-      user: `Document filename: ${f.originalname}\n\nContract:\n${clip(c1, 60000)}`,
-      maxTokens: 4000,
-    });
-    await logRun(out, { ref_type: "version", ref_id: ver.id, rules: rules.codes, input: f.originalname, output: "concise key (C2)" });
-    const kp = jparse(out.text) || {};
-    const meta = kp.meta || {};
-    const tags = [...new Set([...(Array.isArray(kp.tags) ? kp.tags : []).map((t) => String(t).toLowerCase().trim()).filter(Boolean),
-      ...(extract.ocr ? ["scanned-source"] : []), ...(meta.executed ? ["executed"] : [])])].slice(0, 12);
-    const c2 = { meta, summary: kp.summary || "", tags,
-      contents: (kp.contents || []).slice(0, 300),      // the contents wiki (navigate without re-reading)
-      clauses: (kp.clauses || []).slice(0, 400),        // the clause wiki (what each § actually says)
-      exhibits: (kp.exhibits || []).slice(0, 60),
-      notice: kp.notice || {}, mode: out.mode };
-    await q(`update ql_version set c2=$2::jsonb, is_executed=$3, status='done', error=null where id=$1`,
-      [ver.id, JSON.stringify(c2), !!meta.executed]);
-    await q(
-      `update ql_document set title=coalesce(nullif($2,''), title), doc_type=coalesce(nullif($3,''), doc_type),
-        party1=coalesce(nullif($4,''), party1), party2=coalesce(nullif($5,''), party2),
-        counterparty=coalesce(nullif($6,''), counterparty), summary=coalesce(nullif($7,''), summary),
-        facts=$8::jsonb, tags=$9::jsonb, latest_version=$10, updated_at=now() where id=$1`,
-      [doc.id, clip(meta.title, 200), clip(meta.doc_type, 40), clip(meta.party1, 160), clip(meta.party2, 160),
-       clip(meta.counterparty || meta.party2, 160), clip(kp.summary, 1200), JSON.stringify(meta), JSON.stringify(tags), versionNo]
-    );
-    // grow the tag vocabulary with new free tags (suggest-first lives in the UI)
-    for (const t of tags) await q(`insert into ql_tag_vocab(tag, kind) values($1,'free') on conflict (tag) do nothing`, [t]).catch(() => {});
-
-    // Classification governance: an AI-proposed NEW category joins the taxonomy
-    // (marked source 'ai' — visible in the Legal Setting list); low confidence or
-    // no model → the confirm queue. The human can always override on the doc page.
-    if (out.mode === "ai" && meta.doc_type && !cats.some((c) => c.toLowerCase() === String(meta.doc_type).toLowerCase())) {
-      await q(`insert into ql_category(name, source) values($1,'ai') on conflict (name) do nothing`, [clip(meta.doc_type, 40)]).catch(() => {});
-    }
-    const typeConf = Number(meta.doc_type_confidence);
-    if (out.mode !== "ai" || !meta.doc_type || (typeConf && typeConf < 0.7)) {
-      await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why) values('classification',$1,$2::jsonb,$3,$4)`,
-        [doc.id, JSON.stringify({ doc_type: meta.doc_type || null }), out.mode === "ai" ? (typeConf || 0.4) : 0,
-         out.mode !== "ai" ? "no keyed model — classify this document manually"
-           : !meta.doc_type ? "the model could not classify this document"
-           : `low-confidence classification (${Math.round(typeConf * 100)}%) — confirm or change it`]);
-    }
-
-    // STEP · obligations — gated qlegal-obligations + obligations business rules
-    try {
-      const orules = await rulesFor("obligations");
-      const oout = await runPipeline("qlegal-obligations", {
-        system: [orules.text, OBLIG_CONTRACT].filter(Boolean).join("\n\n"),
-        user: `Today is ${new Date().toISOString().slice(0, 10)}.\n\nContract:\n${clip(c1, 50000)}`,
-        maxTokens: 2500,
-      });
-      await logRun(oout, { ref_type: "document", ref_id: doc.id, rules: orules.codes, input: f.originalname, output: "obligations" });
-      const op = jparse(oout.text) || {};
-      await q(`delete from ql_obligation where document_id=$1 and status='proposed'`, [doc.id]); // re-propose on re-ingest; confirmed rows kept
-      for (const o of (op.obligations || []).slice(0, 60)) {
-        if (!o || !o.what) continue;
-        await q(`insert into ql_obligation(document_id, kind, what, who_owes, due_date, frequency, ref) values($1,$2,$3,$4,$5,$6,$7)`,
-          [doc.id, clip(o.kind, 30) || "deliverable", clip(o.what, 300), clip(o.who_owes, 20) || "unknown",
-           validDate(o.due_date), clip(o.frequency, 20) || "one_time", clip(o.ref, 60)]).catch(() => {});
-      }
-    } catch { /* obligations are best-effort — the document still lands */ }
-
-    // STEP · registers — every standing question the legal team has defined,
-    // answered for this contract (the open-ended layer above C2).
-    try { await runRegisters(doc.id, { c1, docType: meta.doc_type }); }
-    catch { /* registers are best-effort — the document still lands */ }
+    // STEP · derive everything downstream of C1 (C2 key → classification →
+    // obligations → registers). Shared with the re-index sweep, so a refresh is
+    // EXACTLY the ingestion pipeline re-run — never a diverging copy.
+    var derived = await deriveFromC1({ docId: doc.id, verId: ver.id, versionNo, c1, filename: f.originalname, ocr: !!extract.ocr });
 
     // STEP · version diff — only when there is a previous version (lazy-versioning rule)
     if (versionNo > 1) {
@@ -233,7 +254,7 @@ export async function ingestFile(f, { source = "upload", spItemId = null, spMeta
       } catch { /* diff is best-effort */ }
     }
 
-    return { filename: f.originalname, document_id: doc.id, version_no: versionNo, ocr: !!extract.ocr, mode: out.mode, doc_type: meta.doc_type || null };
+    return { filename: f.originalname, document_id: doc.id, version_no: versionNo, ocr: !!extract.ocr, mode: derived.mode, doc_type: derived.docType };
   } catch (e) {
     await q(`update ql_version set status='error', error=$2 where id=$1`, [ver.id, clip(e.message, 300)]).catch(() => {});
     return { filename: f.originalname, error: clip(e.message, 200) };
@@ -528,6 +549,146 @@ ${ctx}${history.length ? `\n\nTHE CONVERSATION SO FAR (the question may be a fol
     } catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
   });
 
+  // ---- Ask ONE contract (conversational) — grounded solely in this document -----
+  app.post("/api/qlegal/document/:id/ask", async (req, res) => {
+    const id = Number(req.params.id);
+    const question = clip(req.body?.question, 500).trim();
+    const history = Array.isArray(req.body?.history) ? req.body.history.slice(-4).map((t) => ({ q: clip(t.q, 400), a: clip(t.a, 1500) })) : [];
+    if (!question) return res.status(400).json({ error: "no question" });
+    try {
+      const d = (await q(
+        `select d.id, d.filename, d.title, d.doc_type, v.c1_text, v.c2 from ql_document d
+          join ql_version v on v.document_id=d.id and v.version_no=d.latest_version where d.id=$1`, [id])).rows[0];
+      if (!d) return res.status(404).json({ error: "not found" });
+      const regs = (await q(
+        `select r.name, h.present, h.answer, h.refs from ql_register_hit h join ql_register r on r.id=h.register_id
+          where h.document_id=$1 and r.status='active'`, [id])).rows;
+      const rules = await rulesFor("search");
+      const out = await runPipeline("qlegal-ask", {
+        system: [rules.text, `Answer ONLY from THIS contract. Cite the § for every claim; combine §§ when they interact. If the contract doesn't address it, say so plainly — never guess. Be concise and practical.
+
+CONTRACT [${d.id}] ${d.title || d.filename} (${d.doc_type || "?"})
+ALREADY-EXTRACTED ANSWERS (standing questions): ${regs.map((r) => `${r.name}: ${r.present}${r.answer ? ` — ${r.answer}` : ""} ${(r.refs || []).join(" ")}`).join(" | ") || "none"}
+
+FULL TEXT (C1):
+${clip(d.c1_text, 55000)}${history.length ? `\n\nTHE CONVERSATION SO FAR (the question may be a follow-up):\n${history.map((t) => `Q: ${t.q}\nA: ${t.a}`).join("\n\n")}` : ""}`].filter(Boolean).join("\n\n"),
+        user: question,
+        maxTokens: 1200,
+      });
+      await logRun(out, { ref_type: "document", ref_id: id, rules: rules.codes, input: question, output: clip(out.text, 400) });
+      res.json({ answer: out.mode === "ai" ? out.text : "(no answer — point the Q-Legal pipelines at a keyed model in AI Skills & Pipelines)", mode: out.mode });
+    } catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+
+  // ---- Drafting: ask → suggest model contracts → select → draft 1 ----------------
+  // The estate IS the standards library: structure and standard positions come
+  // from the contracts the lawyer picks as models, particulars from the ask.
+  app.post("/api/qlegal/draft/suggest", async (req, res) => {
+    const ask = clip(req.body?.ask, 600).trim();
+    if (!ask) return res.status(400).json({ error: "describe the contract you need" });
+    try {
+      // deterministic prefilter: FTS over the ask + executed/latest docs, then LLM ranks
+      const tsq = orQuery(ask);
+      const cands = (await q(
+        `select d.id, coalesce(d.title, d.filename) as name, d.doc_type, d.party1, d.party2, d.summary, d.tags
+           from ql_document d
+          where coalesce(d.status,'active')<>'inactive'
+          order by (${tsq ? `exists(select 1 from ql_version v where v.document_id=d.id and v.version_no=d.latest_version
+                     and to_tsvector('english', coalesce(v.c1_text,'')) @@ websearch_to_tsquery('english', $1))` : "false"}) desc, d.updated_at desc
+          limit 15`, tsq ? [tsq] : []
+      )).rows;
+      if (!cands.length) return res.json({ suggestions: [] });
+      const rules = await rulesFor("drafting");
+      const out = await runPipeline("qlegal-draft", {
+        system: [rules.text, `A lawyer wants to draft a new contract. From the candidate contracts in the repository, pick the 2-5 BEST models to base the draft on (right type, right structure, closest subject). Return STRICT JSON only: {"suggestions":[{"id":<candidate id>,"fit":0-1,"why":"one line — why this is a good model"}]} ranked best first. Only ids from the list.`].filter(Boolean).join("\n\n"),
+        user: `The ask: ${ask}\n\nCandidates:\n${JSON.stringify(cands.map((c) => ({ id: Number(c.id), name: c.name, type: c.doc_type, parties: [c.party1, c.party2].filter(Boolean), summary: clip(c.summary, 200), tags: c.tags })))}`,
+        maxTokens: 800,
+      });
+      await logRun(out, { ref_type: "draft", rules: rules.codes, input: ask, output: "suggest models" });
+      const sp = jparse(out.text) || {};
+      const byId = Object.fromEntries(cands.map((c) => [Number(c.id), c]));
+      const suggestions = (Array.isArray(sp.suggestions) ? sp.suggestions : [])
+        .filter((x) => byId[Number(x.id)]).slice(0, 6)
+        .map((x) => ({ ...byId[Number(x.id)], fit: Number(x.fit) || 0, why: clip(x.why, 200) }));
+      // no model / parse miss → fall back to the prefilter order so the flow never dead-ends
+      res.json({ suggestions: suggestions.length ? suggestions : cands.slice(0, 4).map((c) => ({ ...c, fit: 0, why: "closest match in the repository (no keyed model to rank)" })), mode: out.mode });
+    } catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+
+  app.post("/api/qlegal/draft/run", async (req, res) => {
+    const ask = clip(req.body?.ask, 600).trim();
+    const ids = (req.body?.model_ids || []).slice(0, 3).map(Number).filter(Boolean);
+    if (!ask || !ids.length) return res.status(400).json({ error: "the ask + at least one model contract" });
+    try {
+      const models = (await q(
+        `select d.id, coalesce(d.title, d.filename) as name, d.doc_type, v.c1_text, v.c2
+           from ql_document d join ql_version v on v.document_id=d.id and v.version_no=d.latest_version
+          where d.id = any($1)`, [ids]
+      )).rows;
+      const rules = await rulesFor("drafting");
+      const modelBlock = models.map((m) => {
+        const c2 = m.c2 || {};
+        const contents = (c2.contents || []).map((x) => `${x.ref || ""} ${x.heading || ""}`).join(" · ");
+        return `MODEL [${m.id}] ${m.name} (${m.doc_type || "?"})\n STRUCTURE: ${contents || "—"}\n TEXT (for standard positions & voice):\n${clip(m.c1_text, 20000)}`;
+      }).join("\n\n");
+      const out = await runPipeline("qlegal-draft", {
+        system: [rules.text, `Draft a COMPLETE first-draft contract in proper legal voice, as clean Markdown (# title, ## clause headings, numbered clauses).
+The MODELS define the skeleton and the house's standard positions: include EVERY section the models consider standard (definitions, notices, severability, entire agreement, governing law…) even if the ask doesn't mention them — completeness comes from the models, not the prompt. Take particulars (parties, subject, term, commercials) from the ask; where the ask is silent, use the models' standard position; where nothing exists, insert [BRACKETED PLACEHOLDERS]. Never copy party names from the models. End with a signature block.`].filter(Boolean).join("\n\n"),
+        user: `The ask: ${ask}\n\n${modelBlock}`,
+        maxTokens: 8000,
+      });
+      await logRun(out, { ref_type: "draft", rules: rules.codes, input: ask, output: `draft from models ${ids.join(",")}` });
+      if (out.mode !== "ai") return res.json({ error: "no keyed model — point qlegal-draft at one in AI Skills & Pipelines" });
+      const md = clip(out.text, 200000).replace(/^```(markdown)?\n?/i, "").replace(/\n?```$/, "");
+      const row = (await q(`insert into ql_draft(ask, model_ids, draft_md) values($1,$2::jsonb,$3) returning id, created_at`,
+        [ask, JSON.stringify(ids), md])).rows[0];
+      res.json({ draft: { id: row.id, ask, model_ids: ids, draft_md: md, created_at: row.created_at, models: models.map((m) => ({ id: m.id, name: m.name })) } });
+    } catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+
+  app.get("/api/qlegal/drafts", async (_req, res) => {
+    res.json({ drafts: (await q(`select id, ask, model_ids, status, created_at from ql_draft order by id desc limit 50`)).rows });
+  });
+  app.get("/api/qlegal/draft/:id", async (req, res) => {
+    const d = (await q(`select * from ql_draft where id=$1`, [Number(req.params.id)])).rows[0];
+    if (!d) return res.status(404).json({ error: "not found" });
+    res.json({ draft: d });
+  });
+  // .docx download — the draft opens in Word and goes through the normal
+  // SharePoint process (Q-Legal never writes to SharePoint)
+  app.get("/api/qlegal/draft/:id/docx", async (req, res) => {
+    const d = (await q(`select * from ql_draft where id=$1`, [Number(req.params.id)])).rows[0];
+    if (!d) return res.status(404).send("not found");
+    try {
+      const { Document, Packer, Paragraph, TextRun, HeadingLevel } = await import("docx");
+      const paras = [];
+      for (const raw of String(d.draft_md || "").split("\n")) {
+        const line = raw.trimEnd();
+        if (!line.trim()) { paras.push(new Paragraph({ text: "" })); continue; }
+        const h1 = line.match(/^#\s+(.*)/), h2 = line.match(/^##+\s+(.*)/);
+        if (h1) paras.push(new Paragraph({ text: h1[1], heading: HeadingLevel.HEADING_1 }));
+        else if (h2) paras.push(new Paragraph({ text: h2[1], heading: HeadingLevel.HEADING_2 }));
+        else {
+          // **bold** runs; plain text otherwise
+          const runs = []; let rest = line.replace(/^[-•]\s+/, "• ");
+          while (rest.length) {
+            const m = rest.match(/\*\*([^*]+)\*\*/);
+            if (!m) { runs.push(new TextRun(rest)); break; }
+            if (m.index > 0) runs.push(new TextRun(rest.slice(0, m.index)));
+            runs.push(new TextRun({ text: m[1], bold: true }));
+            rest = rest.slice(m.index + m[0].length);
+          }
+          paras.push(new Paragraph({ children: runs }));
+        }
+      }
+      const doc = new Document({ sections: [{ children: paras }] });
+      const buf = await Packer.toBuffer(doc);
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+      res.setHeader("Content-Disposition", `attachment; filename="Draft-${d.id}.docx"`);
+      res.send(buf);
+    } catch (e) { res.status(500).send(clip(e.message, 200)); }
+  });
+
   // ---- Registers — the open-ended layer: whatever the legal team asks ----------
   app.get("/api/qlegal/registers", async (_req, res) => {
     const registers = (await q(
@@ -671,6 +832,11 @@ ${ctx}${history.length ? `\n\nTHE CONVERSATION SO FAR (the question may be a fol
       } else if (c.kind === "classification") {
         const t = clip(doc_type || p.doc_type, 40);
         if (t) await q(`update ql_document set doc_type=$2, updated_at=now() where id=$1`, [c.document_id, t]);
+      } else if (c.kind === "removal") {
+        // gone from SharePoint → INACTIVE, never deleted: the derived layer keeps
+        // the full record (facts, obligations, timeline) for the paper trail
+        await q(`update ql_document set status='inactive', updated_at=now() where id=$1`, [c.document_id]);
+        await q(`update ql_obligation set status='dismissed' where document_id=$1 and status in ('proposed','confirmed')`, [c.document_id]).catch(() => {});
       }
     }
     await q(`update ql_confirm set status=$2, resolved_by=$3, resolved_at=now() where id=$1`, [id, action === "accept" ? "accepted" : "rejected", clip(by, 40) || "you"]);
@@ -705,6 +871,30 @@ ${ctx}${history.length ? `\n\nTHE CONVERSATION SO FAR (the question may be a fol
     await q(`update ql_confirm set status='accepted', resolved_by='you', resolved_at=now() where document_id=$1 and kind='classification' and status='open'`, [id]).catch(() => {});
     await q(`insert into ql_feedback(surface, document_id, field, was, corrected, actor) values('classification',$1,'doc_type',$2,$3,'you')`, [id, was || "", name]).catch(() => {});
     res.json({ ok: true, doc_type: name });
+  });
+
+  // category controls: rename shown in UI as off/on (off = hidden from the
+  // classifier + pickers; existing docs keep their label)
+  app.post("/api/qlegal/category/:id", async (req, res) => {
+    const status = ["active", "off"].includes(req.body?.status) ? req.body.status : null;
+    if (!status) return res.status(400).json({ error: "status must be active|off" });
+    const rows = (await q(`update ql_category set status=$2 where id=$1 returning *`, [Number(req.params.id), status])).rows;
+    if (!rows[0]) return res.status(404).json({ error: "not found" });
+    res.json({ category: rows[0] });
+  });
+  // the tag vocabulary (with usage counts) + hygiene
+  app.get("/api/qlegal/tags", async (_req, res) => {
+    const rows = (await q(
+      `select v.tag, v.kind, (select count(*) from ql_document d where d.tags ? v.tag) as docs
+         from ql_tag_vocab v order by docs desc, v.tag`
+    )).rows;
+    res.json({ tags: rows });
+  });
+  app.delete("/api/qlegal/tag/:tag", async (req, res) => {
+    const tag = clip(decodeURIComponent(req.params.tag), 60);
+    await q(`delete from ql_tag_vocab where tag=$1`, [tag]);
+    await q(`update ql_document set tags = tags - $1 where tags ? $1`, [tag]).catch(() => {});  // strip from docs too
+    res.json({ ok: true });
   });
 
   // ---- business rules (editable; injected into the pipelines by scope) ---------
@@ -754,6 +944,73 @@ ${ctx}${history.length ? `\n\nTHE CONVERSATION SO FAR (the question may be a fol
     res.json({ log: (await q(`select * from ql_log order by id desc limit $1`, [limit])).rows });
   });
 
+  // ---- Re-index & sweep: the repo's maintenance console -------------------------
+  // Everything here is capped + resumable (call again to continue) and reuses the
+  // ingestion pipeline itself — a sweep can never diverge from ingestion.
+  app.get("/api/qlegal/sweep/status", async (_req, res) => {
+    const one = async (sql, params = []) => Number((await q(sql, params)).rows[0]?.c || 0);
+    const [total, inactive, unclassified, stubKeyed, errors, unlinked, regPending, sp] = await Promise.all([
+      one(`select count(*) c from ql_document where coalesce(status,'active')<>'inactive'`),
+      one(`select count(*) c from ql_document where status='inactive'`),
+      one(`select count(*) c from ql_document where doc_type is null and coalesce(status,'active')<>'inactive'`),
+      one(`select count(*) c from ql_document d join ql_version v on v.document_id=d.id and v.version_no=d.latest_version
+            where coalesce(d.status,'active')<>'inactive' and (v.c2 is null or v.c2->>'mode' is distinct from 'ai')`),
+      one(`select count(*) c from ql_version where status='error'`),
+      one(`select count(*) c from ql_document d where coalesce(d.status,'active')<>'inactive' and d.parent_id is null
+            and not exists(select 1 from ql_document k where k.parent_id=d.id)
+            and not exists(select 1 from ql_confirm c where c.document_id=d.id and c.kind in ('link','lineage') and c.status='open')`),
+      one(`select count(*) c from ql_document d
+            where coalesce(d.status,'active')<>'inactive'
+              and exists(select 1 from ql_version v where v.document_id=d.id and v.c1_text is not null)
+              and exists(select 1 from ql_register r where r.status='active'
+                and not exists(select 1 from ql_register_hit h where h.register_id=r.id and h.document_id=d.id))`),
+      q(`select last_run, last_result, delta_link is not null as delta, config<>'{}'::jsonb as configured from ql_sync where id=1`).then((r) => r.rows[0]),
+    ]);
+    res.json({ total, inactive, unclassified, stub_keyed: stubKeyed, error_versions: errors, unlinked, registers_pending: regPending, sharepoint: sp || {} });
+  });
+
+  // refresh C2/derived for documents whose key is a no-model stub — or everything
+  app.post("/api/qlegal/sweep/refresh", async (req, res) => {
+    const limit = Math.min(Number(req.body?.limit) || 10, 50);
+    const all = req.body?.scope === "all";
+    try {
+      const docs = (await q(
+        `select d.id from ql_document d join ql_version v on v.document_id=d.id and v.version_no=d.latest_version
+          where coalesce(d.status,'active')<>'inactive' and v.c1_text is not null
+            ${all ? "" : "and (v.c2 is null or v.c2->>'mode' is distinct from 'ai')"}
+          order by d.id limit $1`, [limit]
+      )).rows;
+      let done = 0;
+      for (const d of docs) { const r = await refreshDoc(d.id).catch(() => null); if (r) done++; }
+      const remaining = Math.max(0, (await q(
+        `select count(*) c from ql_document d join ql_version v on v.document_id=d.id and v.version_no=d.latest_version
+          where coalesce(d.status,'active')<>'inactive' and v.c1_text is not null
+            ${all ? "" : "and (v.c2 is null or v.c2->>'mode' is distinct from 'ai')"}`
+      )).rows[0].c - (all ? done : 0));
+      res.json({ processed: done, remaining: all ? remaining : Number((await q(
+        `select count(*) c from ql_document d join ql_version v on v.document_id=d.id and v.version_no=d.latest_version
+          where coalesce(d.status,'active')<>'inactive' and v.c1_text is not null and (v.c2 is null or v.c2->>'mode' is distinct from 'ai')`
+      )).rows[0].c) });
+    } catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+
+  // build families & dependencies for documents that have neither links nor proposals
+  app.post("/api/qlegal/sweep/families", async (req, res) => {
+    const limit = Math.min(Number(req.body?.limit) || 15, 50);
+    try {
+      const cand = (await q(
+        `select d.id from ql_document d
+          where coalesce(d.status,'active')<>'inactive' and d.parent_id is null
+            and exists(select 1 from ql_version v where v.document_id=d.id and v.c1_text is not null)
+            and not exists(select 1 from ql_confirm c where c.document_id=d.id and c.kind in ('link','lineage') and c.status<>'rejected')
+          order by d.id limit $1`, [limit]
+      )).rows;
+      for (const d of cand) { await proposeLinks(d.id).catch(() => {}); await proposeLineage(d.id).catch(() => {}); }
+      const proposals = Number((await q(`select count(*) c from ql_confirm where kind in ('link','lineage') and status='open'`)).rows[0].c);
+      res.json({ examined: cand.length, open_proposals: proposals });
+    } catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+
   // ---- SharePoint scanner: settings · test · scan now · nightly 02:00 IST -------
   app.get("/api/qlegal/sharepoint", async (_req, res) => {
     res.json(publicSyncConfig(await getSyncRow()));   // secret never leaves the server
@@ -763,6 +1020,16 @@ ${ctx}${history.length ? `\n\nTHE CONVERSATION SO FAR (the question may be a fol
     catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
   });
   app.post("/api/qlegal/sharepoint/test", async (_req, res) => res.json(await testSharePoint()));
+  // live read-only browse of the library (folders + files + indexed cross-refs)
+  app.get("/api/qlegal/sharepoint/files", async (req, res) => {
+    try { res.json(await listSharePoint({ folder: clip(req.query.folder, 300), search: clip(req.query.q, 100) })); }
+    catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+  app.post("/api/qlegal/sharepoint/ingest", async (req, res) => {
+    if (!req.body?.item_id) return res.status(400).json({ error: "item_id required" });
+    try { res.json(await ingestSharePointItem(ingestFile, String(req.body.item_id))); }
+    catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
   app.post("/api/qlegal/sharepoint/scan", async (req, res) => {
     try { res.json(await scanSharePoint(ingestFile, { full: !!req.body?.full })); }
     catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }

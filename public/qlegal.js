@@ -31,8 +31,12 @@ let REGISTERS = [], REG_TOTAL = 0, REG_OPEN = null;
 let CONF_N = null;
 let FILTERS = { cat: null, gem: null, text: "" };   // browse filters
 let SP = null;                    // sharepoint settings payload
+let SPF = { folder: "", q: "", data: null, loading: false };   // sharepoint files browser
+let DOCTHREADS = {};              // per-contract Ask threads, keyed by doc id
+let DRAFT = { ask: "", sugg: null, sel: [], out: null, busy: false };   // the drafting journey
+let DOCASKING = null;
 
-const VIEWS = { chat: "#view-chat", registers: "#view-registers", contracts: "#view-registry", obligations: "#view-obligations", confirm: "#view-confirm", rules: "#view-rules", sharepoint: "#view-sharepoint", log: "#view-log" };
+const VIEWS = { chat: "#view-chat", draft: "#view-draft", registers: "#view-registers", contracts: "#view-registry", spfiles: "#view-spfiles", obligations: "#view-obligations", confirm: "#view-confirm", sweep: "#view-sweep", taxonomy: "#view-taxonomy", rules: "#view-rules", sharepoint: "#view-sharepoint", log: "#view-log" };
 
 // staggered reveal — output feels generated, not dumped
 function sequenceReveal(root, sel = ".reveal", step = 140, startDelay = 60) {
@@ -46,15 +50,15 @@ function renderNav() {
   $("#mainnav").innerHTML = [["ask", "Ask"], ["browse", "Browse"], ["manage", `Manage${needsYou ? ` <span class="count" style="color:var(--org)">●${needsYou}</span>` : ""}`]]
     .map(([k, l]) => `<button class="${AREA === k ? "on" : ""}" onclick="setArea('${k}')">${l}</button>`).join("");
   const subs = AREA === "ask"
-    ? [["chat", "Ask the repository", null], ["registers", "Standing questions", REGISTERS.length || null]]
+    ? [["chat", "Ask the repository", null], ["draft", "Draft a contract", null], ["registers", "Standing questions", REGISTERS.length || null]]
     : AREA === "browse"
-      ? [["contracts", "Contracts", LOADED ? DOCS.length : null]]
-      : [["obligations", "Obligations", null], ["confirm", "Confirm queue", CONF_N], ["rules", "Business rules", RULES.length || null], ["sharepoint", "SharePoint", null], ["log", "AI activity", null]];
+      ? [["contracts", "Contracts", LOADED ? DOCS.length : null], ["spfiles", "SharePoint files", null]]
+      : [["obligations", "Obligations", null], ["confirm", "Confirm queue", CONF_N], ["sweep", "Re-index", null], ["taxonomy", "Taxonomy", null], ["rules", "Business rules", RULES.length || null], ["sharepoint", "SharePoint", null], ["log", "AI activity", null]];
   $("#subnav").innerHTML = subs.map(([k, l, n]) => `<button class="${SUB[AREA] === k ? "on" : ""}" onclick="setSub('${k}')">${l}${n ? `<span class="count">${n}</span>` : ""}</button>`).join("");
 }
 window.setArea = (a) => { AREA = a; setSub(SUB[a]); };
 window.setSub = (s) => { SUB[AREA] = s; renderNav(); Object.values(VIEWS).forEach((v) => ($(v).hidden = true)); $(VIEWS[s]).hidden = false; renderView(s); };
-function renderView(s) { ({ chat: renderChat, registers: renderRegisters, contracts: renderRegistry, obligations: renderObligations, confirm: renderConfirm, rules: renderRules, sharepoint: renderSharePoint, log: renderLog }[s])(); }
+function renderView(s) { ({ chat: renderChat, draft: renderDraft, registers: renderRegisters, contracts: renderRegistry, spfiles: renderSpFiles, obligations: renderObligations, confirm: renderConfirm, sweep: renderSweep, taxonomy: renderTaxonomy, rules: renderRules, sharepoint: renderSharePoint, log: renderLog }[s])(); }
 
 async function loadRegistry() {
   try { const j = await (await fetch("/api/qlegal/registry")).json(); DOCS = j.documents || []; BY_TYPE = j.by_type || []; LOADED = true; } catch { DOCS = []; }
@@ -201,7 +205,7 @@ window.doAsk = async () => {
 // BROWSE — the estate, with smart filter chips
 // ==========================================================================
 function applyFilters(docs) {
-  let out = docs;
+  let out = FILTERS.gem === "inactive" ? docs.filter((d) => d.status === "inactive") : docs.filter((d) => d.status !== "inactive");
   if (FILTERS.cat) out = out.filter((d) => (d.doc_type || "unclassified") === FILTERS.cat);
   if (FILTERS.gem === "exp30") out = out.filter((d) => expiringIn(31).includes(d));
   if (FILTERS.gem === "exp180") out = out.filter((d) => expiringIn(183).includes(d));
@@ -229,6 +233,7 @@ function renderRegistry() {
       ${gem("exp180", "Expiring 6mo", expiringIn(183).length, "var(--amber)")}
       ${gem("oblig", "Has obligations", DOCS.filter((d) => Number(d.open_obligations)).length)}
       ${gem("scans", "Scanned", DOCS.filter((d) => d.scanned).length)}
+      ${gem("inactive", "Inactive", DOCS.filter((d) => d.status === "inactive").length)}
       <input class="rinput" style="max-width:220px;margin-left:auto" placeholder="filter by name, party, tag…" value="${esc(FILTERS.text)}" oninput="FILTERS.text=this.value;renderRegistry()">
     </div>`;
   const list = applyFilters(DOCS);
@@ -241,7 +246,7 @@ function renderRegistry() {
       <td>${esc([d.party1, d.party2].filter(Boolean).join(" ⟷ ")) || "<span class='am'>—</span>"}</td>
       <td>${[f.effective_date, f.expiry_date].filter(Boolean).map(fmtNice).join(" → ") || "<span class='am'>—</span>"}</td>
       <td>${(d.tags || []).slice(0, 3).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ") || "<span class='am'>—</span>"}</td>
-      <td>v${d.latest_version}${d.source === "sharepoint" ? ' <span class="am" title="synced from SharePoint">· SP</span>' : ""}${d.scanned ? ' <span class="am">· scan</span>' : ""}</td>
+      <td>v${d.latest_version}${d.source === "sharepoint" ? ' <span class="am" title="synced from SharePoint">· SP</span>' : ""}${d.scanned ? ' <span class="am">· scan</span>' : ""}${d.status === "inactive" ? ' <span class="ochip o-dismissed">inactive</span>' : ""}</td>
       <td>${Number(d.open_obligations) ? `<span class="duechip due-soon">${d.open_obligations}</span>` : "<span class='am'>—</span>"}</td>
       <td class="am">${fmtD(d.updated_at)}</td>
     </tr>`;
@@ -384,7 +389,7 @@ function wikiView() {
       </div>
       <button class="btn small touch" onclick="delDoc(${d.id})" title="remove from the derived layer only">✕</button>
     </div>`;
-  return head + highlight + setting + parties + summary + confs + regCard + noticeCard + oblCard + treeCard + contentsCard + clauseCard;
+  return head + askDocBox(d) + highlight + setting + parties + summary + confs + regCard + noticeCard + oblCard + treeCard + contentsCard + clauseCard;
 }
 window.setDocCategory = async (id, name) => {
   await fetch(`/api/qlegal/document/${id}/category`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ doc_type: name }) });
@@ -526,7 +531,7 @@ function obligationRow(o, compact) {
     <button class="btn small touch" onclick="oblOwner(${o.id},'${esc(o.owner || "").replace(/'/g, "&#39;")}')">${o.owner ? "Doer: " + esc(o.owner) : "Assign doer"}</button>
     <button class="btn small btn--org touch" onclick="oblAct(${o.id},'done')">✓ Completed</button>
     <button class="btn small touch" onclick="oblAct(${o.id},'dismissed')">Dismiss</button></span>`;
-  return `<div style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)">
+  return `<div data-k="${esc([o.what, o.kind, o.status, o.owner, o.who_owes, o.title, o.filename].join(" ").toLowerCase())}" style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)">
     ${dueChip(o)}<span class="ochip o-${esc(o.status)}">${esc(o.status)}</span>
     <span style="flex:1;min-width:200px;font-size:13px;line-height:1.5">${esc(o.what)} <span class="am">· ${esc(o.kind)} · ${esc(o.who_owes || "")}</span> ${o.ref ? `<span class="ref">${esc(o.ref)}</span>` : ""}${compact ? "" : ` <span class="am">— <span style="cursor:pointer;color:var(--org)" onclick="openDoc(${o.document_id})">${esc(o.title || o.filename || "")}</span></span>`}</span>
     ${acts}</div>`;
@@ -539,7 +544,8 @@ async function renderObligations() {
   const upcoming = OBLIGS.filter((o) => o.status !== "done");
   const done = OBLIGS.filter((o) => o.status === "done");
   host.innerHTML = `<p class="intro"><b>OBLIGATIONS</b> — the task manager. Renewal &amp; termination deadlines and each contract's deliverables/SLAs, every one citing its §. Track it → assign the doer → ✓ Completed (or Dismiss). Reminders ride these dates.</p>`
-    + (upcoming.length ? `<div class="wikicard reveal">${upcoming.map((o) => obligationRow(o)).join("")}</div>` : `<div class="empty">// nothing tracked yet — obligations appear as contracts are ingested //</div>`)
+    + `<div class="cfilter"><input placeholder="filter by task, contract, kind, doer…" oninput="filterCards('oblist',this.value)"></div>`
+    + (upcoming.length ? `<div class="wikicard reveal" id="oblist">${upcoming.map((o) => obligationRow(o)).join("")}</div>` : `<div class="empty">// nothing tracked yet — obligations appear as contracts are ingested //</div>`)
     + (done.length ? `<div class="wikicard reveal" style="opacity:.7"><div class="rsec-lbl">Completed</div>${done.map((o) => obligationRow(o)).join("")}</div>` : "");
   sequenceReveal(host, ".reveal", 120, 60);
 }
@@ -554,8 +560,9 @@ function confCard(c, compact) {
   const what = c.kind === "link" ? `link to parent #${p.parent_id} as <b>${esc(p.relation_kind || "")}</b>`
     : c.kind === "lineage" ? `same contract as #${p.other_id} (draft ↔ signed)`
     : c.kind === "classification" ? `classify this document${p.doc_type ? ` as <b>${esc(p.doc_type)}</b>` : ""}`
+    : c.kind === "removal" ? `mark <b>inactive</b> — the file is gone from SharePoint (record + history kept here)`
     : esc(JSON.stringify(p));
-  return `<div class="conf reveal"><div class="conf-h"><span class="kindb">${esc(c.kind)}</span>
+  return `<div class="conf reveal" data-k="${esc([c.kind, c.filename, c.title, c.why].join(" ").toLowerCase())}"><div class="conf-h"><span class="kindb">${esc(c.kind)}</span>
       ${compact ? "" : `<b style="cursor:pointer" onclick="openDoc(${c.document_id})">${esc(c.title || c.filename || "#" + c.document_id)}</b>`}
       ${c.confidence != null ? `<span class="am">${Math.round(Number(c.confidence) * 100)}%</span>` : ""}</div>
     <div class="why">${what}${c.why ? ` — ${esc(c.why)}` : ""}</div>
@@ -569,7 +576,8 @@ async function renderConfirm() {
   try { CONFIRMS = ((await (await fetch("/api/qlegal/confirms")).json()).confirms) || []; } catch { CONFIRMS = []; }
   CONF_N = CONFIRMS.length || null; renderNav();
   host.innerHTML = `<p class="intro"><b>CONFIRM QUEUE</b> — the AI proposes, you decide. Every decision teaches the system.</p>`
-    + (CONFIRMS.length ? CONFIRMS.map((c) => confCard(c)).join("") : `<div class="empty">// nothing awaiting confirmation //</div>`);
+    + `<div class="cfilter"><input placeholder="filter by kind, contract…" oninput="filterCards('conflist',this.value)"></div>`
+    + (CONFIRMS.length ? `<div id="conflist">${CONFIRMS.map((c) => confCard(c)).join("")}</div>` : `<div class="empty">// nothing awaiting confirmation //</div>`);
   sequenceReveal(host, ".reveal", 110, 50);
 }
 window.confAct = async (id, action, kind) => {
@@ -677,11 +685,247 @@ window.spScan = async () => {
   } catch (e) { if (m) m.innerHTML = `<span style="color:var(--red)">✕ ${esc(String(e.message || e))}</span>`; }
 };
 
+
+// ---- Re-index & sweep console -------------------------------------------------
+async function renderSweep() {
+  const host = $("#view-sweep");
+  host.innerHTML = `<div class="empty">loading…</div>`;
+  let st = {}; try { st = await (await fetch("/api/qlegal/sweep/status")).json(); } catch { /* tiles show 0 */ }
+  const sp = st.sharepoint || {};
+  const tile = (v, label, warn) => `<div class="reveal" style="background:#fff;padding:13px 16px;border:1px solid var(--line);border-radius:12px;min-width:128px">
+      <div style="font-size:24px;font-weight:700;line-height:1;color:${warn && Number(v) ? "var(--amber)" : "var(--txt)"}">${v}</div>
+      <div class="am" style="margin-top:4px">${label}</div></div>`;
+  const card = (title, desc, btns) => `<div class="wikicard reveal"><div class="rsec-lbl">${title}</div>
+      <p class="rsummary" style="margin-bottom:10px">${desc}</p><div style="display:flex;gap:8px;flex-wrap:wrap">${btns}</div></div>`;
+  host.innerHTML = `<p class="intro"><b>RE-INDEX &amp; SWEEP</b> — the repo's health console. Every action is capped and resumable, runs the <b>same pipeline as ingestion</b> (never a diverging copy), and anything uncertain lands in the Confirm queue — including files gone from SharePoint (proposed <b>inactive</b>, never deleted).</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px">
+      ${tile(st.total ?? 0, "active contracts")}${tile(st.inactive ?? 0, "inactive")}
+      ${tile(st.unclassified ?? 0, "unclassified", 1)}${tile(st.stub_keyed ?? 0, "need a real key (C2)", 1)}
+      ${tile(st.unlinked ?? 0, "no family yet", 1)}${tile(st.registers_pending ?? 0, "register answers pending", 1)}
+      ${tile(st.error_versions ?? 0, "failed versions", 1)}
+    </div>
+    <div id="swproc"></div>
+    ${card("Legal sweep of SharePoint", `Full walk of the library: <b>new files</b>, <b>updated files</b> (new version + diff), renames/moves, and <b>removals</b> (proposed inactive in the Confirm queue). ${sp.configured ? `Last scan: ${sp.last_run ? fmtDT(sp.last_run) : "never"}.` : "<span style='color:var(--amber)'>SharePoint not configured — set it up in the SharePoint tab.</span>"} The nightly 2:00 AM scan does the delta version automatically.`,
+      `<button class="btn btn--org touch" onclick="sweepSharePoint()">Full sweep now ▸</button>`)}
+    ${card("Build families &amp; dependencies", `Proposes parent links ("pursuant to the MSA dated…") and draft↔signed lineage for every contract that has neither — each lands in the Confirm queue for your yes/no.`,
+      `<button class="btn btn--primary touch" onclick="sweepFamilies()">Propose families ▸</button>`)}
+    ${card("Refresh C1 → C2 keys", `Re-runs the concise key, classification, obligations and standing questions from the stored transcripts (no re-download, no re-OCR). Use after changing business rules, categories, or adding a keyed model. Human-confirmed values are never overwritten.`,
+      `<button class="btn btn--primary touch" onclick="sweepRefresh('stub')">Refresh the ${st.stub_keyed ?? 0} needing it ▸</button>
+       <button class="btn touch" onclick="rdConfirm('Re-derive everything?','One capped batch of the full estate re-derives per click (cost-conscious). Human-confirmed values are never overwritten.',()=>sweepRefresh('all'))">Re-derive all (batch)</button>`)}
+    ${card("Answer standing questions", `Backfills every active register across contracts that haven't answered them yet (${st.registers_pending ?? 0} pending).`,
+      `<button class="btn btn--primary touch" onclick="sweepRegisters()">Answer pending ▸</button>`)}`;
+  sequenceReveal(host, ".reveal", 90, 40);
+}
+function swMeter(msg) { const h = document.getElementById("swproc"); if (h) h.innerHTML = `<div class="meter"><div class="cmstep now"><span class="cmi"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""></span><span>${esc(msg)}</span></div></div>`; }
+window.sweepSharePoint = async () => {
+  swMeter("full sweep of the SharePoint library — new, updated, removed…");
+  try {
+    const j = await (await fetch("/api/qlegal/sharepoint/scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ full: true }) })).json();
+    if (j.error) { renderSweep(); return rdAlert("Sweep failed", j.error); }
+    await loadRegistry(); loadConfirmCount().then(renderNav); renderSweep();
+    rdAlert("SharePoint sweep done", `${j.ingested} ingested · ${j.skipped} unchanged · ${j.removed || 0} removal${(j.removed || 0) === 1 ? "" : "s"} proposed · ${(j.errors || []).length} errors`);
+  } catch (e) { renderSweep(); rdAlert("Sweep failed", String(e.message || e)); }
+};
+window.sweepFamilies = async () => {
+  swMeter("reading tell-tales — proposing families & dependencies…");
+  try {
+    const j = await (await fetch("/api/qlegal/sweep/families", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 15 }) })).json();
+    loadConfirmCount().then(renderNav); renderSweep();
+    rdAlert("Families proposed", `${j.examined} contract${j.examined === 1 ? "" : "s"} examined — ${j.open_proposals} proposal${j.open_proposals === 1 ? "" : "s"} open in the Confirm queue.`);
+  } catch (e) { renderSweep(); rdAlert("Failed", String(e.message || e)); }
+};
+window.sweepRefresh = async (scope) => {
+  let total = 0;
+  for (let pass = 0; pass < 40; pass++) {
+    swMeter(`re-deriving keys — ${total} contract${total === 1 ? "" : "s"} refreshed…`);
+    let j; try { j = await (await fetch("/api/qlegal/sweep/refresh", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scope, limit: 5 }) })).json(); } catch { break; }
+    total += j.processed || 0;
+    if (scope === "all" || !j.processed || !j.remaining) break;
+  }
+  await loadRegistry(); loadCats(); renderSweep();
+  rdAlert("Refresh done", `${total} contract${total === 1 ? "" : "s"} re-derived (key, classification, obligations, registers).`);
+};
+window.sweepRegisters = async () => {
+  let total = 0;
+  for (let pass = 0; pass < 40; pass++) {
+    swMeter(`answering standing questions — ${total} contract${total === 1 ? "" : "s"} done…`);
+    let j; try { j = await (await fetch("/api/qlegal/registers/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 10 }) })).json(); } catch { break; }
+    total += j.processed || 0;
+    if (!j.processed || !j.remaining) break;
+  }
+  renderSweep();
+  rdAlert("Registers answered", `${total} contract${total === 1 ? "" : "s"} answered.`);
+};
+
+// ---- Taxonomy: categories (Legal Setting) + the tag vocabulary ----------------
+async function renderTaxonomy() {
+  const host = $("#view-taxonomy");
+  host.innerHTML = `<div class="empty">loading…</div>`;
+  await loadCats();
+  let tags = []; try { tags = ((await (await fetch("/api/qlegal/tags")).json()).tags) || []; } catch { /* empty */ }
+  const catRow = (c) => `<div data-k="${esc(c.name.toLowerCase())}" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">
+      <span class="typebadge">${esc(c.name)}</span>
+      <span class="am">${c.docs} contract${Number(c.docs) === 1 ? "" : "s"} · ${esc(c.source)}</span>
+      ${c.status === "off" ? '<span class="ochip o-dismissed">off</span>' : ""}
+      <span style="margin-left:auto"></span>
+      <button class="btn small touch" onclick="catToggle(${c.id},'${c.status === "active" ? "off" : "active"}')">${c.status === "active" ? "Switch off" : "Switch on"}</button>
+    </div>`;
+  host.innerHTML = `<p class="intro"><b>TAXONOMY</b> — the controls behind classification. <b>Legal Setting</b> is the growing category list every upload (and every re-index) is auto-classified into: the AI recommends with confidence, proposes new categories (marked "ai"), you add your own, switch off what shouldn't be offered — and your override on any contract is always final. <b>Tags</b> are the free vocabulary the extractor draws from.</p>
+    <div class="wikicard reveal"><div class="rsec-lbl">Legal Setting · contract categories (${CATS.length})</div>
+      <div class="cfilter" style="margin-bottom:8px"><input placeholder="filter categories…" oninput="filterCards('catlist',this.value)"><button class="btn btn--primary small touch" style="margin-left:auto" onclick="addCategory(null)">+ Add category</button></div>
+      <div id="catlist">${CATS.map(catRow).join("")}</div>
+      <div class="am" style="margin-top:10px">To re-classify existing contracts against an updated list, run <b>Refresh C1 → C2</b> in Re-index.</div>
+    </div>
+    <div class="wikicard reveal"><div class="rsec-lbl">Tag vocabulary (${tags.length})</div>
+      <div class="cfilter" style="margin-bottom:8px"><input placeholder="filter tags…" oninput="filterCards('taglist',this.value)"></div>
+      <div id="taglist" style="display:flex;flex-wrap:wrap;gap:7px">${tags.map((t) => `<span data-k="${esc(t.tag.toLowerCase())}" class="tagchip" style="font-size:11.5px;padding:4px 10px">${esc(t.tag)} · ${t.docs} <a style="cursor:pointer;color:var(--red);margin-left:4px" title="remove this tag everywhere" onclick="delTag('${esc(t.tag).replace(/'/g, "&#39;")}')">×</a></span>`).join("") || '<span class="am">no tags yet</span>'}</div>
+    </div>`;
+  sequenceReveal(host, ".reveal", 120, 50);
+}
+window.catToggle = async (id, status) => { await fetch(`/api/qlegal/category/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) }); renderTaxonomy(); };
+window.delTag = (tag) => rdConfirm("Remove tag everywhere?", `“${tag}” will be removed from the vocabulary and from every contract carrying it.`, async () => {
+  await fetch(`/api/qlegal/tag/${encodeURIComponent(tag)}`, { method: "DELETE" }); await loadRegistry(); renderTaxonomy();
+});
+window.filterCards = (cid, v) => {
+  const term = (v || "").toLowerCase().trim();
+  document.querySelectorAll(`#${cid} [data-k]`).forEach((el) => { el.style.display = !term || (el.dataset.k || "").includes(term) ? "" : "none"; });
+};
+
+// ---- Draft a contract: ask → suggested models → select → draft 1 ---------------
+async function renderDraft() {
+  const host = $("#view-draft");
+  const step1 = `<div class="wikicard reveal"><div class="rsec-lbl">1 · What do you need drafted?</div>
+    <textarea id="draftask" rows="3" style="width:100%;font-family:var(--sans);font-size:14px;border:1px solid var(--line2);border-radius:10px;padding:11px 13px;resize:vertical" placeholder="e.g. a Partnership Agreement with Northwind Labs for a joint IP product — 3-year term, Bangalore governing law, revenue share 60/40">${esc(DRAFT.ask)}</textarea>
+    <div style="margin-top:10px"><button class="btn btn--primary touch" onclick="draftSuggest()">Suggest model contracts ▸</button></div></div>`;
+  const sugg = DRAFT.sugg === null ? "" : `<div class="wikicard reveal"><div class="rsec-lbl">2 · Model it on (pick up to 3 — structure &amp; standard positions come from these)</div>
+    ${DRAFT.sugg.length ? DRAFT.sugg.map((m) => {
+      const on = DRAFT.sel.includes(Number(m.id));
+      return `<div class="treecard touch" style="${on ? "border-color:var(--org);background:#FFF7F1" : ""}" onclick="draftToggle(${m.id})">
+        <span style="width:18px;height:18px;border-radius:5px;border:1.5px solid ${on ? "var(--org)" : "var(--line2)"};background:${on ? "var(--org)" : "#fff"};color:#fff;display:grid;place-items:center;font-size:12px;flex:0 0 auto">${on ? "✓" : ""}</span>
+        <b>${esc(m.name)}</b>${m.doc_type ? ` <span class="typebadge">${esc(m.doc_type)}</span>` : ""}${m.fit ? ` <span class="am">${Math.round(m.fit * 100)}% fit</span>` : ""}
+        <span class="am" style="flex-basis:100%;margin-top:3px">${esc(m.why || "")}</span></div>`;
+    }).join("") : `<div class="empty">// nothing suitable in the repository — ingest model contracts first, then draft from them //</div>`}
+    ${DRAFT.sugg.length ? `<div style="margin-top:10px"><button class="btn btn--org touch" ${DRAFT.sel.length ? "" : "disabled"} onclick="draftRun()">Draft it from ${DRAFT.sel.length} model${DRAFT.sel.length === 1 ? "" : "s"} ▸</button></div>` : ""}</div>` ;
+  const busy = DRAFT.busy ? `<div class="wikicard reveal"><div class="cmstep now"><span class="cmi"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""></span><span>${esc(DRAFT.busy)}</span></div></div>` : "";
+  const out = DRAFT.out ? `<div class="wikicard reveal"><div class="rsec-lbl">3 · Draft 1 — modelled on ${esc((DRAFT.out.models || []).map((m) => m.name).join(" + "))}</div>
+    <div style="background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:16px 18px;max-height:56vh;overflow-y:auto;font-size:13.5px;line-height:1.7">${mdlite(DRAFT.out.draft_md)}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+      <a class="btn btn--primary touch" style="text-decoration:none" href="/api/qlegal/draft/${DRAFT.out.id}/docx">⤓ Open in Word (.docx)</a>
+      <button class="btn touch" onclick="DRAFT={ask:DRAFT.ask,sugg:null,sel:[],out:null,busy:false};renderDraft()">New draft</button>
+      <span class="am" style="align-self:center">file it into SharePoint and run your normal tracked-changes process — Q-Legal never writes there</span>
+    </div></div>` : "";
+  host.innerHTML = `<p class="intro"><b>DRAFT A CONTRACT</b> — describe what you need; the repository <b>suggests the contracts to model it on</b>; you pick; draft 1 comes out structurally complete — definitions, notices, severability appear because your models have them, not because someone remembered to ask. Gaps become [BRACKETED PLACEHOLDERS].</p>`
+    + step1 + sugg + busy + out;
+  sequenceReveal(host, ".reveal", 120, 50);
+}
+window.draftSuggest = async () => {
+  const ask = (document.getElementById("draftask")?.value || "").trim();
+  if (!ask) return rdAlert("Describe it first", "Say what contract you need — type, counterparty, subject, key commercial terms.");
+  DRAFT = { ask, sugg: null, sel: [], out: null, busy: "reading the estate — finding the best contracts to model on…" }; renderDraft();
+  try {
+    const j = await (await fetch("/api/qlegal/draft/suggest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ask }) })).json();
+    DRAFT.busy = false;
+    if (j.error) { renderDraft(); return rdAlert("Suggest failed", j.error); }
+    DRAFT.sugg = j.suggestions || [];
+    DRAFT.sel = DRAFT.sugg.slice(0, 2).map((m) => Number(m.id));   // top picks pre-selected
+    renderDraft();
+  } catch (e) { DRAFT.busy = false; renderDraft(); rdAlert("Suggest failed", String(e.message || e)); }
+};
+window.draftToggle = (id) => {
+  id = Number(id);
+  const i = DRAFT.sel.indexOf(id);
+  if (i >= 0) DRAFT.sel.splice(i, 1);
+  else { if (DRAFT.sel.length >= 3) return rdAlert("Max 3", "Model on up to 3 contracts."); DRAFT.sel.push(id); }
+  renderDraft();
+};
+window.draftRun = async () => {
+  if (!DRAFT.sel.length) return;
+  DRAFT.busy = "drafting — skeleton from your models, particulars from the ask…"; DRAFT.out = null; renderDraft();
+  try {
+    const j = await (await fetch("/api/qlegal/draft/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ask: DRAFT.ask, model_ids: DRAFT.sel }) })).json();
+    DRAFT.busy = false;
+    if (j.error) { renderDraft(); return rdAlert("Draft failed", j.error); }
+    DRAFT.out = j.draft; renderDraft(); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  } catch (e) { DRAFT.busy = false; renderDraft(); rdAlert("Draft failed", String(e.message || e)); }
+};
+
+// ---- Ask THIS contract — conversational, grounded solely in the open document --
+function askDocBox(d) {
+  const th = DOCTHREADS[d.id] || [];
+  const turns = th.map((t) => `<div class="askbox-a"><div class="askbox-q">🧑 ${esc(t.q)}</div><div class="askbox-ans">${mdlite(t.a)}</div></div>`).join("");
+  return `<div class="askbox reveal" style="margin-bottom:18px">
+    <div class="askbox-h">✦ Ask this contract <span class="askbox-s">grounded only in ${esc(d.title || d.filename)} · cites the §§ · follow-ups keep context</span></div>
+    ${turns}
+    ${DOCASKING === d.id ? `<div class="askbox-a"><div class="askbox-ans"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""> reading the contract…</div></div>` : ""}
+    <div class="askbox-in"><input id="dockaskin" placeholder="${th.length ? "ask a follow-up…" : "e.g. can we terminate early, and what would it cost us?"}" onkeydown="if(event.key==='Enter'){event.preventDefault();doAskDoc(${d.id})}"><button class="btn btn--org small touch" onclick="doAskDoc(${d.id})">Ask ▸</button></div>
+  </div>`;
+}
+window.doAskDoc = async (id) => {
+  const el = document.getElementById("dockaskin"); const qtext = (el?.value || "").trim(); if (!qtext || DOCASKING) return;
+  DOCASKING = id; renderRegistry();
+  try {
+    const history = (DOCTHREADS[id] || []).slice(-4).map((t) => ({ q: t.q, a: t.a }));
+    const r = await fetch(`/api/qlegal/document/${id}/ask`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: qtext, history }) });
+    const j = await r.json();
+    DOCASKING = null;
+    if (!r.ok) { renderRegistry(); return rdAlert("Ask failed", j.error || ""); }
+    (DOCTHREADS[id] = DOCTHREADS[id] || []).push({ q: qtext, a: j.answer });
+    renderRegistry();
+    setTimeout(() => { const e2 = document.getElementById("dockaskin"); if (e2) e2.focus(); }, 80);
+  } catch (e) { DOCASKING = null; renderRegistry(); rdAlert("Ask failed", String(e.message || e)); }
+};
+
+// ---- Browse · SharePoint files (live, read-only, with the library's own facets) --
+async function renderSpFiles() {
+  const host = $("#view-spfiles");
+  if (!SPF.data && !SPF.loading) { SPF.loading = true; host.innerHTML = `<div class="empty"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""> reading the SharePoint library…</div>`; try { SPF.data = await (await fetch(`/api/qlegal/sharepoint/files?folder=${encodeURIComponent(SPF.folder)}&q=${encodeURIComponent(SPF.q)}`)).json(); } catch (e) { SPF.data = { error: String(e.message || e) }; } SPF.loading = false; }
+  const d = SPF.data || {};
+  if (d.error) { host.innerHTML = `<p class="intro"><b>SHAREPOINT FILES</b> — browse the live library.</p><div class="empty">${esc(d.error)} — configure it in Manage → SharePoint.</div>`; return; }
+  const crumbs = [`<span class="fchip touch ${!SPF.folder ? "on" : ""}" onclick="spfGo('')">Library root</span>`]
+    .concat(SPF.folder.split("/").filter(Boolean).map((seg, i, arr) => `<span class="fchip touch" onclick="spfGo('${esc(arr.slice(0, i + 1).join("/"))}')">${esc(seg)}</span>`)).join(" / ");
+  const folders = (d.folders || []).map((f) => `<span class="fchip touch" onclick="spfGo('${esc((SPF.folder ? SPF.folder + "/" : "") + f.name)}')">📁 ${esc(f.name)}<span class="n">${f.childCount}</span></span>`).join("");
+  const kb = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
+  const rows = (d.files || []).map((f) => `<tr data-k="${esc([f.name, f.path, f.modified_by, f.doc_type].join(" ").toLowerCase())}">
+      <td><b>${esc(f.name)}</b><div class="am">${esc(f.path || "/")}</div></td>
+      <td class="am">${fmtDT(f.modified)}<div>${esc(f.modified_by)}</div></td>
+      <td class="am">${kb(f.size)}</td>
+      <td>${f.doc_id ? `<span class="typebadge">${esc(f.doc_type || "indexed")}</span>${f.doc_status === "inactive" ? ' <span class="ochip o-dismissed">inactive</span>' : ""}` : '<span class="am">not indexed</span>'}</td>
+      <td class="tacts">${f.doc_id ? `<button class="btn small touch" onclick="openDoc(${f.doc_id})">Open in Q-Legal ▸</button>` : `<button class="btn small btn--org touch" onclick="spfIngest('${esc(f.id)}',this)">Ingest now</button>`}
+        <a class="btn small touch" style="text-decoration:none" href="${esc(f.web_url)}" target="_blank">SharePoint ↗</a></td>
+    </tr>`).join("");
+  host.innerHTML = `<p class="intro"><b>SHAREPOINT FILES</b> — the live library, read-only: browse its folders, search it, see what's indexed here, pull anything in on the spot. The nightly scan keeps the rest in step.</p>
+    <div class="fstrip" style="margin-bottom:10px">${crumbs}
+      <input class="rinput" style="max-width:240px;margin-left:auto" placeholder="search the library…" value="${esc(SPF.q)}" onkeydown="if(event.key==='Enter'){event.preventDefault();spfSearch(this.value)}">
+      <button class="btn small touch" onclick="spfSearch(document.querySelector('#view-spfiles .rinput').value)">Search</button>
+      ${SPF.q ? `<button class="btn small touch" onclick="spfSearch('')">✕ clear</button>` : ""}
+    </div>
+    ${folders ? `<div class="fstrip" style="margin-bottom:12px">${folders}</div>` : ""}
+    <div class="cfilter"><input placeholder="filter this list by name, path, person, type…" oninput="filterTable('spftable',this.value)"><span class="am" id="spftable-note"></span></div>
+    ${(d.files || []).length
+      ? `<div class="scroll-x reveal"><table class="ctable" id="spftable"><thead><tr><th>File</th><th>Modified</th><th>Size</th><th>In Q-Legal</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<div class="empty">// ${SPF.q ? "no results in the library for that search" : "no files in this folder"} //</div>`}`;
+  filterTable("spftable", "");
+  sequenceReveal(host, ".reveal", 120, 50);
+}
+window.spfGo = (folder) => { SPF = { folder, q: "", data: null, loading: false }; renderSpFiles(); };
+window.spfSearch = (q) => { SPF = { ...SPF, q: (q || "").trim(), data: null, loading: false }; renderSpFiles(); };
+window.spfIngest = async (itemId, btn) => {
+  if (btn) { btn.disabled = true; btn.innerHTML = '<img class="potspin" src="/brand/assets/logos/pot.png" alt=""> ingesting…'; }
+  try {
+    const j = await (await fetch("/api/qlegal/sharepoint/ingest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ item_id: itemId }) })).json();
+    if (j.error) { rdAlert("Ingest failed", j.error); if (btn) { btn.disabled = false; btn.textContent = "Ingest now"; } return; }
+    await loadRegistry(); loadConfirmCount().then(renderNav); loadCats();
+    SPF.data = null; renderSpFiles();
+    if (j.document_id) rdAlert("Ingested", `${j.filename} is indexed${j.doc_type ? ` as ${j.doc_type}` : ""} — open it from the table.`);
+    else if (j.skipped) rdAlert("Already in", `${j.filename} was already in the repository (${j.skipped}).`);
+  } catch (e) { rdAlert("Ingest failed", String(e.message || e)); if (btn) { btn.disabled = false; btn.textContent = "Ingest now"; } }
+};
+
 async function renderLog() {
   const host = $("#view-log");
   host.innerHTML = `<div class="empty">loading…</div>`;
   try { LOG = ((await (await fetch("/api/qlegal/log?limit=150")).json()).log) || []; } catch { LOG = []; }
-  const rows = LOG.map((l) => `<tr>
+  const rows = LOG.map((l) => `<tr data-k="${esc([l.pipeline, l.provider, l.model, l.status, l.ref_type, l.input_summary, l.output_summary].join(" ").toLowerCase())}">
       <td class="am" style="white-space:nowrap">${fmtDT(l.created_at)}</td>
       <td><b>${esc(l.pipeline || "—")}</b><div class="am">${esc(l.provider || "")} ${esc(l.model || "")}</div></td>
       <td>${esc(l.status || "")}</td>
@@ -691,7 +935,8 @@ async function renderLog() {
       <td class="am">${(l.rules_applied || []).length ? esc((l.rules_applied || []).join(", ")) : "—"}</td>
     </tr>`).join("");
   host.innerHTML = `<p class="intro"><b>AI ACTIVITY</b> — every gated pipeline call, append-only: which step, which model, which business rules were injected.</p>`
-    + (LOG.length ? `<div class="scroll-x"><table class="ctable"><thead><tr><th>When</th><th>Pipeline</th><th>Mode</th><th>Ref</th><th>Input</th><th>Output</th><th>Rules applied</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    + `<div class="cfilter"><input placeholder="filter by pipeline, model, status…" oninput="filterTable('logtable',this.value)"><span class="am" id="logtable-note"></span></div>`
+    + (LOG.length ? `<div class="scroll-x"><table class="ctable" id="logtable"><thead><tr><th>When</th><th>Pipeline</th><th>Mode</th><th>Ref</th><th>Input</th><th>Output</th><th>Rules applied</th></tr></thead><tbody>${rows}</tbody></table></div>`
       : `<div class="empty">// no AI activity yet //</div>`);
 }
 

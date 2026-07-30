@@ -63,6 +63,17 @@ async function graph(token, url) {
   return j;
 }
 
+// a removal is a PROPOSAL — the derived layer keeps everything until a human says
+// "make inactive" in the confirm queue (the ask-to-make-inactive flow)
+async function proposeRemoval(spItemId, why) {
+  const doc = (await q(`select id, filename from ql_document where sp_item_id=$1 and coalesce(status,'active')<>'inactive'`, [spItemId])).rows[0];
+  if (!doc) return;
+  const open = (await q(`select 1 from ql_confirm where document_id=$1 and kind='removal' and status='open' limit 1`, [doc.id])).rows[0];
+  if (open) return;
+  await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why) values('removal',$1,$2::jsonb,1,$3)`,
+    [doc.id, JSON.stringify({ action: "mark_inactive" }), clip(why, 200)]).catch(() => {});
+}
+
 export async function testSharePoint() {
   const row = await getSyncRow();
   const c = row.config || {};
@@ -93,12 +104,16 @@ export async function scanSharePoint(ingestOne, { full = false } = {}) {
     let url = (!full && row.delta_link) ? row.delta_link
       : `https://graph.microsoft.com/v1.0${drivePath}/root${c.folder ? `:/${encodeURIComponent(c.folder)}:` : ""}/delta`;
     let deltaLink = null;
+    const seenIds = new Set();          // full walk: everything still in the library
     const tmp = mkdtempSync(join(tmpdir(), "qlsync-"));
     try {
       while (url) {
         const page = await graph(token, url);
         for (const item of page.value || []) {
-          if (!item.file || item.deleted) continue;
+          // a delta can report a deletion explicitly → propose marking inactive
+          if (item.deleted && item.id) { await proposeRemoval(item.id, "removed from the SharePoint library (delta)"); out.removed = (out.removed || 0) + 1; continue; }
+          if (!item.file) continue;
+          if (item.id) seenIds.add(item.id);
           if (!CONTRACT_EXT.test(item.name || "")) continue;
           out.seen++;
           try {
@@ -125,6 +140,14 @@ export async function scanSharePoint(ingestOne, { full = false } = {}) {
         url = page["@odata.nextLink"] || null;
       }
     } finally { try { rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ } }
+    // a FULL walk saw the whole library: any active SP-sourced doc we did NOT see
+    // is gone from SharePoint → propose marking it inactive (never auto-delete)
+    if (full) {
+      const spDocs = (await q(`select id, sp_item_id, filename from ql_document where sp_item_id is not null and coalesce(status,'active')<>'inactive'`)).rows;
+      for (const d of spDocs) {
+        if (!seenIds.has(d.sp_item_id)) { await proposeRemoval(d.sp_item_id, "no longer found in the SharePoint library (full sweep)"); out.removed = (out.removed || 0) + 1; }
+      }
+    }
     if (deltaLink) await q(`update ql_sync set delta_link=$1 where id=1`, [deltaLink]);
   } catch (e) { out.ok = false; out.error = clip(e.message, 200); }
   out.ms = Date.now() - started;
@@ -134,6 +157,60 @@ export async function scanSharePoint(ingestOne, { full = false } = {}) {
     [full ? "full scan" : "delta scan", clip(`seen ${out.seen} · ingested ${out.ingested} · skipped ${out.skipped} · errors ${out.errors.length}`, 400),
      out.ok ? "ok" : `error: ${out.error}`]).catch(() => {});
   return out;
+}
+
+// ---- browse the library live (read-only): folder listing + Graph search ------
+export async function listSharePoint({ folder = "", search = "" } = {}) {
+  const row = await getSyncRow();
+  const c = row.config || {};
+  if (!ready(c)) return { error: "SharePoint is not configured — open Manage → SharePoint" };
+  const token = await graphToken(c);
+  const drivePath = c.drive_id
+    ? `/sites/${encodeURIComponent(c.site_id)}/drives/${encodeURIComponent(c.drive_id)}`
+    : `/sites/${encodeURIComponent(c.site_id)}/drive`;
+  const base = c.folder ? `${c.folder}${folder ? "/" + folder : ""}` : folder;
+  const url = search
+    ? `${drivePath}/root${base ? `:/${encodeURIComponent(base)}:` : ""}/search(q='${encodeURIComponent(search.replace(/'/g, ""))}')?$top=60`
+    : `${drivePath}/root${base ? `:/${encodeURIComponent(base)}:` : ""}/children?$top=200&$orderby=lastModifiedDateTime desc`;
+  const page = await graph(token, url);
+  const items = (page.value || []).map((i) => ({
+    id: i.id, name: i.name, isFolder: !!i.folder, childCount: i.folder?.childCount || 0,
+    size: i.size || 0, modified: i.lastModifiedDateTime || "", modified_by: i.lastModifiedBy?.user?.displayName || "",
+    path: String(i.parentReference?.path || "").replace(/^\/drives\/[^/]+\/root:?\/?/, ""), web_url: i.webUrl || "",
+  }));
+  // cross-reference: which of these are already indexed in Q-Legal?
+  const ids = items.filter((i) => !i.isFolder).map((i) => i.id);
+  const known = ids.length ? (await q(`select id, sp_item_id, doc_type, status from ql_document where sp_item_id = any($1)`, [ids])).rows : [];
+  const byItem = Object.fromEntries(known.map((k) => [k.sp_item_id, k]));
+  for (const i of items) { const k = byItem[i.id]; if (k) { i.doc_id = k.id; i.doc_type = k.doc_type; i.doc_status = k.status; } }
+  return { files: items.filter((i) => !i.isFolder), folders: items.filter((i) => i.isFolder), base: base || "" };
+}
+
+// pull ONE file from the library through the ingestion pipeline (the "Ingest now"
+// button in the SharePoint browser) — same read-only access, same pipeline.
+export async function ingestSharePointItem(ingestOne, itemId) {
+  const row = await getSyncRow();
+  const c = row.config || {};
+  if (!ready(c)) return { error: "SharePoint is not configured" };
+  const token = await graphToken(c);
+  const drivePath = c.drive_id
+    ? `/sites/${encodeURIComponent(c.site_id)}/drives/${encodeURIComponent(c.drive_id)}`
+    : `/sites/${encodeURIComponent(c.site_id)}/drive`;
+  const item = await graph(token, `${drivePath}/items/${encodeURIComponent(itemId)}`);
+  if (!item.file) return { error: "that item is a folder" };
+  const dl = item["@microsoft.graph.downloadUrl"];
+  if (!dl) return { error: "no download url for that item" };
+  const fr = await fetch(dl, { signal: AbortSignal.timeout(60000) });
+  const buf = Buffer.from(await fr.arrayBuffer());
+  const tmp = mkdtempSync(join(tmpdir(), "qlsp-"));
+  const p = join(tmp, clip(item.name, 80).replace(/[^\w.-]/g, "_"));
+  try {
+    writeFileSync(p, buf);
+    return await ingestOne({ path: p, originalname: item.name }, {
+      source: "sharepoint", spItemId: item.id,
+      spMeta: { sp_ctag: item.cTag || "", sp_web_url: item.webUrl || "", sp_modified: item.lastModifiedDateTime || "", sp_modified_by: item.lastModifiedBy?.user?.displayName || "" },
+    });
+  } finally { try { rmSync(tmp, { recursive: true, force: true }); } catch { /* ignore */ } }
 }
 
 // ---- nightly 02:00 IST scheduler (in-process) --------------------------------
