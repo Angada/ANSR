@@ -9,10 +9,12 @@ import { extname } from "node:path";
 import { createHash } from "node:crypto";
 import { q } from "./db/client.js";
 import { extractFile, toMarkdown } from "./extract.js";
-import { putOriginal, putExtract, getExtract } from "./storage.js";
+import { putOriginal, putExtract, getExtract, getOriginal } from "./storage.js";
 import { runPipeline } from "./ai.js";
 
 const TENANT = "Q-LEGAL"; // ring-fenced storage namespace (vault + docstore)
+// business-rule scopes → which pipeline step each rule set is injected into
+const SCOPES = ["global", "ingestion", "registers", "search", "obligations", "drafting"];
 
 // pull the first JSON object out of an LLM reply (tolerates prose / code fences)
 function jparse(text) {
@@ -46,14 +48,21 @@ async function logRun(out, { ref_type, ref_id, rules, input, output } = {}) {
 }
 
 // ---- caller-side output contracts (immune to stored-prompt drift) ------------
+// C2 — the concise key, built from C1. Carries BOTH wikis every document gets:
+// the CONTENTS wiki (the document's own structure, so you can navigate it without
+// re-reading) and the CLAUSE wiki (every clause, its topic and gist, with § anchors).
+// Those two are what make an estate queryable fast; C1 is the deep read behind them.
 const KEY_CONTRACT = `Return STRICT JSON only, no prose:
 {"meta":{"title":"the contract's own title","doc_type":"MSA|SOW|NDA|Amendment|DPA|Employment|Lease|SaaS|Services|Supply|Other",
  "party1":"","party2":"","counterparty":"the non-us party (or party2)","effective_date":"YYYY-MM-DD or \\"\\"","expiry_date":"YYYY-MM-DD or \\"\\"",
  "governing_law":"","value":"contract value as printed or \\"\\"","auto_renewal":true|false,"notice_period":"as printed or \\"\\"","executed":true|false},
  "summary":"2-4 plain sentences on what this contract is",
  "tags":["lowercase tags from the controlled vocabulary where possible"],
- "clauses":[{"ref":"§ as printed","label":"2-4 word topic","gist":"one line"}],
+ "contents":[{"ref":"§ as printed","heading":"the heading as printed","page":"if shown, else \\"\\""}],
+ "clauses":[{"ref":"§ as printed","label":"2-4 word topic","gist":"one line of what it actually says"}],
+ "exhibits":[{"ref":"","title":"schedules, annexures, exhibits as printed"}],
  "notice":{"notice_clauses":[{"ref":"","what":"","method":"","days":""}],"notice_contacts":[""],"change_of_control":[{"ref":"","requires":"notice|consent"}]}}
+"contents" = the document's table of contents (its own structure, in order). "clauses" = every substantive clause with its topic.
 Use ONLY what the document states — empty string when not stated. Never invent § references; use what the document prints.`;
 
 const OBLIG_CONTRACT = `Return STRICT JSON only, no prose:
@@ -61,6 +70,17 @@ const OBLIG_CONTRACT = `Return STRICT JSON only, no prose:
  "due_date":"YYYY-MM-DD or \\"\\"","frequency":"one_time|monthly|quarterly|annual","ref":"§ as printed"}]}
 Extract the dated lifecycle obligations (expiry, renewal window, termination-notice deadline) AND the post-execution deliverables/SLAs
 (reports, certificates, insurance, audits). Cite the § for every one. Only what the contract actually states.`;
+
+// Registers = "C2 you define". C1/C2 are the fixed universal layers; a register
+// is a standing question the legal team writes once and has answered for EVERY
+// contract, with § evidence — so "which of our contracts…" is one query, not a
+// re-read of the estate. All active registers are answered in ONE call per doc.
+const REGISTER_CONTRACT = `Return STRICT JSON only, no prose:
+{"answers":[{"code":"<the register code, exactly as given>","present":"yes|no|unclear",
+ "answer":"one plain-English line answering the question for THIS contract",
+ "value":"the key number/term asked for, or \\"\\"","refs":["§ as printed"],"confidence":0-1}]}
+Answer EVERY register in the list, in order. "present":"no" when the contract genuinely does not deal with it
+(say so in the answer); "unclear" when the text is ambiguous — never guess a "yes". Cite the § for every "yes".`;
 
 const LINK_CONTRACT = `Return STRICT JSON only, no prose:
 {"parent_id": <id of the governing/parent document from the candidate list, or null>,
@@ -92,7 +112,10 @@ async function ingestFile(f, { actor = "you" } = {}) {
   )).rows[0];
 
   try {
-    // STEP · read (deterministic; Munshi vision-OCR fallback for scans)
+    // STEP · C1 — the comprehensive read (Munshi): text, tables and, for scanned /
+    // image-only pages, the vision transcription (gated `munshi3:read`, which
+    // preserves tables and describes what the text layer flattens). This is the
+    // deep substrate every later layer is built from and falls back to.
     const extract = await extractFile(f.path, f.originalname);
     const c1 = clip(extract.text, 400000);
     if (!c1.trim()) throw new Error("could not read any text from that file");
@@ -101,6 +124,9 @@ async function ingestFile(f, { actor = "you" } = {}) {
     await putExtract(TENANT, c1DocId, toMarkdown({ docType: "contract", originalName: f.originalname, sha256, extract }));
     await q(`update ql_version set storage_path=$2, c1_doc_id=$3, c1_text=$4, ocr=$5 where id=$1`,
       [ver.id, storagePath, c1DocId, c1, !!extract.ocr]);
+    // the C1 step is owned + traceable like every other step
+    await logRun({ pipeline: "qlegal-c1", mode: extract.ocr ? "vision-ocr" : "deterministic", model: extract.ocr ? "munshi3:read" : null },
+      { ref_type: "version", ref_id: ver.id, input: f.originalname, output: `C1 · ${c1.length} chars${extract.ocr ? ` · ${extract.pages || "?"} pages via vision` : ""}` });
 
     // STEP · concise key (C2) — gated qlegal-key + ingestion business rules
     const rules = await rulesFor("ingestion");
@@ -114,7 +140,11 @@ async function ingestFile(f, { actor = "you" } = {}) {
     const meta = kp.meta || {};
     const tags = [...new Set([...(Array.isArray(kp.tags) ? kp.tags : []).map((t) => String(t).toLowerCase().trim()).filter(Boolean),
       ...(extract.ocr ? ["scanned-source"] : []), ...(meta.executed ? ["executed"] : [])])].slice(0, 12);
-    const c2 = { meta, summary: kp.summary || "", tags, clauses: (kp.clauses || []).slice(0, 400), notice: kp.notice || {}, mode: out.mode };
+    const c2 = { meta, summary: kp.summary || "", tags,
+      contents: (kp.contents || []).slice(0, 300),      // the contents wiki (navigate without re-reading)
+      clauses: (kp.clauses || []).slice(0, 400),        // the clause wiki (what each § actually says)
+      exhibits: (kp.exhibits || []).slice(0, 60),
+      notice: kp.notice || {}, mode: out.mode };
     await q(`update ql_version set c2=$2::jsonb, is_executed=$3, status='done', error=null where id=$1`,
       [ver.id, JSON.stringify(c2), !!meta.executed]);
     await q(
@@ -154,6 +184,11 @@ async function ingestFile(f, { actor = "you" } = {}) {
       }
     } catch { /* obligations are best-effort — the document still lands */ }
 
+    // STEP · registers — every standing question the legal team has defined,
+    // answered for this contract (the open-ended layer above C2).
+    try { await runRegisters(doc.id, { c1, docType: meta.doc_type }); }
+    catch { /* registers are best-effort — the document still lands */ }
+
     // STEP · version diff — only when there is a previous version (lazy-versioning rule)
     if (versionNo > 1) {
       try {
@@ -178,6 +213,49 @@ async function ingestFile(f, { actor = "you" } = {}) {
   }
 }
 
+// ---- registers: answer every active standing question for one document ------
+// One gated call per document covering all registers (cheap + consistent).
+// Persisted per document, so a sweep over the estate is resumable.
+async function runRegisters(docId, { c1, docType } = {}) {
+  const regs = (await q(`select id, code, name, question, extract_hint, doc_types from ql_register where status='active' order by id`)).rows;
+  const applicable = regs.filter((r) => !(r.doc_types || []).length || (docType && (r.doc_types || []).map(String).some((t) => t.toLowerCase() === String(docType).toLowerCase())));
+  if (!applicable.length) return 0;
+  let text = c1;
+  if (!text) text = (await q(`select v.c1_text from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version where d.id=$1`, [docId])).rows[0]?.c1_text;
+  if (!text) return 0;
+  const verId = (await q(`select v.id from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version where d.id=$1`, [docId])).rows[0]?.id || null;
+
+  const rules = await rulesFor("registers");
+  const out = await runPipeline("qlegal-register", {
+    system: [rules.text, REGISTER_CONTRACT].filter(Boolean).join("\n\n"),
+    user: `Standing questions to answer about this contract:\n${JSON.stringify(applicable.map((r) => ({ code: r.code, question: r.question, value_wanted: r.extract_hint || "" })))}\n\nContract:\n${clip(text, 50000)}`,
+    maxTokens: 3000,
+  });
+  await logRun(out, { ref_type: "document", ref_id: docId, rules: rules.codes, input: `${applicable.length} registers`, output: "register answers" });
+  const parsed = jparse(out.text);
+  if (!parsed?.answers?.length) return 0;
+  const byCode = Object.fromEntries(applicable.map((r) => [r.code, r]));
+  let n = 0;
+  for (const a of parsed.answers) {
+    const reg = byCode[a?.code];
+    if (!reg) continue;
+    const present = ["yes", "no", "unclear"].includes(a.present) ? a.present : "unclear";
+    // never clobber a human-confirmed/corrected answer (the confirm-don't-guess rule)
+    await q(
+      `insert into ql_register_hit(register_id, document_id, version_id, present, answer, value, refs, confidence)
+       values($1,$2,$3,$4,$5,$6,$7::jsonb,$8)
+       on conflict (register_id, document_id) do update set
+         present=excluded.present, answer=excluded.answer, value=excluded.value, refs=excluded.refs,
+         confidence=excluded.confidence, version_id=excluded.version_id, updated_at=now()
+       where ql_register_hit.status='auto'`,
+      [reg.id, docId, verId, present, clip(a.answer, 600), clip(a.value, 200),
+       JSON.stringify(Array.isArray(a.refs) ? a.refs.slice(0, 8) : []), Number(a.confidence) || null]
+    ).catch(() => {});
+    n++;
+  }
+  return n;
+}
+
 // ---- doc tree: propose a parent for one document (gated qlegal-link) ---------
 async function proposeLinks(docId) {
   const doc = (await q(`select id, filename, title, doc_type, party1, party2, summary from ql_document where id=$1`, [docId])).rows[0];
@@ -195,7 +273,8 @@ async function proposeLinks(docId) {
   });
   await logRun(out, { ref_type: "document", ref_id: docId, rules: rules.codes, input: doc.filename, output: "link proposal" });
   const lp = jparse(out.text);
-  if (!lp || !lp.parent_id || !cands.some((c) => c.id === Number(lp.parent_id))) return;
+  // NB: Postgres returns bigint ids as STRINGS — compare numerically, never strictly.
+  if (!lp || !lp.parent_id || !cands.some((c) => Number(c.id) === Number(lp.parent_id))) return;
   await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why) values('link',$1,$2::jsonb,$3,$4)`,
     [docId, JSON.stringify({ parent_id: Number(lp.parent_id), relation_kind: clip(lp.relation_kind, 20) || "references" }),
      Number(lp.confidence) || 0, clip(lp.why, 240)]);
@@ -234,10 +313,15 @@ export function mountQLegal(app, upload) {
       results.push(await ingestFile(f));                      // persisted per file as it completes
       try { rmSync(f.path); } catch { /* ignore */ }
     }
-    // tree link + lineage proposals for the docs that landed (best-effort, non-blocking)
-    (async () => {
-      for (const r of results) if (r.document_id) { await proposeLinks(r.document_id).catch(() => {}); await proposeLineage(r.document_id).catch(() => {}); }
-    })();
+    // Tree-link + lineage proposals must finish BEFORE we respond: Cloud Run
+    // throttles CPU once the response is sent, so fire-and-forget work after
+    // res.json() silently never runs. Best-effort per doc — a failure here
+    // never loses the ingested document.
+    for (const r of results) {
+      if (!r.document_id) continue;
+      await proposeLinks(r.document_id).catch(() => {});
+      await proposeLineage(r.document_id).catch(() => {});
+    }
     res.json({ results });
   });
 
@@ -267,20 +351,48 @@ export function mountQLegal(app, upload) {
     const children = (await q(`select id, filename, title, doc_type, relation_kind, relation_status from ql_document where parent_id=$1 order by id`, [id])).rows;
     const parent = doc.parent_id ? (await q(`select id, filename, title, doc_type from ql_document where id=$1`, [doc.parent_id])).rows[0] : null;
     const confirms = (await q(`select * from ql_confirm where document_id=$1 and status='open' order by id`, [id])).rows;
-    res.json({ document: doc, versions, c2, obligations, children, parent, confirms });
+    // this document's answer to every standing question the team has defined
+    const registers = (await q(
+      `select h.id, h.present, h.answer, h.value, h.refs, h.status, r.id as register_id, r.name, r.question
+         from ql_register_hit h join ql_register r on r.id=h.register_id
+        where h.document_id=$1 and r.status='active' order by r.builtin desc, r.id`, [id]
+    )).rows;
+    res.json({ document: doc, versions, c2, obligations, children, parent, confirms, registers });
   });
   app.delete("/api/qlegal/document/:id", async (req, res) => {
     await q(`delete from ql_document where id=$1`, [Number(req.params.id)]); // cascades versions/obligations/confirms
     res.json({ ok: true });
   });
 
-  // serve a version's C1 transcript (the doc×api switch — never the original)
+  // The three ways into a document, from any screen:
+  //   C1 — the comprehensive transcript (the deep read)
+  //   C2 — the concise key + the contents & clause wikis (what queries run on)
+  //   original — our vault snapshot of the file itself (the authority)
   app.get("/api/qlegal/c1/:versionId", async (req, res) => {
     const v = (await q(`select c1_doc_id, c1_text from ql_version where id=$1`, [Number(req.params.versionId)])).rows[0];
     if (!v) return res.status(404).send("not found");
     const md = (v.c1_doc_id && await getExtract(TENANT, v.c1_doc_id)) || v.c1_text || "";
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.send(md);
+  });
+  app.get("/api/qlegal/c2/:versionId", async (req, res) => {
+    const v = (await q(`select c2 from ql_version where id=$1`, [Number(req.params.versionId)])).rows[0];
+    if (!v) return res.status(404).json({ error: "not found" });
+    res.json(v.c2 || {});
+  });
+  app.get("/api/qlegal/original/:versionId", async (req, res) => {
+    const v = (await q(
+      `select v.storage_path, v.version_no, d.filename from ql_version v join ql_document d on d.id=v.document_id where v.id=$1`,
+      [Number(req.params.versionId)]
+    )).rows[0];
+    if (!v) return res.status(404).send("not found");
+    const buf = await getOriginal(v.storage_path);
+    if (!buf) return res.status(404).send("the original snapshot is no longer in the vault");
+    const base = String(v.filename || "document").replace(/\.[^.]+$/, "");
+    const e = extname(v.filename || "") || "";
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `inline; filename="${base}-v${v.version_no}${e}"`);
+    res.send(buf);
   });
 
   // ---- global search: facts + full-text over C1 (hybrid; vectors arrive P2) ---
@@ -309,42 +421,183 @@ export function mountQLegal(app, upload) {
     res.json({ hits: [...fts.map((h) => ({ ...h, via: "text" })), ...facts.filter((f) => !seen.has(f.id)).map((f) => ({ ...f, via: "facts" }))] });
   });
 
-  // ---- Ask the repository: NL answers grounded in FTS hits + registry facts ---
+  // ---- Ask the repository — the RETRIEVAL LADDER --------------------------------
+  // A lawyer's questions are infinite, so retrieval is layered, cheapest first:
+  //   rung 1 · C2 + registers  — structured, whole-estate, instant (answers "which
+  //            of our contracts…" across 1000 docs without reading one of them)
+  //   rung 2 · the CLAUSE + CONTENTS wikis of the documents that look relevant
+  //   rung 3 · C1 deep text of the few best-matching documents
+  //   rung 4 · the original file — never read by the model; cited as the authority
+  // Only the rungs a question needs are climbed, so cost tracks difficulty.
   app.post("/api/qlegal/ask", async (req, res) => {
     const question = clip(req.body?.question, 500).trim();
     if (!question) return res.status(400).json({ error: "no question" });
+    // conversation: the last few turns travel with the question so follow-ups
+    // ("and the SOW?", "what about the cap there?") keep their context.
+    const history = (Array.isArray(req.body?.history) ? req.body.history : []).slice(-4)
+      .map((t) => ({ q: clip(t?.q, 400), a: clip(t?.a, 1200) })).filter((t) => t.q);
     try {
-      // grounding: top text hits (OR-ranked) with generous context + the estate shape
-      const tsq = orQuery(question);
+      const rungs = [];
+      // rung 1 — the structured estate: shape, facts, register answers, obligations
+      const estate = (await q(`select coalesce(doc_type,'unclassified') t, count(*) c from ql_document group by 1`)).rows;
+      const regAnswers = (await q(
+        `select r.name, r.question, d.id, coalesce(d.title, d.filename) as doc, h.present, h.answer, h.value, h.refs
+           from ql_register_hit h join ql_register r on r.id=h.register_id join ql_document d on d.id=h.document_id
+          where r.status='active' order by r.id, d.id limit 400`
+      )).rows;
+      const soon = (await q(
+        `select d.filename, o.kind, o.what, o.due_date from ql_obligation o join ql_document d on d.id=o.document_id
+          where o.status in ('proposed','confirmed') and o.due_date between current_date and current_date + 120 order by o.due_date limit 15`
+      )).rows;
+      rungs.push("C2/REGISTERS (structured, whole estate)");
+
+      // rung 2/3 — the documents that actually match the words of the question.
+      // A follow-up ("and the cap there?") carries little signal on its own, so
+      // search on the conversation's words too.
+      const tsq = orQuery([history.map((t) => t.q).join(" "), question].join(" ").trim());
       const hits = tsq ? (await q(
-        `select d.id, d.filename, d.title, d.doc_type, v.c1_text,
+        `select d.id, d.filename, d.title, d.doc_type, v.c1_text, v.c2,
                 ts_rank(to_tsvector('english', coalesce(v.c1_text,'')), websearch_to_tsquery('english', $1)) as rank
            from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version
           where to_tsvector('english', coalesce(v.c1_text,'')) @@ websearch_to_tsquery('english', $1)
           order by rank desc limit 4`, [tsq]
       )).rows : [];
-      const estate = (await q(`select coalesce(doc_type,'unclassified') t, count(*) c from ql_document group by 1`)).rows;
-      const soon = (await q(
-        `select d.filename, o.kind, o.what, o.due_date from ql_obligation o join ql_document d on d.id=o.document_id
-          where o.status in ('proposed','confirmed') and o.due_date between current_date and current_date + 120 order by o.due_date limit 15`
-      )).rows;
+      if (hits.length) rungs.push("CLAUSE+CONTENTS WIKIS", "C1 deep text");
+
+      const regBlock = regAnswers.length
+        ? "REGISTER ANSWERS (a standing question, already answered for every contract — use these for “which of our contracts…” questions):\n"
+          + regAnswers.map((r) => `- [${r.id}] ${r.doc} · ${r.name}: ${r.present}${r.value ? ` (${r.value})` : ""} — ${r.answer || ""} ${(r.refs || []).join(" ")}`).join("\n")
+        : "";
+      const wikiBlock = hits.map((h) => {
+        const c2 = h.c2 || {};
+        const contents = (c2.contents || []).map((x) => `${x.ref || ""} ${x.heading || ""}`).join(" · ");
+        const clauses = (c2.clauses || []).map((x) => `${x.ref || ""} ${x.label || ""}: ${x.gist || ""}`).join("\n  ");
+        return `DOCUMENT [${h.id}] ${h.title || h.filename} (${h.doc_type || "?"})\n CONTENTS WIKI: ${contents || "—"}\n CLAUSE WIKI:\n  ${clauses || "—"}`;
+      }).join("\n\n");
+      const deepBlock = hits.map((h) => `DEEP TEXT (C1) — [${h.id}] ${h.title || h.filename}:\n${clip(h.c1_text, 10000)}`).join("\n\n");
+
       const ctx = [
         `REPOSITORY SHAPE: ${estate.map((e) => `${e.t}: ${e.c}`).join(" · ") || "empty"}`,
+        regBlock,
         soon.length ? `UPCOMING OBLIGATIONS (120 days): ${soon.map((s) => `${s.filename} — ${s.what} (${s.due_date ? String(s.due_date).slice(0, 10) : "?"})`).join(" | ")}` : "",
-        ...hits.map((h) => `DOCUMENT [${h.id}] ${h.title || h.filename} (${h.doc_type || "?"}):\n${clip(h.c1_text, 12000)}`),
+        wikiBlock, deepBlock,
       ].filter(Boolean).join("\n\n");
+
       const rules = await rulesFor("search");
       const out = await runPipeline("qlegal-ask", {
-        system: [rules.text, `Answer ONLY from the repository context below. Cite the document name AND the § for every claim; if the context doesn't contain the answer, say what's missing — never guess. Be concise and practical.\n\n${ctx}`].filter(Boolean).join("\n\n"),
+        system: [rules.text, `Answer ONLY from the repository context below, which is layered: the structured estate (register answers + facts) covers EVERY contract, then the clause/contents wikis, then the deep text of the closest documents.
+For "which of our contracts…" questions, answer from the register answers — they already cover the whole estate — and say how many contracts you checked.
+Cite the document name AND the § for every claim. If the answer isn't in the context, say exactly what is missing and suggest adding it as a standing register question — never guess.
+
+${ctx}${history.length ? `\n\nTHE CONVERSATION SO FAR (the question may be a follow-up to it):\n${history.map((t) => `Q: ${t.q}\nA: ${t.a}`).join("\n\n")}` : ""}`].filter(Boolean).join("\n\n"),
         user: question,
-        maxTokens: 1200,
+        maxTokens: 1500,
       });
       await logRun(out, { ref_type: "ask", rules: rules.codes, input: question, output: clip(out.text, 400) });
       res.json({
         answer: out.mode === "ai" ? out.text : "(no answer — point the Q-Legal pipelines at a keyed model in AI Skills & Pipelines)",
-        mode: out.mode, sources: hits.map((h) => ({ id: h.id, name: h.title || h.filename })),
+        mode: out.mode, rungs, sources: hits.map((h) => ({ id: h.id, name: h.title || h.filename })),
       });
     } catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+
+  // ---- Registers — the open-ended layer: whatever the legal team asks ----------
+  app.get("/api/qlegal/registers", async (_req, res) => {
+    const registers = (await q(
+      `select r.*,
+              (select count(*) from ql_register_hit h where h.register_id=r.id) as answered,
+              (select count(*) from ql_register_hit h where h.register_id=r.id and h.present='yes') as yes_count,
+              (select count(*) from ql_register_hit h where h.register_id=r.id and h.present='unclear') as unclear_count
+         from ql_register r order by r.builtin desc, r.id`
+    )).rows;
+    const total = Number((await q(`select count(*) c from ql_document`)).rows[0]?.c || 0);
+    res.json({ registers, total_documents: total });
+  });
+  app.post("/api/qlegal/registers", async (req, res) => {
+    const { name, question, extract_hint, doc_types } = req.body || {};
+    if (!name || !question) return res.status(400).json({ error: "name + question required" });
+    const code = clip(String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""), 50) + "-" + Date.now().toString(36).slice(-4);
+    const rows = (await q(
+      `insert into ql_register(code, name, question, extract_hint, doc_types) values($1,$2,$3,$4,$5::jsonb) returning *`,
+      [code, clip(name, 80), clip(question, 600), clip(extract_hint, 200), JSON.stringify(Array.isArray(doc_types) ? doc_types : [])]
+    )).rows;
+    res.json({ register: rows[0] });   // client then calls /registers/run to backfill the estate
+  });
+  app.post("/api/qlegal/register/:id", async (req, res) => {
+    const { name, question, extract_hint, status } = req.body || {};
+    const rows = (await q(
+      `update ql_register set name=coalesce($2,name), question=coalesce($3,question),
+        extract_hint=coalesce($4,extract_hint), status=coalesce($5,status), updated_at=now() where id=$1 returning *`,
+      [Number(req.params.id), name ? clip(name, 80) : null, question ? clip(question, 600) : null,
+       extract_hint !== undefined ? clip(extract_hint, 200) : null, ["active", "off"].includes(status) ? status : null]
+    )).rows;
+    if (!rows[0]) return res.status(404).json({ error: "not found" });
+    res.json({ register: rows[0] });
+  });
+  app.delete("/api/qlegal/register/:id", async (req, res) => {
+    await q(`delete from ql_register where id=$1`, [Number(req.params.id)]);   // cascades hits
+    res.json({ ok: true });
+  });
+
+  // The estate-wide answer table for one standing question.
+  app.get("/api/qlegal/register/:id/hits", async (req, res) => {
+    const id = Number(req.params.id);
+    const register = (await q(`select * from ql_register where id=$1`, [id])).rows[0];
+    if (!register) return res.status(404).json({ error: "not found" });
+    const hits = (await q(
+      `select h.*, d.filename, d.title, d.doc_type, d.party1, d.party2
+         from ql_register_hit h join ql_document d on d.id=h.document_id
+        where h.register_id=$1
+        order by (h.present='yes') desc, (h.present='unclear') desc, d.id`, [id]
+    )).rows;
+    const missing = Number((await q(
+      `select count(*) c from ql_document d where not exists(select 1 from ql_register_hit h where h.register_id=$1 and h.document_id=d.id)`, [id]
+    )).rows[0]?.c || 0);
+    res.json({ register, hits, not_yet_answered: missing });
+  });
+
+  // Backfill sweep: answer the active registers for documents that don't have them
+  // yet (a new question asked today gets answered across the whole estate).
+  // Per-document persisted → resumable; capped per call so the request returns.
+  app.post("/api/qlegal/registers/run", async (req, res) => {
+    const limit = Math.min(Number(req.body?.limit) || 25, 100);
+    const registerId = req.body?.register_id ? Number(req.body.register_id) : null;
+    try {
+      const docs = (await q(
+        `select d.id, d.doc_type from ql_document d
+          where exists(select 1 from ql_version v where v.document_id=d.id and v.c1_text is not null)
+            and exists(
+              select 1 from ql_register r
+               where r.status='active' and ($1::bigint is null or r.id=$1)
+                 and not exists(select 1 from ql_register_hit h where h.register_id=r.id and h.document_id=d.id))
+          order by d.id limit $2`, [registerId, limit]
+      )).rows;
+      let done = 0;
+      for (const d of docs) { const n = await runRegisters(d.id, { docType: d.doc_type }).catch(() => 0); if (n) done++; }
+      const remaining = Number((await q(
+        `select count(*) c from ql_document d
+          where exists(select 1 from ql_version v where v.document_id=d.id and v.c1_text is not null)
+            and exists(select 1 from ql_register r where r.status='active' and ($1::bigint is null or r.id=$1)
+              and not exists(select 1 from ql_register_hit h where h.register_id=r.id and h.document_id=d.id))`, [registerId]
+      )).rows[0]?.c || 0);
+      res.json({ processed: done, remaining });
+    } catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+
+  // Correct a register answer — instantly authoritative + banked as a learning label.
+  app.post("/api/qlegal/register-hit/:id", async (req, res) => {
+    const { present, answer, value } = req.body || {};
+    const cur = (await q(`select * from ql_register_hit where id=$1`, [Number(req.params.id)])).rows[0];
+    if (!cur) return res.status(404).json({ error: "not found" });
+    const rows = (await q(
+      `update ql_register_hit set present=coalesce($2,present), answer=coalesce($3,answer), value=coalesce($4,value),
+        status='corrected', updated_at=now() where id=$1 returning *`,
+      [cur.id, ["yes", "no", "unclear"].includes(present) ? present : null,
+       answer !== undefined ? clip(answer, 600) : null, value !== undefined ? clip(value, 200) : null]
+    )).rows;
+    await q(`insert into ql_feedback(surface, document_id, field, was, corrected, actor) values('register',$1,$2,$3,$4,'you')`,
+      [cur.document_id, `register:${cur.register_id}`, clip(`${cur.present} — ${cur.answer}`, 400), clip(`${present || cur.present} — ${answer ?? cur.answer}`, 400)]).catch(() => {});
+    res.json({ hit: rows[0] });
   });
 
   // ---- obligations (the task engine) ------------------------------------------
@@ -409,7 +662,7 @@ export function mountQLegal(app, upload) {
     if (!title || !body) return res.status(400).json({ error: "title + body required" });
     const code = clip(String(title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""), 60) + "-" + Date.now().toString(36).slice(-4);
     const rows = (await q(`insert into ql_rule(code, title, body, scope) values($1,$2,$3,$4) returning *`,
-      [code, clip(title, 160), clip(body, 2000), ["global", "ingestion", "search", "obligations", "drafting"].includes(scope) ? scope : "global"])).rows;
+      [code, clip(title, 160), clip(body, 2000), SCOPES.includes(scope) ? scope : "global"])).rows;
     res.json({ rule: rows[0] });
   });
   app.post("/api/qlegal/rule/:id", async (req, res) => {
@@ -418,7 +671,7 @@ export function mountQLegal(app, upload) {
       `update ql_rule set title=coalesce($2,title), body=coalesce($3,body), scope=coalesce($4,scope),
         status=coalesce($5,status), version=version+1, updated_at=now() where id=$1 returning *`,
       [Number(req.params.id), title ? clip(title, 160) : null, body ? clip(body, 2000) : null,
-       ["global", "ingestion", "search", "obligations", "drafting"].includes(scope) ? scope : null,
+       SCOPES.includes(scope) ? scope : null,
        ["active", "off"].includes(status) ? status : null]
     )).rows;
     if (!rows[0]) return res.status(404).json({ error: "not found" });

@@ -50,6 +50,24 @@ export async function putOriginal(customer, sha256, ext, buf) {
   return abs;
 }
 
+// Read back a T1 original by the storage_path putOriginal returned (disk path in
+// dev, `bucket:<bucket>/<key>` in prod). Returns a Buffer, or null if it's gone.
+export async function getOriginal(storagePath) {
+  const p = String(storagePath || "");
+  if (!p) return null;
+  if (p.startsWith("bucket:")) {
+    const c = await client();
+    if (!c) return null;
+    const rest = p.slice("bucket:".length);
+    const bucket = rest.slice(0, rest.indexOf("/"));
+    const key = rest.slice(rest.indexOf("/") + 1);
+    const { data, error } = await c.storage.from(bucket).download(key);
+    if (error || !data) return null;
+    return Buffer.from(await data.arrayBuffer());
+  }
+  return existsSync(p) ? readFileSync(p) : null;
+}
+
 // ---- T2 markdown extracts ---------------------------------------------------
 export async function putExtract(customer, docId, md) {
   const path = `${customer}/extracts/${docId}.md`;

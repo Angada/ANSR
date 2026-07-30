@@ -112,8 +112,18 @@ const DEFAULT_CONFIG = {
       provider: "anthropic", model: "claude-opus-4-8", skills: ["contra"], enabled: true,
       prompt: "For each clause reference, give a 2-4 word topic label of what that clause covers, based on the contract. STRICT JSON {\"labels\":{\"§3.2\":\"Indemnity\"}}." },
     // ---- Q-Legal — legal-repository intelligence (SharePoint = source of truth) ----
-    "qlegal-key": { id: "qlegal-key", product: "Q-Legal", name: "Concise Key (C2)", kind: "llm",
-      description: "Reads a contract version's C1 transcript and produces the concise key: title, type, parties, dates, governing law, value, auto-renewal, the clause map with § anchors, controlled-vocabulary tags, and the notice register (notice clauses, contacts, change-of-control). Ingestion business rules are injected at call time.",
+    // The layered read: C1 (comprehensive) → C2 (concise key + contents/clause wikis)
+    // → Registers (whatever the team asks) → Ask (the retrieval ladder over all three).
+    "qlegal-c1": { id: "qlegal-c1", product: "Q-Legal", name: "Comprehensive Read (C1) · Munshi", kind: "hybrid",
+      description: "The deep substrate. Reads the whole file into a faithful transcript — every clause, table and field. Born-digital files use the exact text layer (free, lossless); scanned / image-only pages route to the Munshi vision reader (`munshi3:read`), which preserves tables and transcribes what the text layer flattens. Nothing above it ever re-reads the original; C1 is the deep-read rung of the Ask ladder.",
+      provider: "zai", model: "glm-4.5v", skills: ["munshi", "qansr-knowledge-store"], enabled: true,
+      prompt: "Transcribe the document faithfully and completely — every heading, clause, number, date, amount and table cell, in reading order. Render tables as Markdown tables. Describe any figure, stamp, seal or signature block that carries meaning. Never summarise, reword or omit; transcribe only what is actually there." },
+    "qlegal-register": { id: "qlegal-register", product: "Q-Legal", name: "Registers (standing questions)", kind: "llm",
+      description: "The open-ended extraction layer — 'C2 you define'. The legal team writes a standing question once in plain English ('does this require notice on a change of control, and in how many days?') and it is answered for EVERY contract at ingestion and backfilled across the estate, with § evidence. That is what makes an infinite set of lawyer questions answerable over 1000 documents without re-reading them. All active registers are answered in one call per document.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["munshi", "qansr-knowledge-store"], enabled: true,
+      prompt: "You are indexing a contract against the legal team's standing questions. Answer each one for THIS contract only, from its actual text, citing the § for every 'yes'. Say 'no' when the contract genuinely does not deal with it, 'unclear' when the text is ambiguous — never guess a 'yes'. Keep each answer to one useful line, and pull out the specific number or term asked for." },
+    "qlegal-key": { id: "qlegal-key", product: "Q-Legal", name: "Concise Key (C2) · facts + contents & clause wikis", kind: "llm",
+      description: "Reads C1 and produces the concise key every query runs on first: title, type, parties, dates, governing law, value, auto-renewal, controlled-vocabulary tags, the notice register (notice clauses, contacts, change-of-control) — plus the two wikis every document gets: the CONTENTS wiki (its own structure, so you can navigate without re-reading) and the CLAUSE wiki (every § with its topic and gist). Ingestion business rules are injected at call time.",
       provider: "anthropic", model: "claude-opus-4-8", skills: ["munshi", "qansr-knowledge-store"], enabled: true,
       prompt: "You are a legal-repository analyst reading one contract to index it. Extract only what the document states — never infer or invent. Empty string when not stated. Use the § references exactly as the document prints them." },
     "qlegal-obligations": { id: "qlegal-obligations", product: "Q-Legal", name: "Obligation Mapper", kind: "llm",
@@ -129,7 +139,7 @@ const DEFAULT_CONFIG = {
       provider: "anthropic", model: "claude-sonnet-4-6", skills: [], enabled: true,
       prompt: "Compare two versions of the same contract and report only genuine differences, each on one short line with the § reference. Never invent a change." },
     "qlegal-ask": { id: "qlegal-ask", product: "Q-Legal", name: "Ask the Repository", kind: "hybrid",
-      description: "Natural-language answers over the whole estate: grounded in full-text hits from the C1 transcripts + the registry facts + upcoming obligations. Every claim cites the document AND the § (the no-naked-claims rule); says what's missing rather than guessing.",
+      description: "Natural-language answers over the whole estate, via the RETRIEVAL LADDER — rung 1: C2 facts + register answers (structured, covers every contract, so 'which of our contracts…' is answered without reading them); rung 2: the contents & clause wikis of the matching documents; rung 3: the C1 deep text of the closest few; rung 4: the original, cited as the authority but never read by the model. Every claim cites document + §; says what's missing (and suggests a new standing register question) rather than guessing.",
       provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-knowledge-store", "munshi"], enabled: true,
       prompt: "You are the legal repository's analyst. Answer only from the provided repository context. Cite the document name and § for every claim. If the context cannot answer, say exactly what is missing — never guess." },
 

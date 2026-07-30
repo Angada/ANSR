@@ -17,12 +17,15 @@ const fmtDT = (ts) => { if (!ts) return ""; const p = _parts(ts, { day: "2-digit
 let AREA = "repository";
 let SUB = { repository: "registry", tasks: "obligations", governance: "confirm" };
 let DOCS = [], BY_TYPE = [], LOADED = false;
-let OPEN = null;                 // wiki payload { document, versions, c2, obligations, children, parent, confirms }
-let HITS = null, ASK_LAST = null;
+let OPEN = null;                 // wiki payload { document, versions, c2, obligations, children, parent, confirms, registers }
+let HITS = null;
+let THREAD = [];                 // the Ask conversation: [{q, a, sources, rungs}] — follow-ups keep context
+let ASKING = false;
 let OBLIGS = [], CONFIRMS = [], RULES = [], LOG = [];
+let REGISTERS = [], REG_TOTAL = 0, REG_OPEN = null;   // Registers: list + the open estate-wide answer table
 let CONF_N = null;
 
-const VIEWS = { registry: "#view-registry", search: "#view-search", obligations: "#view-obligations", confirm: "#view-confirm", rules: "#view-rules", log: "#view-log" };
+const VIEWS = { registry: "#view-registry", search: "#view-search", registers: "#view-registers", obligations: "#view-obligations", confirm: "#view-confirm", rules: "#view-rules", log: "#view-log" };
 
 window.filterTable = (tid, v) => {
   const term = (v || "").toLowerCase().trim();
@@ -46,7 +49,7 @@ function renderNav() {
   $("#mainnav").innerHTML = [["repository", "Repository"], ["tasks", "Tasks"], ["governance", "Governance"]]
     .map(([k, l]) => `<button class="${AREA === k ? "on" : ""}" onclick="setArea('${k}')">${l}</button>`).join("");
   const subs = AREA === "repository"
-    ? [["registry", "Registry", LOADED ? DOCS.length : null], ["search", "Search & Ask", null]]
+    ? [["registry", "Registry", LOADED ? DOCS.length : null], ["search", "Search & Ask", null], ["registers", "Registers", REGISTERS.length || null]]
     : AREA === "tasks"
       ? [["obligations", "Obligations", OBLIGS.length || null]]
       : [["confirm", "Confirm queue", CONF_N], ["rules", "Business rules", RULES.length || null], ["log", "AI activity", null]];
@@ -54,7 +57,7 @@ function renderNav() {
 }
 window.setArea = (a) => { AREA = a; setSub(SUB[a]); };
 window.setSub = (s) => { SUB[AREA] = s; renderNav(); Object.values(VIEWS).forEach((v) => ($(v).hidden = true)); $(VIEWS[s]).hidden = false; renderView(s); };
-function renderView(s) { ({ registry: renderRegistry, search: renderSearch, obligations: renderObligations, confirm: renderConfirm, rules: renderRules, log: renderLog }[s])(); }
+function renderView(s) { ({ registry: renderRegistry, search: renderSearch, registers: renderRegisters, obligations: renderObligations, confirm: renderConfirm, rules: renderRules, log: renderLog }[s])(); }
 
 async function loadRegistry() {
   try { const j = await (await fetch("/api/qlegal/registry")).json(); DOCS = j.documents || []; BY_TYPE = j.by_type || []; LOADED = true; } catch { DOCS = []; }
@@ -63,7 +66,7 @@ async function loadConfirmCount() {
   try { CONF_N = ((await (await fetch("/api/qlegal/confirms")).json()).confirms || []).length || null; } catch { CONF_N = null; }
 }
 async function init() {
-  await loadRegistry(); loadConfirmCount().then(renderNav);
+  await loadRegistry(); loadConfirmCount().then(renderNav); loadRegisters().then(renderNav);
   renderNav();
   Object.values(VIEWS).forEach((v) => ($(v).hidden = true));
   $(VIEWS[SUB[AREA]]).hidden = false;
@@ -137,6 +140,18 @@ window.openDoc = async (id) => {
   renderRegistry(); window.scrollTo({ top: 0, behavior: "smooth" });
 };
 window.closeDoc = () => { OPEN = null; renderRegistry(); };
+// The three ways into any document + the family jump — available from every page.
+function openRow(d) {
+  const latest = (OPEN.versions || []).find((v) => v.version_no === d.latest_version) || (OPEN.versions || [])[0];
+  if (!latest) return "";
+  const fam = (OPEN.parent ? 1 : 0) + (OPEN.children || []).length;
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin:-8px 0 18px">
+    <button class="btn small" onclick="window.open('/api/qlegal/original/${latest.id}','_blank')" title="our vault snapshot of the file itself — the authority">📄 Open the file</button>
+    <button class="btn small" onclick="window.open('/api/qlegal/c1/${latest.id}','_blank')" title="the comprehensive transcript — every clause, table and field">📖 C1 · full transcript</button>
+    <button class="btn small" onclick="window.open('/api/qlegal/c2/${latest.id}','_blank')" title="the concise key + the contents and clause wikis">🔑 C2 · key + wikis</button>
+    ${fam ? `<button class="btn small" onclick="document.getElementById('famcard')?.scrollIntoView({behavior:'smooth'})" title="the related contracts">🌳 Family · ${fam}</button>` : ""}
+  </div>`;
+}
 function factCell(k, key, v) {
   return `<span class="cfact" title="click to correct" onclick="fixFact('${key}','${esc(String(v ?? "")).replace(/'/g, "&#39;")}')"><span class="cfk">${k}</span>${esc(v || "—")}</span>`;
 }
@@ -156,7 +171,7 @@ function wikiView() {
         </div>
       </div>
       <button class="btn small" onclick="delDoc(${d.id})" title="remove from the derived layer (the original stays in the source of truth)">✕</button>
-    </div>`;
+    </div>` + openRow(d);
   const summary = d.summary ? `<div class="wikicard"><div class="rsec-lbl">Summary</div><p class="rsummary">${esc(d.summary)}</p></div>` : "";
   const notice = c2.notice || {};
   const nrows = [
@@ -174,18 +189,38 @@ function wikiView() {
         </div>
         ${v.diff_summary ? `<div class="vdiff" style="margin-top:6px">${esc(v.diff_summary)}</div>` : ""}
         <div class="vmeta">${fmtDT(v.created_at)} · sha ${esc((v.sha256 || "").slice(0, 10))}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
+          <a class="ref" href="/api/qlegal/original/${v.id}" target="_blank">📄 file</a>
+          <a class="ref" href="/api/qlegal/c1/${v.id}" target="_blank">📖 C1</a>
+          <a class="ref" href="/api/qlegal/c2/${v.id}" target="_blank">🔑 C2</a>
+        </div>
       </div>
     </div>`).join("");
   const rail = `<div class="wikicard"><div class="rsec-lbl">Version rail · one document, many versions</div><div class="vrail">${vrows || "—"}</div></div>`;
   const obls = (OPEN.obligations || []).map((o) => obligationRow(o, true)).join("");
   const oblCard = `<div class="wikicard"><div class="rsec-lbl">Obligations & deadlines</div>${obls || '<span class="am">none extracted</span>'}</div>`;
-  const parent = OPEN.parent ? `<div class="treecard" onclick="openDoc(${OPEN.parent.id})">↑ <b>${esc(OPEN.parent.title || OPEN.parent.filename)}</b> <span class="relk">${esc(d.relation_kind || "parent")}${d.relation_status === "confirmed" ? " ✓" : " · proposed"}</span></div>` : "";
-  const kids = (OPEN.children || []).map((k) => `<div class="treecard" onclick="openDoc(${k.id})">↳ <b>${esc(k.title || k.filename)}</b> ${k.doc_type ? `<span class="typebadge">${esc(k.doc_type)}</span>` : ""} <span class="relk">${esc(k.relation_kind || "child")}</span></div>`).join("");
-  const treeCard = (parent || kids) ? `<div class="wikicard"><div class="rsec-lbl">Document family</div>${parent}${kids}</div>` : "";
+  const parent = OPEN.parent ? `<div class="treecard" onclick="openDoc(${OPEN.parent.id})">↑ <b>${esc(OPEN.parent.title || OPEN.parent.filename)}</b> <span class="relk">${esc(d.relation_kind || "parent")}${d.relation_status === "confirmed" ? " ✓" : " · proposed"}</span> <span class="am" style="margin-left:auto">open ›</span></div>` : "";
+  const kids = (OPEN.children || []).map((k) => `<div class="treecard" onclick="openDoc(${k.id})">↳ <b>${esc(k.title || k.filename)}</b> ${k.doc_type ? `<span class="typebadge">${esc(k.doc_type)}</span>` : ""} <span class="relk">${esc(k.relation_kind || "child")}</span> <span class="am" style="margin-left:auto">open ›</span></div>`).join("");
+  const treeCard = (parent || kids) ? `<div class="wikicard" id="famcard"><div class="rsec-lbl">Document family · click through to a related contract</div>${parent}${kids}</div>` : "";
+  // register answers — this contract's answer to every standing question
+  const P = { yes: "due-ok", no: "due-none", unclear: "due-soon" };
+  const regs = (OPEN.registers || []);
+  const regCard = regs.length ? `<div class="wikicard"><div class="rsec-lbl">Standing questions · this contract's answers</div>
+      ${regs.map((r) => `<div style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)">
+        <span class="duechip ${P[r.present] || "due-none"}">${esc(r.present)}</span>
+        <span style="flex:1;min-width:220px;font-size:13px;line-height:1.5"><b>${esc(r.name)}</b>${r.value ? ` · ${esc(r.value)}` : ""}<div class="am" style="margin-top:2px">${esc(r.answer || "")}</div></span>
+        ${(r.refs || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" ")}
+        <button class="btn small" onclick="fixHit(${r.id},'${esc(r.present)}','${esc(r.answer || "").replace(/'/g, "&#39;")}','${esc(r.value || "").replace(/'/g, "&#39;")}')">Correct</button>
+      </div>`).join("")}</div>` : "";
+  // the contents wiki (navigate the document without re-reading it)
+  const contents = (c2.contents || []);
+  const contentsCard = contents.length ? `<div class="wikicard"><div class="rsec-lbl">Contents wiki · the document's own structure</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">${contents.slice(0, 80).map((c) => `<span class="tagchip">${esc(c.ref || "")} ${esc(c.heading || "")}</span>`).join("")}</div>
+      ${(c2.exhibits || []).length ? `<div class="am" style="margin-top:8px">exhibits &amp; schedules: ${esc((c2.exhibits || []).map((x) => `${x.ref || ""} ${x.title || ""}`.trim()).join(" · "))}</div>` : ""}</div>` : "";
   const clauses = (c2.clauses || []);
-  const clauseCard = clauses.length ? `<div class="wikicard"><div class="rsec-lbl">Clause map · ${clauses.length} clauses</div><div style="display:flex;flex-wrap:wrap;gap:6px">${clauses.slice(0, 60).map((c) => `<span class="tagchip" title="${esc(c.gist || "")}">${esc(c.ref || "")} ${esc(c.label || "")}</span>`).join("")}${clauses.length > 60 ? `<span class="am">+ ${clauses.length - 60} more</span>` : ""}</div></div>` : "";
+  const clauseCard = clauses.length ? `<div class="wikicard"><div class="rsec-lbl">Clause wiki · ${clauses.length} clauses (hover for what each says)</div><div style="display:flex;flex-wrap:wrap;gap:6px">${clauses.slice(0, 80).map((c) => `<span class="tagchip" title="${esc(c.gist || "")}">${esc(c.ref || "")} ${esc(c.label || "")}</span>`).join("")}${clauses.length > 80 ? `<span class="am">+ ${clauses.length - 80} more</span>` : ""}</div></div>` : "";
   const confs = (OPEN.confirms || []).length ? `<div class="wikicard" style="border-left:3px solid var(--amber)"><div class="rsec-lbl">Awaiting your confirmation</div>${OPEN.confirms.map((c) => confCard(c, true)).join("")}</div>` : "";
-  return head + summary + confs + noticeCard + oblCard + treeCard + clauseCard + rail;
+  return head + summary + confs + regCard + noticeCard + oblCard + treeCard + contentsCard + clauseCard + rail;
 }
 window.fixFact = (field, current) => rdForm(`Correct · ${field.replace(/_/g, " ")}`, [{ k: "v", label: "Correct value (applies instantly + teaches the extractor)", v: current === "—" ? "" : current }], async (o) => {
   if (o.v === undefined) return;
@@ -197,24 +232,35 @@ window.delDoc = (id) => rdConfirm("Remove from the repository?", "Only the deriv
   OPEN = null; await loadRegistry(); renderNav(); renderRegistry();
 });
 
-// ---- Repository · Search & Ask ------------------------------------------------
+// ---- Repository · Search & Ask (conversational) ---------------------------------
 function renderSearch() {
   const host = $("#view-search");
   const hits = HITS === null ? "" : (HITS.length
-    ? HITS.map((h) => `<div class="hit" onclick="openDoc(${h.id})">
+    ? `<div class="rsec-lbl" style="margin-top:4px">Text matches · ${HITS.length}</div>` + HITS.map((h) => `<div class="hit" onclick="openDoc(${h.id})">
         <div class="hn">${esc(h.title || h.filename)} ${h.doc_type ? `<span class="typebadge">${esc(h.doc_type)}</span>` : ""} <span class="am">· ${h.via === "text" ? "clause text" : "facts"}</span></div>
         ${h.snippet ? `<div class="hs">${snip(h.snippet)}</div>` : ""}
         <div class="am" style="margin-top:4px">${esc([h.party1, h.party2].filter(Boolean).join(" ⟷ "))}</div>
       </div>`).join("")
-    : `<div class="empty">// no matches — try different words, or Ask below (it searches semantically through the model) //</div>`);
+    : `<div class="empty">// no literal text match — ask the question below instead //</div>`);
+  const turns = THREAD.map((t, i) => `<div class="askbox-a">
+      <div class="askbox-q">🧑 ${esc(t.q)}</div>
+      <div class="askbox-ans">${esc(t.a)}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
+        ${(t.sources || []).map((s) => `<span class="srcchip" onclick="openDocFromAsk(${s.id})">${esc(s.name)} ↗</span>`).join("")}
+        ${(t.rungs || []).length ? `<span class="am" title="the retrieval ladder this answer used">read: ${esc((t.rungs || []).join(" → "))}</span>` : ""}
+        ${t.mode && t.mode !== "ai" ? `<span class="am" style="color:var(--amber)">no keyed model — add one in AI Skills &amp; Pipelines</span>` : ""}
+      </div></div>`).join("");
   const ask = `<div class="askbox">
-      <div class="askbox-h">✦ Ask the repository <span class="askbox-s">grounded in the documents · cites document + § · says what's missing</span></div>
-      ${ASK_LAST ? `<div class="askbox-a"><div class="askbox-q">${esc(ASK_LAST.q)}</div><div class="askbox-ans">${esc(ASK_LAST.a)}</div>${(ASK_LAST.sources || []).length ? `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">${ASK_LAST.sources.map((s) => `<span class="srcchip" onclick="openDocFromAsk(${s.id})">${esc(s.name)}</span>`).join("")}</div>` : ""}</div>` : ""}
-      <div class="askbox-in"><input id="askin" placeholder="e.g. which contracts require notification on change of control?" onkeydown="if(event.key==='Enter'){event.preventDefault();doAsk()}"><button class="btn btn--org small" onclick="doAsk()">Ask ▸</button></div>
+      <div class="askbox-h">✦ Ask the repository <span class="askbox-s">conversational · follow-ups keep context · cites document + § · says what's missing</span>
+        ${THREAD.length ? `<button class="btn small" style="margin-left:auto" onclick="clearThread()">New conversation</button>` : ""}</div>
+      ${turns}
+      ${ASKING ? `<div class="askbox-a"><div class="askbox-ans"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""> reading the estate…</div></div>` : ""}
+      <div class="askbox-in"><input id="askin" placeholder="${THREAD.length ? "ask a follow-up…" : "e.g. which contracts require notification on change of control?"}" onkeydown="if(event.key==='Enter'){event.preventDefault();doAsk()}"><button class="btn btn--org small" onclick="doAsk()">Ask ▸</button></div>
     </div>`;
-  host.innerHTML = `<p class="intro"><b>SEARCH & ASK</b> — one box, the whole estate. Search hits the C1 transcripts (full-text) and the registry facts; Ask answers in plain English with document + § citations.</p>
+  host.innerHTML = `<p class="intro"><b>SEARCH & ASK</b> — one box, the whole estate. <b>Search</b> finds literal wording in the C1 transcripts. <b>Ask</b> answers in plain English, climbing the ladder: the structured estate (facts + register answers, covering every contract) → the contents &amp; clause wikis → the deep C1 text of the closest documents.</p>
     <div class="searchbar"><input id="qsearch" placeholder="search terms, parties, clauses… (e.g. data breach notification)" value="${esc(window._lastQ || "")}" onkeydown="if(event.key==='Enter'){event.preventDefault();doSearch()}"><button class="btn btn--primary" onclick="doSearch()">Search</button></div>
-    <div id="hits">${hits}</div>` + ask;
+    ` + ask + `<div id="hits">${hits}</div>`;
+  setTimeout(() => { const el = $("#askin"); if (el && !ASKING) el.focus(); }, 30);
 }
 window.doSearch = async () => {
   const term = ($("#qsearch")?.value || "").trim(); if (!term) return;
@@ -223,17 +269,127 @@ window.doSearch = async () => {
   renderSearch();
 };
 window.openDocFromAsk = (id) => { SUB.repository = "registry"; openDoc(id); };
+window.clearThread = () => { THREAD = []; renderSearch(); };
 window.doAsk = async () => {
-  const el = $("#askin"); const qtext = (el?.value || "").trim(); if (!qtext) return;
-  el.disabled = true; el.value = "asking the repository…";
+  const el = $("#askin"); const qtext = (el?.value || "").trim(); if (!qtext || ASKING) return;
+  ASKING = true; el.value = ""; renderSearch();
   try {
-    const r = await fetch("/api/qlegal/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: qtext }) });
+    // send the last few turns so follow-ups ("and the SOW?") keep their context
+    const history = THREAD.slice(-4).map((t) => ({ q: t.q, a: t.a }));
+    const r = await fetch("/api/qlegal/ask", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: qtext, history }) });
     const j = await r.json();
-    if (!r.ok) { el.disabled = false; el.value = qtext; return rdAlert("Ask failed", j.error || ""); }
-    ASK_LAST = { q: qtext, a: j.answer, sources: j.sources || [] };
-    renderSearch(); setTimeout(() => $("#askin")?.focus(), 60);
-  } catch (e) { el.disabled = false; el.value = qtext; rdAlert("Ask failed", String(e.message || e)); }
+    ASKING = false;
+    if (!r.ok) { renderSearch(); return rdAlert("Ask failed", j.error || ""); }
+    THREAD.push({ q: qtext, a: j.answer, sources: j.sources || [], rungs: j.rungs || [], mode: j.mode });
+    renderSearch();
+  } catch (e) { ASKING = false; renderSearch(); rdAlert("Ask failed", String(e.message || e)); }
 };
+
+// ---- Repository · Registers (the open-ended layer: whatever they ask) ----------
+async function loadRegisters() {
+  try { const j = await (await fetch("/api/qlegal/registers")).json(); REGISTERS = j.registers || []; REG_TOTAL = j.total_documents || 0; } catch { REGISTERS = []; }
+}
+async function renderRegisters() {
+  const host = $("#view-registers");
+  if (REG_OPEN) { host.innerHTML = registerHitsView(); return; }
+  host.innerHTML = `<div class="empty">loading…</div>`;
+  await loadRegisters(); renderNav();
+  const rows = REGISTERS.map((r) => {
+    const answered = Number(r.answered), pending = Math.max(0, REG_TOTAL - answered);
+    return `<tr class="clk" data-k="${esc((r.name + " " + r.question).toLowerCase())}" onclick="openRegister(${r.id})">
+      <td><b>${esc(r.name)}</b>${r.builtin ? ' <span class="tagchip">built-in</span>' : ""}${r.status === "off" ? ' <span class="chip">off</span>' : ""}
+        <div class="am" style="max-width:60ch;margin-top:3px">${esc(r.question)}</div></td>
+      <td><span class="duechip due-ok">${r.yes_count} yes</span></td>
+      <td>${Number(r.unclear_count) ? `<span class="duechip due-soon">${r.unclear_count} unclear</span>` : "<span class='am'>—</span>"}</td>
+      <td class="am">${answered}/${REG_TOTAL}${pending ? ` <span style="color:var(--amber)">· ${pending} pending</span>` : ""}</td>
+      <td class="tacts"><button class="btn small" onclick="event.stopPropagation();editRegister(${r.id})">Edit</button>
+        <button class="btn small" onclick="event.stopPropagation();delRegister(${r.id},'${esc(r.name).replace(/'/g, "&#39;")}')">✕</button></td>
+    </tr>`;
+  }).join("");
+  const pendingAny = REGISTERS.some((r) => Number(r.answered) < REG_TOTAL);
+  host.innerHTML = `<p class="intro"><b>REGISTERS</b> — the answer to "they could ask anything". Write a standing question once in plain English; it is answered for <b>every contract</b> at ingestion and backfilled across the estate, with § evidence. That turns an infinite set of questions into instant, filterable columns — no code change, no re-reading 1,000 documents.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      <button class="btn btn--primary" onclick="addRegister()">+ Ask a standing question</button>
+      ${pendingAny ? `<button class="btn btn--org" onclick="runRegisterSweep(null)">Answer across the estate ▸</button>` : ""}
+    </div>
+    <div id="regproc"></div>`
+    + (REGISTERS.length
+      ? `<div class="cfilter"><input placeholder="filter questions…" oninput="filterTable('regstable',this.value)"><span class="am" id="regstable-note"></span></div>
+         <div class="scroll-x"><table class="ctable" id="regstable"><thead><tr><th>Standing question</th><th>Yes</th><th>Unclear</th><th>Coverage</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<div class="empty">// no standing questions yet //</div>`);
+  if (REGISTERS.length) filterTable("regstable", "");
+}
+window.openRegister = async (id) => {
+  try { REG_OPEN = await (await fetch(`/api/qlegal/register/${id}/hits`)).json(); } catch { return; }
+  renderRegisters(); window.scrollTo({ top: 0, behavior: "smooth" });
+};
+window.closeRegister = () => { REG_OPEN = null; renderRegisters(); };
+function registerHitsView() {
+  const r = REG_OPEN.register, hits = REG_OPEN.hits || [];
+  const P = { yes: "due-ok", no: "due-none", unclear: "due-soon" };
+  const rows = hits.map((h) => `<tr class="clk" data-k="${esc(((h.title || h.filename) + " " + (h.answer || "") + " " + h.present).toLowerCase())}">
+      <td onclick="openDoc(${h.document_id})"><b>${esc(h.title || h.filename)}</b>${h.doc_type ? ` <span class="typebadge">${esc(h.doc_type)}</span>` : ""}
+        <div class="am">${esc([h.party1, h.party2].filter(Boolean).join(" ⟷ "))}</div></td>
+      <td><span class="duechip ${P[h.present] || "due-none"}">${esc(h.present)}</span>${h.status !== "auto" ? ' <span class="tagchip">confirmed</span>' : ""}</td>
+      <td>${esc(h.value) || "<span class='am'>—</span>"}</td>
+      <td style="max-width:44ch">${esc(h.answer || "")}</td>
+      <td>${(h.refs || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" ") || "<span class='am'>—</span>"}</td>
+      <td class="tacts"><button class="btn small" onclick="fixHit(${h.id},'${esc(h.present)}','${esc(h.answer || "").replace(/'/g, "&#39;")}','${esc(h.value || "").replace(/'/g, "&#39;")}')">Correct</button></td>
+    </tr>`).join("");
+  return `<span class="backlnk" onclick="closeRegister()">‹ back to registers</span>
+    <div class="wikicard"><div class="rsec-lbl">Standing question</div>
+      <p class="rsummary"><b>${esc(r.name)}</b> — ${esc(r.question)}</p>
+      ${REG_OPEN.not_yet_answered ? `<div style="margin-top:10px"><button class="btn btn--org small" onclick="runRegisterSweep(${r.id})">Answer the remaining ${REG_OPEN.not_yet_answered} contract${REG_OPEN.not_yet_answered === 1 ? "" : "s"} ▸</button></div>` : ""}
+    </div><div id="regproc"></div>`
+    + (hits.length
+      ? `<div class="cfilter"><input placeholder="filter the estate…" oninput="filterTable('hitstable',this.value)"><span class="am" id="hitstable-note"></span></div>
+         <div class="scroll-x"><table class="ctable" id="hitstable"><thead><tr><th>Contract</th><th>Answer</th><th>Value</th><th>Detail</th><th>§</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : `<div class="empty">// not answered on any contract yet — run it across the estate //</div>`);
+}
+window.addRegister = () => registerForm("Ask a standing question", {}, async (o) => {
+  if (!o.name || !o.question) return;
+  const j = await (await fetch("/api/qlegal/registers", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) })).json();
+  await renderRegisters();
+  if (j.register) rdConfirm("Answer it across the estate now?", `“${o.name}” will be answered for every contract already in the repository (new contracts answer it automatically on ingestion).`, () => runRegisterSweep(j.register.id));
+});
+window.editRegister = (id) => { const r = REGISTERS.find((x) => Number(x.id) === Number(id)); if (!r) return; registerForm("Edit standing question", r, async (o) => { await fetch(`/api/qlegal/register/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) }); renderRegisters(); }); };
+window.delRegister = (id, name) => rdConfirm("Delete this standing question?", `“${name}” and its answers across the estate will be removed.`, async () => { await fetch(`/api/qlegal/register/${id}`, { method: "DELETE" }); renderRegisters(); });
+window.runRegisterSweep = async (registerId) => {
+  const host = document.getElementById("regproc"); let total = 0;
+  for (let pass = 0; pass < 40; pass++) {          // resumable: keeps going while work remains
+    if (host) host.innerHTML = `<div class="meter"><div class="cmstep now"><span class="cmi"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""></span><span>reading the estate — ${total} contract${total === 1 ? "" : "s"} answered…</span></div></div>`;
+    let j; try { j = await (await fetch("/api/qlegal/registers/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ register_id: registerId, limit: 10 }) })).json(); } catch { break; }
+    total += j.processed || 0;
+    if (!j.processed || !j.remaining) break;
+  }
+  if (host) host.innerHTML = "";
+  if (REG_OPEN) { await openRegister(REG_OPEN.register.id); } else { await renderRegisters(); }
+  rdAlert("Estate answered", `${total} contract${total === 1 ? "" : "s"} answered. New contracts answer these questions automatically as they arrive.`);
+};
+window.fixHit = (id, present, answer, value) => {
+  const { ov, close } = _ov(`<h3>Correct the answer</h3>
+    <label style="font-size:12.5px;color:var(--dim)">Present?</label><select data-k="present">${["yes", "no", "unclear"].map((p) => `<option value="${p}" ${p === present ? "selected" : ""}>${p}</option>`).join("")}</select>
+    <label style="font-size:12.5px;color:var(--dim)">Value</label><input data-k="value" value="${esc(value)}">
+    <label style="font-size:12.5px;color:var(--dim)">Answer</label><textarea data-k="answer" rows="3">${esc(answer)}</textarea>
+    <p style="font-size:12px;color:var(--dim2)">Your correction becomes authoritative and is banked as a learning label — the extractor stops overwriting it.</p>
+    <div class="row"><button class="btn" data-x>Cancel</button><button class="btn btn--primary" data-ok>Save</button></div>`);
+  ov.querySelector("[data-x]").onclick = close;
+  ov.querySelector("[data-ok]").onclick = async () => {
+    const o = {}; ov.querySelectorAll("[data-k]").forEach((el) => (o[el.dataset.k] = el.value.trim())); close();
+    await fetch(`/api/qlegal/register-hit/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) });
+    if (REG_OPEN) openRegister(REG_OPEN.register.id); else if (OPEN) openDoc(OPEN.document.id);
+  };
+};
+function registerForm(title, r, onOk) {
+  const { ov, close } = _ov(`<h3>${esc(title)}</h3>
+    <label style="font-size:12.5px;color:var(--dim)">Column name (short)</label><input data-k="name" value="${esc(r.name || "")}" placeholder="e.g. Non-solicit">
+    <label style="font-size:12.5px;color:var(--dim)">The question, in plain English — asked of every contract</label><textarea data-k="question" rows="3" placeholder="e.g. Does this contract restrict either party from soliciting the other's employees, and for how long after termination?">${esc(r.question || "")}</textarea>
+    <label style="font-size:12.5px;color:var(--dim)">What value should it pull out? (optional)</label><input data-k="extract_hint" value="${esc(r.extract_hint || "")}" placeholder="e.g. the restriction period in months">
+    <div class="row"><button class="btn" data-x>Cancel</button><button class="btn btn--primary" data-ok>Save</button></div>`);
+  ov.querySelector("input")?.focus();
+  ov.querySelector("[data-x]").onclick = close;
+  ov.querySelector("[data-ok]").onclick = () => { const o = {}; ov.querySelectorAll("[data-k]").forEach((el) => (o[el.dataset.k] = el.value.trim())); close(); onOk(o); };
+}
 
 // ---- Tasks · Obligations -------------------------------------------------------
 function dueChip(o) {
@@ -328,7 +484,7 @@ window.addRule = () => ruleForm("Add a business rule", {}, async (o) => {
   await fetch("/api/qlegal/rules", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) });
   renderRules();
 });
-window.editRule = (id) => { const r = RULES.find((x) => x.id === id); if (!r) return; ruleForm("Edit rule", r, async (o) => { await fetch(`/api/qlegal/rule/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) }); renderRules(); }); };
+window.editRule = (id) => { const r = RULES.find((x) => Number(x.id) === Number(id)); if (!r) return; ruleForm("Edit rule", r, async (o) => { await fetch(`/api/qlegal/rule/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) }); renderRules(); }); };
 window.toggleRule = async (id, status) => { await fetch(`/api/qlegal/rule/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) }); renderRules(); };
 function ruleForm(title, r, onOk) {
   const { ov, close } = _ov(`<h3>${esc(title)}</h3>

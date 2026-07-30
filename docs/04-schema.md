@@ -107,8 +107,12 @@ Ring-fenced `ql_*` namespace; storage tenant `Q-LEGAL`. SharePoint/upload = sour
 | **ql_feedback** | surface, document_id, field, was → corrected, actor — *append-only* learning-loop event store, replayed on rebuild |
 | **ql_log** | pipeline, provider, model, ref, **rules_applied** (jsonb), input/output summaries, status — *append-only* AI activity log |
 | **ql_tag_vocab** | tag (uniq), kind (`auto`/`free`) — controlled vocabulary (anti-sprawl) |
+| **ql_register** | **code** (uniq), name (column label), **question** (the standing question in plain English), extract_hint, doc_types (jsonb; `[]` = all), builtin, status — "C2 you define": asked of every contract |
+| **ql_register_hit** | register_id, document_id (`unique` pair), version_id, **present** (`yes`/`no`/`unclear`), answer, **value** (sortable), refs (§ jsonb), confidence, status (`auto`/`confirmed`/`corrected` — a corrected answer is never overwritten by re-extraction) |
 
-FK spine: `ql_document ─┬─ ql_version · ql_obligation · ql_confirm` (cascade) · `ql_document.parent_id → ql_document` (tree). Seeds: 7 business rules + 14 vocabulary tags.
+FK spine: `ql_document ─┬─ ql_version · ql_obligation · ql_confirm · ql_register_hit` (cascade) · `ql_register ─ ql_register_hit` (cascade) · `ql_document.parent_id → ql_document` (tree).
+Seeds: 7 business rules + 14 vocabulary tags + 5 built-in registers.
+**Gotcha:** Postgres returns these `bigint` ids as JS **strings** — always compare with `Number(a) === Number(b)`.
 
 ---
 

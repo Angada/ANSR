@@ -23,7 +23,7 @@
 ### Scaffold
 - [x] Product surface in ANSR Core: `server/qlegal.js`, `public/qlegal.html/js`, nav 3rd tab (decision 2026-07-30: inside Core, not a separate server — standalone client deploy = same codebase, ring-fenced)
 - [x] Ring-fence: `ql_*` schema (`db/init/022_qlegal.sql`) + storage tenant `Q-LEGAL` (vault + docstore)
-- [x] 5 gated pipelines registered (Admin-switchable): `qlegal-key` · `qlegal-obligations` · `qlegal-link` · `qlegal-diff` · `qlegal-ask`
+- [x] 7 gated pipelines registered (Admin-switchable): `qlegal-c1` · `qlegal-key` · `qlegal-register` · `qlegal-obligations` · `qlegal-link` · `qlegal-diff` · `qlegal-ask`
 - [x] **Business rules engine**: `ql_rule` seeded (7 standing rules) + Governance editor + scope-matched injection into every pipeline call + `rules_applied` logged per call
 - [x] Append-only `ql_log` (AI activity) + `ql_feedback` (learning loop)
 - [ ] RBAC roles (legal user / legal admin / viewer) — currently the platform's single soft login; needs AD-backed roles (P2, with the AD integration)
@@ -31,7 +31,8 @@
 - [x] Manual upload path (≤20 files/batch, persisted per file+step, errors never fail the batch)
 - [x] One document ↔ many versions (same filename → new version; sha dedup skips identical files)
 - [x] C1 (deterministic extract + Munshi vision-OCR fallback) → vault + docstore + FTS column
-- [x] C2 concise key (meta · tags · clause map w/ §s · **notice register** for change-of-guard)
+- [x] C2 concise key (meta · tags · **contents wiki** · **clause wiki** · exhibits · **notice register** for change-of-guard)
+- [x] **REGISTERS — the open-ended layer** (`ql_register` + `ql_register_hit`): a standing question in plain English, answered for EVERY contract at ingestion + a resumable estate backfill sweep, with § evidence, correctable (a corrected answer is never re-overwritten). 5 built-ins seeded from the client's own examples. *Live-verified on prod: a new "Non-solicit" question answered the whole estate correctly.*
 - [x] Obligations mapper → proposed `ql_obligation` rows (confirmed rows survive re-ingest)
 - [x] Version diff summaries (v>1) for the wiki rail
 - [x] Doc-tree link proposals (tell-tale based) + deterministic draft↔executed lineage (Jaccard ≥.85) → confirm queue
@@ -42,7 +43,9 @@
 ### Screens
 - [x] Registry (drop → estate table, type-count chips, filter, dd-mm-yyyy dates)
 - [x] Wiki drill-in (facts click-to-correct, summary, notice register, obligations, family tree, clause map, version rail, C1 transcript link)
-- [x] Search & Ask (OR-ranked FTS with § snippets + facts fallback; grounded Ask citing document + §)
+- [x] Search & Ask — **conversational** (thread memory; follow-ups resolve against it) over the **retrieval ladder** (registers+facts → contents/clause wikis → C1 deep text → original as cited authority); shows which rungs it climbed
+- [x] Registers screen (estate-wide answer table per question, coverage, sweep, correct-in-place)
+- [x] **The three ways into any document** — `GET /original|c1|c2/:versionId` + buttons on every document page + click-through family navigation
 - [x] Tasks → Obligations (due chips w/ weekday, confirm / assign doer / done)
 - [x] Governance → Confirm queue · Business rules editor · AI activity log
 - [ ] Dedicated tree **browser** (counterparty → MSA → SOWs as a navigable tree; family already shows per-doc on the wiki)

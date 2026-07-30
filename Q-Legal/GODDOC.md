@@ -169,6 +169,11 @@ Level 2 — ESTATE (all documents):   patterns recurring across types → propos
 | 2026-07-30 | Pipeline naming: `qlegal-key` (C2) · `qlegal-obligations` · `qlegal-link` · `qlegal-diff` · `qlegal-ask` (obligations split from key for per-step ownership) |
 | 2026-07-30 | Search = OR-ranked websearch_to_tsquery (AND semantics silently missed "liability cap"); vectors still arrive P2 |
 | 2026-07-30 | Dates: compact `dd-mm-yyyy` (+ time) everywhere; weekday only where humans plan (due dates: "Mon, 9 Jun, 2026"); IST always |
+| 2026-07-30 | **REGISTERS — the answer to "they could ask anything"** (user: *"there could be anything they ask"*). Hard-coded extraction (notice register, obligations) can't cover an infinite question set, and Ask alone only reads the few matching docs. So: a standing question written once in plain English is answered for EVERY contract at ingestion + backfilled across the estate, stored as an indexed row per contract with § evidence → "which of our 1000 contracts…" is one query. Change-of-guard and obligations are now just two built-ins of the same idea. Live-verified: a brand-new "Non-solicit" question answered the whole estate correctly in seconds. |
+| 2026-07-30 | **The layer model made explicit**: original (authority, never fed to a model) → **C1** comprehensive Munshi read → **C2** concise key **+ contents wiki + clause wiki** → **Registers** (C2 you define). Ask is a **retrieval ladder** over them, cheapest rung first, and reports which rungs it climbed. |
+| 2026-07-30 | Ask is **conversational** (last 4 turns travel with the question and widen the FTS terms) — a follow-up like "and how many days for that one?" resolves against the thread |
+| 2026-07-30 | Every document page carries the **three ways in** (open the file · C1 transcript · C2 key+wikis) + click-through family navigation |
+| 2026-07-30 | Two bugs found only by testing on prod: (a) post-response async work never runs on Cloud Run (CPU throttled) → tree-link proposals moved in-request; (b) Postgres `bigint` ids arrive as **strings**, so `===` against a number silently failed (killed link proposals + the rules/registers Edit buttons) |
 
 ## 9. Open items (blocking or shaping the build)
 1. **Commercials** — user proposes after client scope alignment. *(Client status: awaiting reply.)*
