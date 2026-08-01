@@ -472,6 +472,14 @@
   .jny-count{margin-left:auto;font-size:11.5px;color:var(--dim2);display:flex;gap:7px;align-items:center}
   .jny-count b{color:var(--txt);font-size:13px}
   .jny-body{padding:0 14px 14px;border-top:1px solid var(--line)}
+  /* judged ideas drop into a drawer so the working list only holds live work */
+  .donedrawer{margin-top:18px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg2);padding:12px 14px}
+  .donedrawer>summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--dim);list-style:none}
+  .donedrawer>summary::-webkit-details-marker{display:none}
+  .donedrawer>summary::before{content:"▸ ";color:var(--grn)}
+  .donedrawer[open]>summary::before{content:"▾ "}
+  .donedrawer>summary:hover{color:var(--txt)}
+
   /* ===== LEGIBILITY PASS ==================================================
      Every text input across RayDar: bigger type (13.5px — 16px on mobile so
      iOS never zooms), a real minimum height, and a field background that is

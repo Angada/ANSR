@@ -22,6 +22,7 @@ let EDIT_CONCEPTS = false;
 let GUARD = null;       // guardrails (audience · language · region) from business rules
 let SWEEP_PROMPT = "";  // the user's free-text "anything more to add?" brief
 let RECAP = null;       // "what went into this sweep" — persisted inputs, per batch
+let SHOW_DONE = false;  // judged ideas leave the working list (drawer, not deleted)
 let JOURNEY = null;     // the Journey board (stations · stories · dumps) for BATCH
 
 // ---- journey rail (horizontal) ---------------------------------------------
@@ -942,16 +943,34 @@ function renderIdeas(stories, franchises) {
   if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each concept becomes a <b>story board</b>: a lead idea plus alternative angles, all ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
   _RENDER = { stories, franchises };
   TOPIC_Q = Object.fromEntries((ALL_TOPICS || []).map((t) => [t.name, t.question]));
-  const boards = groupBoards(stories);
+  // ONCE YOU'VE JUDGED SOMETHING IT LEAVES THE LIST. The working list only
+  // holds what still needs a decision, so it gets SHORTER as you work instead
+  // of longer. Judged ideas aren't hidden or lost — they drop into a "done"
+  // drawer right below, and they're always in the Library.
+  const pending = stories.filter((s) => !s.feedback);
+  const done = stories.filter((s) => s.feedback);
+  const shown = SHOW_DONE ? stories : pending;
+  const boards = groupBoards(shown);
+  const doneBoards = groupBoards(done);
   const filter = `<div class="ideas-head">
       <span class="chip tag-grn" style="cursor:default">${ic("box")} ${esc(BATCH?.name || "batch")}</span>
       <span class="chip" style="border:none;background:none;padding:0">franchise</span>
       <select onchange="setFR(this.value)"><option value="all" ${FR === "all" ? "selected" : ""}>all</option>${(franchises || []).map((f) => `<option ${FR === f.name ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
-      <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${boards.length} concept${boards.length === 1 ? "" : "s"} · ${stories.length} angles</span>
+      <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${pending.length} still to judge${done.length ? ` · ${done.length} done` : ""}</span>
+      ${done.length ? `<button class="btn small" onclick="toggleDone()">${SHOW_DONE ? "Hide the done ones" : `Show all (${stories.length})`}</button>` : ""}
     </div>`;
-  host.innerHTML = `<p class="intro"><b>IDEAS</b> — grouped into <b>story boards</b> by concept. Each board leads with the strongest angle; open the <b>alternatives</b> or the <b>why</b> chips (concept · angle · story) to see the reasoning and the sources we pulled.</p>` +
-    recapBlock() + trendReport(stories) + feedSignalBlock() + filter + (boards.length ? `<div class="boards">${boards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>` : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`);
+  const doneDrawer = (!SHOW_DONE && done.length) ? `<details class="donedrawer">
+      <summary>${done.length} idea${done.length === 1 ? "" : "s"} you've already judged — ${["used", "saved", "rejected"].map((k) => `${done.filter((s) => s.feedback === k).length} ${k}`).join(" · ")}</summary>
+      <div class="boards" style="margin-top:12px">${doneBoards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>
+    </details>` : "";
+  const emptyMsg = pending.length === 0 && done.length
+    ? `<div class="empty">// all judged — nothing left in this batch //</div>`
+    : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`;
+  host.innerHTML = `<p class="intro"><b>IDEAS</b> — grouped into <b>story boards</b> by concept. Mark each one <b>Used</b>, <b>Save</b> or <b>Reject</b> and it drops out of this list into the done drawer below, so the list shrinks as you go. Everything stays findable in the <b>Library</b>.</p>` +
+    recapBlock() + trendReport(stories) + feedSignalBlock() + filter +
+    (boards.length ? `<div class="boards">${boards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>` : emptyMsg) + doneDrawer;
 }
+window.toggleDone = () => { SHOW_DONE = !SHOW_DONE; loadIdeas(); };
 window.setFR = (v) => { FR = v; loadIdeas(); };
 function refreshCurrent() { if (VIEW === "library") loadLibrary(); else loadIdeas(); }
 window.idea = async (id, action) => { await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) }); refreshCurrent(); };

@@ -11,3 +11,10 @@ alter table ql_embedding add column if not exists source text;
 
 -- the staleness predicate scans by document + model + version; index the triple
 create index if not exists ql_embedding_fresh_idx on ql_embedding(document_id, embedding_model, version_id);
+
+-- recipe = the version of the CHUNKING rules the row was built with. The model
+-- can be right and the rows still stale, because we changed what we feed it
+-- (e.g. clause vectors moving from the C2 gist to the real C1 clause body).
+-- Bumping VECTOR_RECIPE in server/qlegal-vectors.js re-embeds the estate on the
+-- next sweep — without it a code change silently leaves an old index in place.
+alter table ql_embedding add column if not exists recipe text;

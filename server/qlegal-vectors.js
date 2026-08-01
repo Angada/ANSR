@@ -10,6 +10,11 @@ import { q } from "./db/client.js";
 import { loadConfig, getApiKey } from "./store.js";
 
 const DIM = 1536;
+// Bump when the CHUNKING changes (what we feed the model), not when the model
+// changes. Rows built on an older recipe count as stale and re-embed.
+//   r1 — clause vectors = C2 gist only
+//   r2 — clause vectors = real clause body located in C1, gist kept as a prefix
+const VECTOR_RECIPE = "r2";
 const clip = (s, n) => String(s || "").slice(0, n);
 
 // ---- feature detect: pgvector present? (cached; migration 027 may have failed
@@ -213,9 +218,9 @@ export async function embedVersion({ docId, verId, c2, filename, c1 }) {
   await q(`delete from ql_embedding where document_id=$1`, [docId]);
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    await q(`insert into ql_embedding(document_id, version_id, granularity, ref, title, content, source, embedding, embedding_model)
-             values($1,$2,$3,$4,$5,$6,$7,$8::vector,$9)`,
-      [docId, verId, it.granularity, it.ref, it.title, it.content, it.source || null, vlit(vectors[i]), model]);
+    await q(`insert into ql_embedding(document_id, version_id, granularity, ref, title, content, source, recipe, embedding, embedding_model)
+             values($1,$2,$3,$4,$5,$6,$7,$8,$9::vector,$10)`,
+      [docId, verId, it.granularity, it.ref, it.title, it.content, it.source || null, VECTOR_RECIPE, vlit(vectors[i]), model]);
   }
   const fromC1 = items.filter((i) => i.source === "c1").length;
   await vlog({ model, ref_type: "document", ref_id: docId, input: filename,
@@ -279,7 +284,8 @@ export async function embedStatus() {
             and not exists(
               select 1 from ql_embedding e
                where e.document_id=d.id and e.embedding_model=$1
-                 and e.version_id = v.id and e.embedded_at >= d.updated_at)`, [target]),
+                 and e.version_id = v.id and e.embedded_at >= d.updated_at
+                 and coalesce(e.recipe,'r1') = 'r2')`, [target]),
     one(`select count(*) c from ql_embedding`),
   ]);
   // target ≠ model means the configured provider rejected the call and the spine
@@ -304,7 +310,8 @@ export async function embedSweep(limit = 10) {
        and not exists(
               select 1 from ql_embedding e
                where e.document_id=d.id and e.embedding_model=$1
-                 and e.version_id = v.id and e.embedded_at >= d.updated_at)
+                 and e.version_id = v.id and e.embedded_at >= d.updated_at
+                 and coalesce(e.recipe,'r1') = 'r2')
      order by d.id limit $2`, [target, Math.min(limit, 50)]
   )).rows;
   let done = 0, wrote = null;
