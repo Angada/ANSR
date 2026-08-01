@@ -24,6 +24,19 @@ export async function vectorsReady() {
   return _ready;
 }
 
+// The model the STORED vectors were actually written with. The configured model
+// is only the target: if its provider rejects the call (bad model code, dead key)
+// embedTexts falls back to hash:v1 and the rows land under that name. Readers
+// must follow the rows, or the map/library silently render empty and the sweep
+// never converges (it did exactly that on prod when Z.AI rejected the model code).
+export async function storedModelId() {
+  const want = embedModelId();
+  const r = await q(
+    `select embedding_model, count(*) c from ql_embedding group by 1 order by (embedding_model=$1) desc, c desc limit 1`, [want]
+  ).catch(() => ({ rows: [] }));
+  return r.rows[0]?.embedding_model || want;
+}
+
 // ---- the active embedding model (provider:model), resolved from the pipeline --
 export function embedModelId() {
   const p = loadConfig().pipelines["qlegal-embed"];
@@ -104,8 +117,8 @@ async function vlog({ model, ref_type, ref_id, input, output, status }) {
 
 // embed a batch of texts with the ACTIVE model; falls back to hash:v1 on any
 // failure so ingestion never stalls on an embedding outage.
-export async function embedTexts(texts) {
-  const id = embedModelId();
+export async function embedTexts(texts, forceModel) {
+  const id = forceModel || embedModelId();
   if (id !== "hash:v1") {
     const [provider, model] = [id.split(":")[0], id.split(":").slice(1).join(":")];
     try {
@@ -166,7 +179,10 @@ export async function embedVersion({ docId, verId, c2, filename }) {
 // ---- semantic search: embed the query, knn over rows of the SAME model --------
 export async function searchVectors(text, { granularities = ["clause", "section", "document"], limit = 12 } = {}) {
   if (!(await vectorsReady())) return [];
-  const { model, vectors } = await embedTexts([clip(text, 1000)]);
+  // embed the query with whatever wrote the rows, so query and index always match
+  const stored = await storedModelId();
+  const { model: got, vectors } = await embedTexts([clip(text, 1000)], stored);
+  const model = got;
   const rows = (await q(
     `select e.document_id, e.granularity, e.ref, e.title, e.content, (e.embedding <=> $1::vector) as distance,
             d.filename, d.title as doc_title, d.doc_type
@@ -199,7 +215,10 @@ export async function nearestDocs(docId, limit = 5) {
 // ---- status + resumable sweep (Re-index console) ------------------------------
 export async function embedStatus() {
   if (!(await vectorsReady())) return { available: false, model: embedModelId(), embedded: 0, pending: 0, vectors: 0 };
-  const model = embedModelId();
+  // count against the model the rows actually carry — otherwise a failing target
+  // model shows the whole estate as "pending" forever and the sweep loops.
+  const model = await storedModelId();
+  const target = embedModelId();
   const one = async (sql, p = []) => Number((await q(sql, p)).rows[0]?.c || 0);
   const [embedded, pending, vectors] = await Promise.all([
     one(`select count(distinct document_id) c from ql_embedding where embedding_model=$1`, [model]),
@@ -209,14 +228,16 @@ export async function embedStatus() {
             and not exists(select 1 from ql_embedding e where e.document_id=d.id and e.embedding_model=$1)`, [model]),
     one(`select count(*) c from ql_embedding`),
   ]);
-  return { available: true, model, embedded, pending, vectors };
+  // target ≠ model means the configured provider rejected the call and the spine
+  // is running on the fallback — say so instead of quietly looking healthy.
+  return { available: true, model, target, degraded: target !== model, embedded, pending, vectors };
 }
 
 // documents with C1 but no vectors under the CURRENT model → embed (capped,
 // call again to continue; a model swap simply makes everything pending again)
 export async function embedSweep(limit = 10) {
   if (!(await vectorsReady())) return { processed: 0, remaining: 0, available: false };
-  const model = embedModelId();
+  const model = await storedModelId();
   const docs = (await q(
     `select d.id, d.filename, v.id as version_id, v.c2 from ql_document d
       join ql_version v on v.document_id=d.id and v.version_no=d.latest_version
@@ -238,7 +259,7 @@ export async function embedSweep(limit = 10) {
 // non-standard that clause is. Deterministic seeding → stable clusters.
 export async function clauseLibrary({ k } = {}) {
   if (!(await vectorsReady())) return { available: false, clusters: [] };
-  const model = embedModelId();
+  const model = await storedModelId();
   const rows = (await q(
     `select e.id, e.document_id, e.ref, e.title, e.content, e.embedding::text as emb,
             d.filename, d.title as doc_title
@@ -289,7 +310,7 @@ const memberOut = (r, dist) => ({ document_id: r.document_id, doc: r.doc_title |
 // iteration — honest label: PCA, not UMAP; upgrade later without schema change) --
 export async function estateMap() {
   if (!(await vectorsReady())) return { available: false, points: [] };
-  const model = embedModelId();
+  const model = await storedModelId();
   const rows = (await q(
     `select e.document_id as id, e.embedding::text as emb, d.filename, d.title, d.doc_type
        from ql_embedding e join ql_document d on d.id=e.document_id

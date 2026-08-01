@@ -477,7 +477,7 @@ function trendReport(stories) {
 
   const topReg = sortEnt(regs)[0];
   const hi = `<b>${Object.keys(topics).length}</b> concepts · <b>${n}</b> ideas${topReg ? ` · ${esc(topReg[0])} leads` : ""} · avg gap <b>${(gsum / n).toFixed(2)}</b> · ${live ? "live feed" : "config"}`;
-  return `<details class="tsr">
+  return `<details class="tsr" open>
     <summary class="tsr-top"><span class="ic-wrap">${ic("target", 15)}</span><span class="tsr-title">Trend Spotting report</span><span class="tsr-hi">${hi}</span><span class="tsr-chev">▾</span></summary>
     <div class="tsr-grid">${audBlock}${conceptBlock}${regBlock}${signalBlock}${routeBlock}${srcBlock}</div>
   </details>`;

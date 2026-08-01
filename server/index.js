@@ -20,6 +20,7 @@ import { runPipeline, aiMap, buildContext } from "./ai.js";
 import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples, federation, epidemiology } from "./engine/run.js";
 import { parseDate } from "./engine/normalize.js";
 import { mountWhisperer } from "./whisperer.js";
+import { mountJourney } from "./raydar-journey.js";
 import { getRate, setManualRate } from "./fx.js";
 import { classify as atlasClassify, route as atlasRoute, listArchetypes, archetypeDetail, getWiki } from "./atlas/atlas.js";
 import { createDrift } from "./atlas/drift.js";
@@ -48,16 +49,46 @@ app.use((_req, res, next) => {
   next();
 });
 
-// ---- soft login (single-operator gate) --------------------------------------
+// ---- soft login + per-role app access ---------------------------------------
+// Three accounts, each seeing only its own apps. Access is enforced SERVER-SIDE
+// (page + API prefix), not just hidden in the nav — a hidden tab is not a gate.
 const AUTH_USER = process.env.QANSR_USER || "admin";
 const AUTH_PW = process.env.QANSR_PW || "admin";
-const AUTH_TOKEN = createHash("sha256").update(`${AUTH_USER}:${AUTH_PW}:qansr-soft`).digest("hex");
+const ACCOUNTS = [
+  { user: AUTH_USER, pw: AUTH_PW, role: "Admin", apps: ["raydar", "contra", "qlegal", "mint"], admin: true },
+  { user: process.env.CONTENT_USER || "content", pw: process.env.CONTENT_PW || "content", role: "Content", apps: ["raydar"], admin: false },
+  { user: process.env.LEGAL_USER || "legal", pw: process.env.LEGAL_PW || "legal", role: "Legal", apps: ["qlegal", "contra"], admin: false },
+];
+// which pages + api prefixes belong to each app (everything else is admin-only)
+const APP_ROUTES = {
+  raydar: { pages: ["/whisperer.html", "/whisperer.js"], apis: ["/api/wh/"] },
+  contra: { pages: ["/contra.html", "/contra.js", "/contract.html", "/contract.js", "/contracts.html", "/contracts.js"], apis: ["/api/contra/"] },
+  qlegal: { pages: ["/qlegal.html", "/qlegal.js"], apis: ["/api/qlegal/"] },
+  mint:   { pages: ["/mint.html", "/mint.js", "/invoice.html", "/invoice.js", "/invoice-doc.js", "/atlas.html", "/atlas.js"], apis: ["/api/mint/", "/api/atlas/", "/api/runs", "/api/customers", "/api/roster", "/api/ruleset"] },
+};
+// admin-only surfaces: the Vault, the pipeline registry, integrations, accounts
+const ADMIN_ONLY = { pages: ["/admin.html", "/admin.js"], apis: ["/api/config", "/api/pipelines", "/api/providers", "/api/integrations", "/api/vault"] };
+const token = (a) => createHash("sha256").update(`${a.user}:${a.pw}:qansr-soft`).digest("hex");
 const OPEN = ["/login.html", "/login.js", "/app.css", "/favicon.png", "/apple-touch-icon.png", "/q-emblem.png", "/api/login", "/health"];
 const cookieToken = (req) => (req.headers.cookie || "").split(";").map((c) => c.trim()).find((c) => c.startsWith("qansr_auth="))?.slice(11);
 // constant-time compare (no login/cookie timing oracle); Secure cookie in prod only (local dev is http)
 const safeEq = (a, b) => { const x = Buffer.from(String(a || "")), y = Buffer.from(String(b || "")); return x.length === y.length && timingSafeEqual(x, y); };
-const authed = (req) => safeEq(cookieToken(req), AUTH_TOKEN);
-const setSession = (res) => res.setHeader("Set-Cookie", `qansr_auth=${AUTH_TOKEN}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax${IS_PROD ? "; Secure" : ""}`);
+const accountOf = (req) => { const t = cookieToken(req); return ACCOUNTS.find((a) => safeEq(t, token(a))) || null; };
+const authed = (req) => !!accountOf(req);
+const setSession = (res, acct) => res.setHeader("Set-Cookie", `qansr_auth=${token(acct)}; HttpOnly; Path=/; Max-Age=604800; SameSite=Lax${IS_PROD ? "; Secure" : ""}`);
+
+// May this account touch this path? Shared plumbing (/api/me, /q.js, /brand, the
+// landing page) is allowed to everyone who is signed in.
+function allowedFor(acct, path) {
+  if (acct.admin) return true;
+  const hitsAdmin = ADMIN_ONLY.pages.includes(path) || ADMIN_ONLY.apis.some((p) => path.startsWith(p));
+  if (hitsAdmin) return false;
+  for (const [app, r] of Object.entries(APP_ROUTES)) {
+    const owned = r.pages.includes(path) || r.apis.some((p) => path.startsWith(p));
+    if (owned) return acct.apps.includes(app);
+  }
+  return true;   // shared assets + shared APIs
+}
 
 // in-memory login throttle (per-IP sliding window) — blunts brute force
 const LOGIN_HITS = new Map();
@@ -74,12 +105,15 @@ app.post("/api/login", (req, res) => {
   if (loginThrottled(ip)) return res.status(429).json({ error: "too many attempts — wait a few minutes" });
   const { user, pw } = req.body || {};
   const provided = createHash("sha256").update(`${user}:${pw}:qansr-soft`).digest("hex");
-  if (safeEq(provided, AUTH_TOKEN)) { setSession(res); return res.json({ ok: true }); }
+  const acct = ACCOUNTS.find((a) => safeEq(provided, token(a)));
+  if (acct) { setSession(res, acct); return res.json({ ok: true, role: acct.role, apps: acct.apps, home: acct.apps.length === 1 ? APP_ROUTES[acct.apps[0]].pages[0] : "/" }); }
   res.status(401).json({ error: "wrong login or password" });
 });
+// the nav renders from this — the account's apps, and whether Admin is theirs
 app.get("/api/me", (req, res) => {
-  if (!authed(req)) return res.status(401).json({ error: "auth required" });
-  res.json({ user: AUTH_USER, role: "Admin" });
+  const acct = accountOf(req);
+  if (!acct) return res.status(401).json({ error: "auth required" });
+  res.json({ user: acct.user, role: acct.role, apps: acct.apps, admin: acct.admin });
 });
 app.post("/api/logout", (_req, res) => {
   res.setHeader("Set-Cookie", `qansr_auth=; HttpOnly; Path=/; Max-Age=0${IS_PROD ? "; Secure" : ""}`);
@@ -88,9 +122,18 @@ app.post("/api/logout", (_req, res) => {
 
 app.use((req, res, next) => {
   if (OPEN.some((p) => req.path === p) || req.path.startsWith("/brand/") || req.path.startsWith("/raydar-approach-note") || req.path.startsWith("/raydar-engine")) return next(); // public: shareable client approach note + engine pipeline doc
-  if (authed(req)) return next();
-  if (req.path.startsWith("/api/")) return res.status(401).json({ error: "auth required" });
-  return res.redirect("/login.html");
+  const acct = accountOf(req);
+  if (!acct) {
+    if (req.path.startsWith("/api/")) return res.status(401).json({ error: "auth required" });
+    return res.redirect("/login.html");
+  }
+  // signed in, but is this app theirs? (enforced here, not in the nav)
+  if (!allowedFor(acct, req.path)) {
+    if (req.path.startsWith("/api/")) return res.status(403).json({ error: "not available on this account" });
+    const home = acct.apps.length ? APP_ROUTES[acct.apps[0]].pages[0] : "/login.html";
+    return res.redirect(home);
+  }
+  return next();
 });
 
 // Always revalidate code/markup so a deploy shows up immediately (ETag → 304 when
@@ -742,6 +785,8 @@ app.post("/api/integrations/:id/test", async (req, res) => {
 
 // Whisperer routes (demand↔supply content intelligence — Journey 1, mock-first)
 mountWhisperer(app, slug, upload);
+// RayDar Journey — the gated, high-involvement lane alongside the express sweep
+mountJourney(app, upload);
 
 // multer / upload errors → clean JSON (e.g. file too large)
 app.use((err, _req, res, _next) => {

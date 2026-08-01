@@ -93,7 +93,10 @@ window.qHeader = (activeTab = "home") => {
     const st = document.createElement("style"); st.id = "qterm-css"; st.textContent = QTERM_CSS;
     document.head.appendChild(st);
   }
-  const tabs = [["raydar", "RayDar", "/whisperer.html"], ["contra", "Contra", "/contra.html"], ["qlegal", "Q-Legal", "/qlegal.html"], ["mint", "Mint", "/mint.html"], ["admin", "Admin", "/admin.html"]];
+  // Tabs are filtered to the signed-in account's apps once /api/me resolves.
+  // (The server enforces access too — this only keeps the bar honest.)
+  const ALL_TABS = [["raydar", "RayDar", "/whisperer.html"], ["contra", "Contra", "/contra.html"], ["qlegal", "Q-Legal", "/qlegal.html"], ["mint", "Mint", "/mint.html"], ["admin", "Admin", "/admin.html"]];
+  const tabs = ALL_TABS;
   // Render the bar synchronously (no await) so it never pops in late / shifts
   // the page. The username + role fill in after /api/me resolves, without moving
   // anything (their spans already occupy the row).
@@ -113,6 +116,17 @@ window.qHeader = (activeTab = "home") => {
   fetch("/api/me").then((r) => r.json()).then((me) => {
     const u = document.getElementById("q-usr"); if (u) u.textContent = "USR:" + (me.user || "—");
     const rl = document.getElementById("q-role"); if (rl && me.role) { rl.textContent = me.role; rl.style.display = ""; }
+    if (Array.isArray(me.apps)) {
+      const mine = ALL_TABS.filter(([k]) => (k === "admin" ? me.admin : me.apps.includes(k)));
+      const nav = document.querySelector(".q-term__nav");
+      if (nav) nav.innerHTML = mine.map(([k, l, h]) => `<a href="${h}" class="q-term__tab ${activeTab === k ? "on" : ""}">${l}</a>`).join("");
+      // a single-app account has nothing to go "home" to — point the logo at its app
+      if (!me.admin && me.apps.length === 1) {
+        const brand = document.querySelector(".q-term__brand");
+        const only = ALL_TABS.find(([k]) => k === me.apps[0]);
+        if (brand && only) brand.setAttribute("href", only[2]);
+      }
+    }
   }).catch(() => {});
 };
 
