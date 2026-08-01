@@ -17,10 +17,10 @@ const _parts = (ts, opts) => new Intl.DateTimeFormat("en-IN", { ...IST, ...opts 
 const fmtD = (ts) => { if (!ts) return ""; const p = _parts(ts, { day: "2-digit", month: "2-digit", year: "numeric" }); return `${p.day}-${p.month}-${p.year}`; };
 const fmtDay = (ts) => { if (!ts) return ""; const p = _parts(ts, { weekday: "short", day: "numeric", month: "short", year: "numeric" }); return `${p.weekday}, ${p.day} ${p.month}, ${p.year}`; };
 const fmtDT = (ts) => { if (!ts) return ""; const p = _parts(ts, { day: "2-digit", month: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }); return `${p.day}-${p.month}-${p.year} · ${p.hour}:${p.minute} ${(p.dayPeriod || "").toLowerCase()}`; };
-const fmtNice = (ts) => { if (!ts) return "—"; const p = _parts(ts, { day: "numeric", month: "short", year: "numeric" }); return `${p.day} ${p.month} ${p.year}`; };
+const fmtNice = (ts) => { if (!ts) return "—"; const p = _parts(ts, { day: "numeric", month: "short", year: "numeric" }); return `${p.day} ${p.month}, ${p.year}`; };
 
 let AREA = "ask";
-let SUB = { ask: "chat", browse: "contracts", manage: "obligations" };
+let SUB = { ask: "chat", browse: "contracts", manage: "obligations", settings: "rules" };
 let DOCS = [], BY_TYPE = [], LOADED = false;
 let CATS = [];                    // the Legal Setting taxonomy (growing)
 let OPEN = null;                  // wiki payload
@@ -36,7 +36,7 @@ let DOCTHREADS = {};              // per-contract Ask threads, keyed by doc id
 let DRAFT = { ask: "", sugg: null, sel: [], out: null, busy: false };   // the drafting journey
 let DOCASKING = null;
 
-const VIEWS = { chat: "#view-chat", draft: "#view-draft", registers: "#view-registers", contracts: "#view-registry", spfiles: "#view-spfiles", obligations: "#view-obligations", confirm: "#view-confirm", sweep: "#view-sweep", taxonomy: "#view-taxonomy", rules: "#view-rules", sharepoint: "#view-sharepoint", log: "#view-log" };
+const VIEWS = { chat: "#view-chat", draft: "#view-draft", registers: "#view-registers", contracts: "#view-registry", map: "#view-map", spfiles: "#view-spfiles", obligations: "#view-obligations", confirm: "#view-confirm", sweep: "#view-sweep", taxonomy: "#view-taxonomy", rules: "#view-rules", sharepoint: "#view-sharepoint", log: "#view-log" };
 
 // staggered reveal — output feels generated, not dumped
 function sequenceReveal(root, sel = ".reveal", step = 140, startDelay = 60) {
@@ -47,18 +47,20 @@ function sequenceReveal(root, sel = ".reveal", step = 140, startDelay = 60) {
 
 function renderNav() {
   const needsYou = (CONF_N || 0);
-  $("#mainnav").innerHTML = [["ask", "Ask"], ["browse", "Browse"], ["manage", `Manage${needsYou ? ` <span class="count" style="color:var(--org)">●${needsYou}</span>` : ""}`]]
+  $("#mainnav").innerHTML = [["ask", "Ask"], ["browse", "Browse"], ["manage", `Manage${needsYou ? ` <span class="count" style="color:var(--org)">●${needsYou}</span>` : ""}`], ["settings", "Settings"]]
     .map(([k, l]) => `<button class="${AREA === k ? "on" : ""}" onclick="setArea('${k}')">${l}</button>`).join("");
   const subs = AREA === "ask"
     ? [["chat", "Ask the repository", null], ["draft", "Draft a contract", null], ["registers", "Standing questions", REGISTERS.length || null]]
     : AREA === "browse"
-      ? [["contracts", "Contracts", LOADED ? DOCS.length : null], ["spfiles", "SharePoint files", null]]
-      : [["obligations", "Obligations", null], ["confirm", "Confirm queue", CONF_N], ["sweep", "Re-index", null], ["taxonomy", "Taxonomy", null], ["rules", "Business rules", RULES.length || null], ["sharepoint", "SharePoint", null], ["log", "AI activity", null]];
+      ? [["contracts", "Contracts", LOADED ? DOCS.length : null], ["map", "Estate map", null], ["spfiles", "SharePoint files", null]]
+      : AREA === "manage"
+        ? [["obligations", "Obligations", null], ["confirm", "Confirm queue", CONF_N], ["sweep", "Re-index", null], ["taxonomy", "Taxonomy", null], ["log", "AI activity", null]]
+        : [["rules", "Business Rules", RULES.length || null], ["sharepoint", "SharePoint", null]];
   $("#subnav").innerHTML = subs.map(([k, l, n]) => `<button class="${SUB[AREA] === k ? "on" : ""}" onclick="setSub('${k}')">${l}${n ? `<span class="count">${n}</span>` : ""}</button>`).join("");
 }
 window.setArea = (a) => { AREA = a; setSub(SUB[a]); };
 window.setSub = (s) => { SUB[AREA] = s; renderNav(); Object.values(VIEWS).forEach((v) => ($(v).hidden = true)); $(VIEWS[s]).hidden = false; renderView(s); };
-function renderView(s) { ({ chat: renderChat, draft: renderDraft, registers: renderRegisters, contracts: renderRegistry, spfiles: renderSpFiles, obligations: renderObligations, confirm: renderConfirm, sweep: renderSweep, taxonomy: renderTaxonomy, rules: renderRules, sharepoint: renderSharePoint, log: renderLog }[s])(); }
+function renderView(s) { ({ chat: renderChat, draft: renderDraft, registers: renderRegisters, contracts: renderRegistry, map: renderMap, spfiles: renderSpFiles, obligations: renderObligations, confirm: renderConfirm, sweep: renderSweep, taxonomy: renderTaxonomy, rules: renderRules, sharepoint: renderSharePoint, log: renderLog }[s])(); }
 
 async function loadRegistry() {
   try { const j = await (await fetch("/api/qlegal/registry")).json(); DOCS = j.documents || []; BY_TYPE = j.by_type || []; LOADED = true; } catch { DOCS = []; }
@@ -113,7 +115,7 @@ function renderChat() {
     <div class="msg-a reveal">${mdlite(t.a)}
       ${(t.sources || []).length ? `<div class="srcrow">${t.sources.map((s) => docChip(s)).join("")}</div>` : ""}
       ${(t.rungs || []).length ? `<div class="rungline">read: ${t.rungs.map((r) => `<span class="rk">✓</span> ${esc(r)}`).join(" → ")}</div>` : ""}
-      ${t.mode && t.mode !== "ai" ? `<div class="rungline" style="color:var(--amber)">no keyed model — point the Q-Legal pipelines at one in AI Skills &amp; Pipelines</div>` : ""}
+      ${t.mode && t.mode !== "ai" ? `<div class="rungline" style="color:var(--amber)">no keyed model — point the Q-Legal pipelines at one in Settings → AI Pipelines</div>` : ""}
     </div>`).join("");
   const thinking = ASKING ? `
     <div class="msg-u"><span class="b">${esc(ASKING)}</span></div>
@@ -128,8 +130,8 @@ function renderChat() {
       ${LIVE.hits.length
         ? `<div class="rsec-lbl">“${esc(LIVE.q)}” in the text · click to open</div>` + LIVE.hits.slice(0, 5).map((h) => `
           <div class="hit touch" onclick="openDoc(${h.id})">
-            <div class="hn">${esc(h.title || h.filename)} ${h.doc_type ? `<span class="typebadge">${esc(h.doc_type)}</span>` : ""}</div>
-            ${h.snippet ? `<div class="hs">${snip(h.snippet)}</div>` : ""}
+            <div class="hn">${esc(h.title || h.filename)} ${h.doc_type ? `<span class="typebadge">${esc(h.doc_type)}</span>` : ""}${h.via && h.via.includes("semantic") ? ' <span class="am" title="matched by meaning, not just words">≈ semantic</span>' : ""}</div>
+            ${h.snippet ? `<div class="hs">${snip(h.snippet)}</div>` : h.sem_snippet ? `<div class="hs">${h.sem_ref ? `<span class="ref">${esc(h.sem_ref)}</span> ` : ""}${esc(h.sem_snippet)}</div>` : ""}
           </div>`).join("")
         : `<div class="rungline" style="text-align:center">no literal match for “${esc(LIVE.q)}” — press Enter to ask the AI</div>`}
     </div>` : "";
@@ -282,7 +284,7 @@ window.qUpload = async (files) => {
     if (errs.length) msg += ` ${errs.length} failed: ${errs.map((e) => `${e.filename} — ${e.error}`).join("; ")}`;
     rdAlert("Ingestion complete", msg);
     const stub = (j.results || []).find((r) => r.mode && r.mode !== "ai");
-    if (stub) rdAlert("No keyed model", "Documents landed with a generic key. Point the Q-Legal pipelines at a keyed model in AI Skills & Pipelines for real extraction.");
+    if (stub) rdAlert("No keyed model", "Documents landed with a generic key. Point the Q-Legal pipelines at a keyed model in Settings → AI Pipelines for real extraction.");
   } catch (e) { const p = $("#qproc"); if (p) p.innerHTML = ""; rdAlert("Upload failed", String(e.message || e)); }
 };
 
@@ -372,6 +374,10 @@ function wikiView() {
   const parent = OPEN.parent ? `<div class="treecard touch" onclick="openDoc(${OPEN.parent.id})">↑ <b>${esc(OPEN.parent.title || OPEN.parent.filename)}</b> <span class="relk">${esc(d.relation_kind || "parent")}${d.relation_status === "confirmed" ? " ✓" : " · proposed"}</span> <span class="am" style="margin-left:auto">open ›</span></div>` : "";
   const kids = (OPEN.children || []).map((k) => `<div class="treecard touch" onclick="openDoc(${k.id})">↳ <b>${esc(k.title || k.filename)}</b> ${k.doc_type ? `<span class="typebadge">${esc(k.doc_type)}</span>` : ""} <span class="relk">${esc(k.relation_kind || "child")}</span> <span class="am" style="margin-left:auto">open ›</span></div>`).join("");
   const treeCard = (parent || kids) ? `<div class="wikicard reveal" id="famcard"><div class="rsec-lbl">Document family</div>${parent}${kids}</div>` : "";
+  const near = (OPEN.nearest || []);
+  const nearCard = near.length ? `<div class="wikicard reveal"><div class="rsec-lbl">Nearest in the estate · by meaning</div>
+      ${near.map((n) => `<div class="treecard touch" onclick="openDoc(${n.id})">≈ <b>${esc(n.title || n.filename)}</b> ${n.doc_type ? `<span class="typebadge">${esc(n.doc_type)}</span>` : ""} <span class="am">${n.similarity}% similar</span> <span class="am" style="margin-left:auto">open ›</span></div>`).join("")}
+      <div class="am" style="margin-top:8px">computed from the vector spine — useful for “what did we agree last time with someone like this”</div></div>` : "";
   const contents = (c2.contents || []);
   const contentsCard = contents.length ? `<div class="wikicard reveal"><div class="rsec-lbl">Contents wiki</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">${contents.slice(0, 80).map((c) => `<span class="tagchip">${esc(c.ref || "")} ${esc(c.heading || "")}</span>`).join("")}</div>
@@ -389,7 +395,7 @@ function wikiView() {
       </div>
       <button class="btn small touch" onclick="delDoc(${d.id})" title="remove from the derived layer only">✕</button>
     </div>`;
-  return head + askDocBox(d) + highlight + setting + parties + summary + confs + regCard + noticeCard + oblCard + treeCard + contentsCard + clauseCard;
+  return head + askDocBox(d) + highlight + setting + parties + summary + confs + regCard + noticeCard + oblCard + treeCard + nearCard + contentsCard + clauseCard;
 }
 window.setDocCategory = async (id, name) => {
   await fetch(`/api/qlegal/document/${id}/category`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ doc_type: name }) });
@@ -593,23 +599,98 @@ window.confAct = async (id, action, kind) => {
   go();
 };
 
-const SCOPES = ["global", "ingestion", "registers", "search", "obligations", "drafting"];
+const SCOPES = ["global", "ingestion", "registers", "search", "obligations", "drafting", "vectors", "sync"];
+// The levers, in the order a document moves through the engine. Each param gets
+// a human label + unit so the screen reads as controls, not JSON.
+const RULE_ORDER = ["c1-read", "c2-key", "families", "obligations", "registers", "vectors", "ask", "drafting", "sharepoint-scan"];
+const PARAM_LABEL = {
+  max_transcript_chars: ["Transcribe at most", "characters per file"],
+  ocr_fallback: ["Vision-OCR scanned pages", ""],
+  ocr_when_text_under_chars: ["Treat as a scan below", "characters of text"],
+  read_chars: ["Model reads", "characters of the contract"],
+  max_tokens: ["Answer budget", "tokens"],
+  classify_confidence_min: ["Send to Confirm queue below", "confidence (0-1)"],
+  max_clauses: ["Clause wiki cap", "clauses"],
+  max_contents: ["Contents wiki cap", "headings"],
+  max_per_contract: ["Obligations cap", "per contract"],
+  default_lead_days: ["Warn me", "days before a due date"],
+  sweep_batch: ["Backfill batch", "contracts per pass"],
+  keep_corrected: ["Never overwrite a corrected answer", ""],
+  candidates_considered: ["Compare against", "recent contracts"],
+  lineage_similarity_min: ["Same contract above", "text overlap (0-1)"],
+  require_explicit_reference: ["Only link on an explicit reference", ""],
+  documents_read: ["Ask opens", "contracts per question"],
+  semantic_candidates: ["Consider", "semantic matches"],
+  deep_text_chars: ["Deep-read", "characters per contract"],
+  register_answers: ["Carry", "standing answers into context"],
+  history_turns: ["Remember", "turns of conversation"],
+  obligations_horizon_days: ["Surface obligations due within", "days"],
+  granularities: ["Embed at", "(document · section · clause)"],
+  max_clause_vectors: ["Clause vectors cap", "per contract"],
+  max_section_vectors: ["Section vectors cap", "per contract"],
+  nearest_in_estate: ["“Nearest in estate” shows", "contracts"],
+  embed_batch: ["Embed", "texts per API call"],
+  candidates_ranked: ["Rank", "contracts as possible models"],
+  max_models: ["Draft from at most", "model contracts"],
+  model_read_chars: ["Read", "characters of each model"],
+  nightly_hour_ist: ["Nightly scan at", ":00 IST"],
+  file_types: ["Pick up", "file types"],
+  removal_detection: ["Propose inactive when a file disappears", ""],
+  max_files_per_scan: ["Scan at most", "files per run"],
+};
+let RULE_DEFAULTS = {};
 async function renderRules() {
   const host = $("#view-rules");
   host.innerHTML = `<div class="empty">loading…</div>`;
   try { RULES = ((await (await fetch("/api/qlegal/rules")).json()).rules) || []; } catch { RULES = []; }
+  try { RULE_DEFAULTS = ((await (await fetch("/api/qlegal/rule-defaults")).json()).defaults) || {}; } catch { RULE_DEFAULTS = {}; }
   renderNav();
-  const byScope = SCOPES.map((s) => [s, RULES.filter((r) => r.scope === s)]).filter(([, rs]) => rs.length);
-  host.innerHTML = `<p class="intro"><b>BUSINESS RULES</b> — the editable rulebook. Each rule is injected into its pipeline step at call time (<b>ingestion</b> → the key &amp; linker · <b>registers</b> → standing questions · <b>search</b> → Ask · <b>obligations</b> → the mapper · <b>global</b> → every step). Edit here; the very next run obeys.</p>
-    <div style="margin-bottom:16px"><button class="btn btn--primary touch" onclick="addRule()">+ Add a rule</button></div>`
-    + byScope.map(([s, rs]) => `<div class="rsec-lbl" style="margin-top:18px">${esc(s)} · ${rs.length}</div>` + rs.map((r) => `
-      <div class="rulecard reveal ${r.status === "off" ? "off" : ""}">
-        <div class="rh"><span class="rt">${esc(r.title)}</span><span class="scopeb">${esc(r.scope)}</span><span class="am">v${r.version}</span>
-          <button class="btn small touch" onclick="editRule(${r.id})">Edit</button>
-          <button class="btn small touch" onclick="toggleRule(${r.id},'${r.status === "active" ? "off" : "active"}')">${r.status === "active" ? "Switch off" : "Switch on"}</button></div>
-        <div class="rb">${esc(r.body)}</div></div>`).join("")).join("");
+  const field = (code, k, v) => {
+    const [label, unit] = PARAM_LABEL[k] || [k.replace(/_/g, " "), ""];
+    const def = (RULE_DEFAULTS[code] || {})[k];
+    const isB = typeof v === "boolean", isArr = Array.isArray(v);
+    const input = isB ? `<input type="checkbox" data-p="${k}" data-t="b" ${v ? "checked" : ""} style="width:16px;height:16px">`
+      : isArr ? `<input data-p="${k}" data-t="l" value="${esc(v.join(", "))}" style="width:100%;font-size:13px">`
+      : `<input data-p="${k}" data-t="n" value="${esc(String(v))}" style="width:96px;font-size:13px">`;
+    return `<label style="display:flex;flex-direction:column;gap:4px;${isArr ? "flex-basis:100%" : ""}">
+      <span class="am">${esc(label)}${unit ? ` <span style="color:var(--dim2)">${esc(unit)}</span>` : ""}${def !== undefined && !isB && !isArr ? ` <span style="color:var(--dim2)">· default ${esc(String(def))}</span>` : ""}</span>${input}</label>`;
+  };
+  const card = (r) => {
+    const P = r.params || {};
+    return `<div class="rulecard reveal ${r.status === "off" ? "off" : ""}" data-rule="${r.id}">
+      <div class="rh"><span class="rt">${esc(r.title)}</span><span class="scopeb">${esc(r.scope)}</span><span class="am">v${r.version}</span>
+        <button class="btn small touch" style="margin-left:auto" onclick="toggleRule(${r.id},'${r.status === "active" ? "off" : "active"}')">${r.status === "active" ? "Use defaults" : "Switch on"}</button></div>
+      ${r.explain ? `<div class="rb" style="margin-bottom:10px">${esc(r.explain)}</div>` : ""}
+      ${Object.keys(P).length ? `<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:11px">${Object.entries(P).map(([k, v]) => field(r.code, k, v)).join("")}</div>` : ""}
+      ${r.body !== "" && r.body != null ? `<label class="am">The instruction this step runs on — edit freely</label>
+        <textarea data-body rows="3" style="width:100%;font-size:12.5px;margin:4px 0 8px;border:1px solid var(--line2);border-radius:9px;padding:9px 11px">${esc(r.body)}</textarea>` : ""}
+      <div style="display:flex;gap:8px;align-items:center"><button class="btn small btn--primary touch" onclick="saveRuleLevers(${r.id})">Save</button><span data-msg class="am" style="color:var(--grn)"></span></div>
+    </div>`;
+  };
+  const ordered = [...RULES].sort((a, b) => {
+    const i = RULE_ORDER.indexOf(a.code), j = RULE_ORDER.indexOf(b.code);
+    return (i < 0 ? 99 : i) - (j < 0 ? 99 : j);
+  });
+  host.innerHTML = `<p class="intro"><b>BUSINESS RULES</b> — the operating controls of the engine, in the order a contract moves through it: how much of a document each step reads, the confidence below which something goes to the Confirm queue, the overlap at which two files are the same contract, how wide Ask searches. Change a dial, and the very next ingestion or question obeys it.</p>
+    <div class="wikicard reveal" style="border-left:3px solid var(--line2)"><div class="rsec-lbl">Not settings — how Q-Legal is built</div>
+      <p class="rsummary" style="margin:0">SharePoint / the original file is <b>the source of truth</b> and is never written to (Q-Legal holds no write scope — there is no switch for this). Every classification, family link and lineage match is a <b>proposal</b> that lands in the Confirm queue. Every answer <b>cites its document and §</b>. Corrections are kept and replayed on rebuild. These are properties of the code, not toggles.</p></div>
+    ${ordered.map(card).join("")}
+    <div style="margin:18px 0"><button class="btn touch" onclick="addRule()">+ Add a house instruction</button>
+      <span class="am" style="margin-left:8px">a plain-English instruction injected into a step (no dials)</span></div>`;
   sequenceReveal(host, ".reveal", 90, 50);
 }
+window.saveRuleLevers = async (id) => {
+  const el = document.querySelector(`[data-rule="${id}"]`); if (!el) return;
+  const params = {};
+  el.querySelectorAll("[data-p]").forEach((f) => {
+    const k = f.dataset.p, t = f.dataset.t;
+    params[k] = t === "b" ? f.checked : t === "l" ? f.value.split(",").map((x) => x.trim()).filter(Boolean) : Number(f.value);
+  });
+  const body = { params };
+  const ta = el.querySelector("[data-body]"); if (ta) body.body = ta.value;
+  const r = await fetch(`/api/qlegal/rule/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const m = el.querySelector("[data-msg]"); if (m) m.textContent = r.ok ? "saved ✓ — the next run obeys" : "error";
+};
 window.addRule = () => ruleForm("Add a business rule", {}, async (o) => {
   if (!o.title || !o.body) return;
   await fetch("/api/qlegal/rules", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) });
@@ -702,10 +783,10 @@ async function renderSweep() {
       ${tile(st.total ?? 0, "active contracts")}${tile(st.inactive ?? 0, "inactive")}
       ${tile(st.unclassified ?? 0, "unclassified", 1)}${tile(st.stub_keyed ?? 0, "need a real key (C2)", 1)}
       ${tile(st.unlinked ?? 0, "no family yet", 1)}${tile(st.registers_pending ?? 0, "register answers pending", 1)}
-      ${tile(st.error_versions ?? 0, "failed versions", 1)}
+      ${tile((st.vectors || {}).pending ?? 0, "vectors pending", 1)}${tile(st.error_versions ?? 0, "failed versions", 1)}
     </div>
     <div id="swproc"></div>
-    ${card("Legal sweep of SharePoint", `Full walk of the library: <b>new files</b>, <b>updated files</b> (new version + diff), renames/moves, and <b>removals</b> (proposed inactive in the Confirm queue). ${sp.configured ? `Last scan: ${sp.last_run ? fmtDT(sp.last_run) : "never"}.` : "<span style='color:var(--amber)'>SharePoint not configured — set it up in the SharePoint tab.</span>"} The nightly 2:00 AM scan does the delta version automatically.`,
+    ${card("Legal sweep of SharePoint", `Full walk of the library: <b>new files</b>, <b>updated files</b> (new version + diff), renames/moves, and <b>removals</b> (proposed inactive in the Confirm queue). ${sp.configured ? `Last scan: ${sp.last_run ? fmtDT(sp.last_run) : "never"}.` : "<span style='color:var(--amber)'>SharePoint not configured — set it up in Settings → Integrations.</span>"} The nightly 2:00 AM scan does the delta version automatically.`,
       `<button class="btn btn--org touch" onclick="sweepSharePoint()">Full sweep now ▸</button>`)}
     ${card("Build families &amp; dependencies", `Proposes parent links ("pursuant to the MSA dated…") and draft↔signed lineage for every contract that has neither — each lands in the Confirm queue for your yes/no.`,
       `<button class="btn btn--primary touch" onclick="sweepFamilies()">Propose families ▸</button>`)}
@@ -713,7 +794,13 @@ async function renderSweep() {
       `<button class="btn btn--primary touch" onclick="sweepRefresh('stub')">Refresh the ${st.stub_keyed ?? 0} needing it ▸</button>
        <button class="btn touch" onclick="rdConfirm('Re-derive everything?','One capped batch of the full estate re-derives per click (cost-conscious). Human-confirmed values are never overwritten.',()=>sweepRefresh('all'))">Re-derive all (batch)</button>`)}
     ${card("Answer standing questions", `Backfills every active register across contracts that haven't answered them yet (${st.registers_pending ?? 0} pending).`,
-      `<button class="btn btn--primary touch" onclick="sweepRegisters()">Answer pending ▸</button>`)}`;
+      `<button class="btn btn--primary touch" onclick="sweepRegisters()">Answer pending ▸</button>`)}
+    ${(() => { const v = st.vectors || {};
+      return card("Semantic vectors · the meaning spine",
+        v.available === false
+          ? `<span style="color:var(--amber)">pgvector is not installed in this database — search runs on words alone (FTS). Install the extension (Supabase/Cloud SQL have it; local dev uses the pgvector image) and restart to switch the spine on.</span>`
+          : `Every contract embedded at three granularities — <b>document · section · clause</b>, each keeping its § anchor — so search, Ask, “nearest in estate” and the Estate map match by <b>meaning</b>, not just words. Model: <b>${esc(v.model || "—")}</b>${v.model === "hash:v1" ? ` <span style="color:var(--amber)">— key-free fallback; point <b>qlegal-embed</b> at a real embedding model in Settings → AI Pipelines, then re-embed here</span>` : ""} · ${v.vectors ?? 0} vectors across ${v.embedded ?? 0} contracts. Swapping the model makes the estate pending again — this sweep IS the re-embed migration.`,
+        v.available === false ? "" : `<button class="btn btn--primary touch" onclick="sweepEmbed()">Embed the ${v.pending ?? 0} pending ▸</button>`); })()}`;
   sequenceReveal(host, ".reveal", 90, 40);
 }
 function swMeter(msg) { const h = document.getElementById("swproc"); if (h) h.innerHTML = `<div class="meter"><div class="cmstep now"><span class="cmi"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""></span><span>${esc(msg)}</span></div></div>`; }
@@ -744,6 +831,17 @@ window.sweepRefresh = async (scope) => {
   }
   await loadRegistry(); loadCats(); renderSweep();
   rdAlert("Refresh done", `${total} contract${total === 1 ? "" : "s"} re-derived (key, classification, obligations, registers).`);
+};
+window.sweepEmbed = async () => {
+  let total = 0;
+  for (let pass = 0; pass < 60; pass++) {
+    swMeter(`embedding the estate — ${total} contract${total === 1 ? "" : "s"} vectorised…`);
+    let j; try { j = await (await fetch("/api/qlegal/sweep/embed", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 10 }) })).json(); } catch { break; }
+    total += j.processed || 0;
+    if (!j.processed || !j.remaining) break;
+  }
+  renderSweep();
+  rdAlert("Vectors built", `${total} contract${total === 1 ? "" : "s"} embedded. New contracts embed automatically at ingestion.`);
 };
 window.sweepRegisters = async () => {
   let total = 0;
@@ -874,6 +972,43 @@ window.doAskDoc = async (id) => {
     setTimeout(() => { const e2 = document.getElementById("dockaskin"); if (e2) e2.focus(); }, 80);
   } catch (e) { DOCASKING = null; renderRegistry(); rdAlert("Ask failed", String(e.message || e)); }
 };
+
+// ---- Browse · Estate map + emergent clause library (the vector wiki) -----------
+const MAP_COLORS = ["#E8734A", "#4A7DE8", "#3FA36B", "#B04AE8", "#E8B04A", "#4AC2E8", "#E84A8F", "#8FA33F", "#7A6FE8", "#A0522D"];
+async function renderMap() {
+  const host = $("#view-map");
+  host.innerHTML = `<div class="empty"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""> computing the estate map…</div>`;
+  let map = {}, lib = {};
+  try { [map, lib] = await Promise.all([
+    (await fetch("/api/qlegal/estate-map")).json(),
+    (await fetch("/api/qlegal/clause-library")).json(),
+  ]); } catch { /* cards say why below */ }
+  const intro = `<p class="intro"><b>ESTATE MAP</b> — every contract as a point in meaning-space (2D projection of its document vector). Contracts of a kind cluster; the outliers are the ones worth a look. Below it, the <b>emergent clause library</b>: the estate's clauses clustered by meaning — the centre of a cluster is your de-facto standard position, the far edge is the non-standard drafting.</p>`;
+  if (map.available === false) { host.innerHTML = intro + `<div class="empty">// pgvector is not installed in this database — the map needs the vector spine (see Manage → Re-index) //</div>`; return; }
+  const pts = map.points || [];
+  const types = [...new Set(pts.map((p) => p.type))];
+  const color = (t) => MAP_COLORS[types.indexOf(t) % MAP_COLORS.length];
+  const dots = pts.map((p) => `<span class="touch" onclick="openDoc(${p.id})" title="${esc(p.name)} · ${esc(p.type)}"
+      style="position:absolute;left:${4 + p.x * 92}%;top:${4 + (1 - p.y) * 88}%;width:13px;height:13px;border-radius:50%;background:${color(p.type)};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.25);cursor:pointer;transform:translate(-50%,-50%)"></span>`).join("");
+  const legend = types.map((t) => `<span class="tagchip"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color(t)};margin-right:5px"></span>${esc(t)}</span>`).join(" ");
+  const mapCard = pts.length >= 3
+    ? `<div class="wikicard reveal"><div class="rsec-lbl">The estate in meaning-space · ${pts.length} contracts ${map.model === "hash:v1" ? '· <span style="color:var(--amber)">key-free embedding — clusters sharpen with a real model</span>' : ""}</div>
+        <div style="position:relative;height:min(58vh,480px);background:var(--bg2);border:1px solid var(--line);border-radius:12px;overflow:hidden">${dots}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${legend}</div></div>`
+    : `<div class="empty">// not enough embedded contracts to map — run the embed sweep in Manage → Re-index //</div>`;
+  const clusters = (lib.clusters || []);
+  const cRow = (m) => `<div class="treecard touch" onclick="openDoc(${m.document_id})">${m.ref ? `<span class="ref">${esc(m.ref)}</span>` : ""} <b>${esc(m.title || "")}</b> <span class="am">${esc(m.doc)}</span><span class="am" style="flex-basis:100%;margin-top:2px">${esc((m.gist || "").slice(0, 140))}</span></div>`;
+  const libCard = clusters.length
+    ? `<div class="wikicard reveal"><div class="rsec-lbl">Emergent clause library · ${lib.total} clauses in ${clusters.length} clusters</div>
+        ${clusters.slice(0, 12).map((c) => `<div style="padding:10px 0;border-bottom:1px solid var(--line)">
+          <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><b>${esc(c.label)}</b><span class="am">${c.size} clause${c.size === 1 ? "" : "s"}</span></div>
+          <div class="rsec-lbl" style="margin-top:7px">the estate norm (cluster centre)</div>${c.norm.map(cRow).join("")}
+          ${c.outliers.length ? `<div class="rsec-lbl" style="margin-top:7px;color:var(--amber)">non-standard (far from the norm — worth a look)</div>${c.outliers.map(cRow).join("")}` : ""}
+        </div>`).join("")}</div>`
+    : "";
+  host.innerHTML = intro + mapCard + libCard;
+  sequenceReveal(host, ".reveal", 130, 60);
+}
 
 // ---- Browse · SharePoint files (live, read-only, with the library's own facets) --
 async function renderSpFiles() {

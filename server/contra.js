@@ -32,7 +32,8 @@ const nextSeq = async (id) => Number((await q(`select coalesce(max(seq),-1)+1 s 
 
 const slugify = (s) => String(s || "archetype").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 48);
 // India time (IST) — server runs UTC on Cloud Run
-const istStamp = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).replace(",", "");
+// India format IST — "31-07-2026 14:30" (platform standard)
+const istStamp = () => { const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date()).reduce((o, x) => ((o[x.type] = x.value), o), {}); return `${p.day}-${p.month}-${p.year} ${p.hour}:${p.minute}`; };
 const stamp = () => istStamp().replace(" ", "·").replace(":", "");
 
 // pull the first JSON object out of an LLM reply (tolerates prose / code fences)

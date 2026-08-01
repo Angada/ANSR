@@ -5,8 +5,10 @@ const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
 // India time (IST) — always show Asia/Kolkata regardless of the viewer's device
 const IST = { timeZone: "Asia/Kolkata" };
-const fmtDT = (ts) => ts ? new Date(ts).toLocaleString("en-IN", { ...IST, day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "";
-const fmtD = (ts) => ts ? new Date(ts).toLocaleDateString("en-IN", { ...IST, day: "2-digit", month: "short", year: "numeric" }) : "";
+// India format, IST — readable "29 Jun, 2026" · with time "29-09-2026 · 2:09 pm"
+const _p = (ts, o) => new Intl.DateTimeFormat("en-IN", { ...IST, ...o }).formatToParts(new Date(ts)).reduce((a, x) => ((a[x.type] = x.value), a), {});
+const fmtDT = (ts) => { if (!ts) return ""; const p = _p(ts, { day: "2-digit", month: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }); return `${p.day}-${p.month}-${p.year} · ${p.hour}:${p.minute} ${(p.dayPeriod || "").toLowerCase()}`; };
+const fmtD = (ts) => { if (!ts) return ""; const p = _p(ts, { day: "numeric", month: "short", year: "numeric" }); return `${p.day} ${p.month}, ${p.year}`; };
 const rid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 
 let AREA = "contracts";

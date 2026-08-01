@@ -2,8 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "qansr-dev",
-      "url": "http://localhost:4180"
+      "name": "qlegal",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "/Users/asa/projects/QAnsr/server/index.js"
+      ],
+      "port": 4100,
+      "autoPort": true
     }
   ]
 }

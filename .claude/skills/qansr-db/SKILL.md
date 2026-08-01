@@ -105,6 +105,7 @@ description: Q&ANSR / BigFlex Postgres schema — the complete data model (38 ta
 | **ql_feedback** | append-only learning-loop events (replayed on rebuild) |
 | **ql_log** | append-only AI activity (pipeline, model, **rules_applied**) |
 | **ql_tag_vocab** | controlled tag vocabulary (auto/free) |
+| **ql_embedding** | the vector spine (027): document_id, granularity (`document`/`section`/`clause`), **ref** §, content, **embedding vector(1536)** HNSW-cosine, **embedding_model** (`zai:embedding-3` / `hash:v1` fallback) — never knn across models; needs the pgvector extension (local: `pgvector/pgvector:pg15` image) |
 
 ### 7 · Atlas (cross-contract learning)
 | Table | Key columns · notes |

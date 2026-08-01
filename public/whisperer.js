@@ -7,7 +7,8 @@
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
 // India time (IST) — always show Asia/Kolkata regardless of the viewer's device
-const fmtDT = (ts) => ts ? new Date(ts).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true }) : "";
+// India format, IST — "29-09-2026 · 2:09 pm" (platform standard)
+const fmtDT = (ts) => { if (!ts) return ""; const p = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }).formatToParts(new Date(ts)).reduce((a, x) => ((a[x.type] = x.value), a), {}); return `${p.day}-${p.month}-${p.year} · ${p.hour}:${p.minute} ${(p.dayPeriod || "").toLowerCase()}`; };
 
 let ROUTES = { trend: false, seo: false, talentmind: false };
 let TOPICS = [];        // selected trend-spotting demand topics (names)
@@ -42,18 +43,154 @@ function rail() {
 window.toHunger = () => { STAGE = 1; $("#track").classList.remove("at-ideas"); rail(); };
 window.toIdeas = () => { STAGE = 3; $("#track").classList.add("at-ideas"); rail(); };
 
-// ---- sub-nav: New Sweep / Batches / Library --------------------------------
+// ---- sub-nav: New Sweep / Batches / Library / Settings ----------------------
 function renderSubnav() {
-  $("#subnav").innerHTML = [["sweep", "New Sweep"], ["batches", "Batches"], ["library", "Library"]]
+  $("#subnav").innerHTML = [["sweep", "New Sweep"], ["batches", "Batches"], ["library", "Library"], ["settings", "Settings"]]
     .map(([k, l]) => `<button class="${VIEW === k ? "on" : ""}" onclick="setView('${k}')">${l}</button>`).join("");
 }
 window.setView = (v) => {
+  if (v === "rules") v = "settings";        // old deep-links land on Settings
   VIEW = v; renderSubnav();
   $("#view-sweep").hidden = v !== "sweep";
   $("#view-batches").hidden = v !== "batches";
   $("#view-library").hidden = v !== "library";
+  $("#view-rules").hidden = v !== "settings";
   if (v === "batches") renderBatches();
   if (v === "library") loadLibrary();
+  if (v === "settings") renderBizRules();
+};
+
+// ==========================================================================
+// BUSINESS RULES — RayDar's own dials, in the app (not a generic admin list).
+// Every card says WHAT it controls and WHERE it fires; the key parameters are
+// real labelled fields (the raw JSON stays available under "advanced"). Saved
+// rules apply to the very next sweep — no deploy.
+// ==========================================================================
+// The app's SETTINGS = BUSINESS RULES only. Provider keys, the AI-pipeline
+// registry (provider/model/gate) and the API integrations are PLATFORM-COMMON
+// and live in Admin — one registry, no shadow copies. A business rule here
+// carries the app's operating parameters + the instruction, nothing else.
+let BR = null, BRCFG = null;
+const BR_GROUPS = [
+  ["guardrails", "Guardrails — who this is for", "Applied to EVERY idea prompt and enforced in code on the feed: items outside the allowed languages are dropped from the sweep, with the reason shown."],
+  ["journey", "The sweep, step by step", "The dials of your hunger sweep — what gets swept when you start from Trend Spotting, whether SEO steers it (optional per batch), and who counts as the cohort."],
+  ["integration", "Sources — how each API is called", "Per source: the exact query parameters, the prompt every batch of its items runs through, its model override and its on/off gate."],
+  ["scoring", "Scoring — how ideas get ranked", "score = gap·w₁ + velocity·w₂ + strategic·w₃ + historical·w₄. Change the weights, change the ordering of every board."],
+];
+const BR_EXPLAIN = {
+  guardrails: "The audience contract: India-English job seekers, INR, Indian workplace idiom. Languages here are ENFORCED — a Tamil/Kannada/Hinglish video is dropped at collection (reason shown in the sweep's dropped list), not just discouraged in the prompt.",
+  trend_spotting: "Your INITIAL HUNGER SWEEP — starting from Trend Spotting, this frames the cohort's hunger and picks the demand topics that get swept.",
+  seo_inputs: "The OPTIONAL SEO route. When a batch includes SEO, your pasted/uploaded research becomes real YouTube/Reddit search queries (and gets its own ✨ idea board). Not in the batch = not used.",
+  talentmind: "The cohort route — when a sweep starts from TalentMind, this defines who counts (job seekers only, tenure cap) and how their corpus becomes chips.",
+  youtube: "How YouTube is swept: region, look-back window, videos per term, whose comments we read (comments are the demand signal). THE FILTER lives here too — Shorts, memes and non-English-audio videos are dropped at collection with a reason, and no comment quota is spent on them.",
+  reddit: "Which subreddits are searched, how many posts, and how deep the comment trees go — comment trees are the highest-value signal. The prompt below is EXACTLY what every batch of Reddit items is classified with.",
+  newsapi: "News collection — language, page size, ordering for NewsAPI/GNews.",
+  serpapi: "Google News via SerpApi — region/language and how many headlines.",
+  tavily: "Research source — grounds ideas with facts + cited URLs during generation.",
+  serper: "Google SERP research — grounding + validation with links.",
+  perplexity: "Research + validation with citations; the prompt is sent with every research call.",
+  exa: "Neural search for validation — most-relevant sources with URLs.",
+  brave: "Web search for grounding + validation.",
+  factcheck: "Published fact-checks (Google Fact Check Tools) — disputes lower an idea's confidence score.",
+  wikidata: "Entity grounding against Wikipedia/Wikidata (no key needed).",
+  scoring: "The composite rank behind every board. gap_map is the fallback demand map used when a topic has no live signal.",
+};
+// the labelled quick-fields per rule (k = key in collection). type: n(umber) | t(ext) | b(ool) | l(ist, comma-joined)
+const BR_FIELDS = {
+  youtube: [["publishedDays", "Look-back (days)", "n"], ["maxResults", "Videos per term", "n"], ["regionCode", "Region", "t"], ["commentsTopVideos", "Read comments from top-N", "n"], ["commentsPerVideo", "Comments per video", "n"],
+    ["excludeShorts", "Drop Shorts", "b"], ["minDurationSec", "Min duration (sec)", "n"], ["memeMarkers", "Meme markers — drop if title contains", "l"], ["hinglishGuard", "Drop romanised-Hindi titles", "b"]],
+  reddit: [["subreddits", "Subreddits searched", "l"], ["topPosts", "Posts per term", "n"], ["timeframe", "Timeframe", "t"], ["commentTrees", "Comment trees to walk", "n"], ["commentsPerPost", "Comments per post", "n"]],
+  newsapi: [["language", "Language", "t"], ["pageSize", "Articles", "n"]],
+  serpapi: [["gl", "Region", "t"], ["hl", "Language", "t"], ["num", "Headlines", "n"]],
+  trend_spotting: [["topics", "Demand topics per sweep", "n"], ["include_emerging", "Include Emerging", "b"]],
+  seo_inputs: [["max_inputs", "Max SEO inputs read", "n"]],
+  talentmind: [["tenure_max_years", "Tenure cap (years)", "n"], ["job_seekers_only", "Job seekers only", "b"]],
+  guardrails: [["languages", "Allowed languages (ISO codes — 'all' disables the filter)", "l"], ["audience", "Audience", "t"], ["region", "Region", "t"], ["currency", "Currency", "t"]],
+};
+async function renderBizRules() {
+  const host = $("#view-rules");
+  host.innerHTML = `<div class="empty" style="text-align:center;padding:40px;color:var(--dim)">reading the rules…</div>`;
+  try {
+    if (!BR) BR = (await (await fetch("/api/wh/rules")).json()).rules || {};
+    if (!BRCFG) BRCFG = await (await fetch("/api/config")).json();
+  } catch { host.innerHTML = `<p class="intro">could not load the rules</p>`; return; }
+  const F = (id, r) => (BR_FIELDS[id] || []).map(([k, label, type]) => {
+    const v = (r.collection || {})[k];
+    const inp = type === "b" ? `<input type="checkbox" data-bf="${k}" data-t="b" ${v ? "checked" : ""} style="width:16px;height:16px">`
+      : type === "l" ? `<input data-bf="${k}" data-t="l" value="${esc(Array.isArray(v) ? v.join(", ") : (v || ""))}" style="width:100%">`
+      : `<input data-bf="${k}" data-t="${type}" value="${esc(v ?? "")}" style="width:${type === "n" ? "90px" : "180px"}">`;
+    return `<label style="display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--dim);${type === "l" ? "flex-basis:100%" : ""}">${esc(label)}${inp}</label>`;
+  }).join("");
+  const card = (id, r) => `
+    <div class="brcard" data-rule="${id}" style="background:var(--panel,#101613);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+        <b style="font-size:14.5px">${esc((r.label || id).replace(/_/g, " "))}</b>
+        <span style="font-family:var(--mono);font-size:10.5px;color:var(--dim2)">${esc(r.pipeline || "")}</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--dim2)">model &amp; gate: Admin → AI &amp; Pipelines</span>
+      </div>
+      <p style="font-size:12.5px;color:var(--dim);line-height:1.55;margin:7px 0 10px">${esc(BR_EXPLAIN[id] || "")}</p>
+      ${(BR_FIELDS[id] || []).length ? `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">${F(id, r)}</div>` : ""}
+      <label style="font-size:11.5px;color:var(--dim)">The instruction — sent with every ${esc(id.replace(/_/g, " "))} call (edit freely)</label>
+      <textarea data-pr rows="3" style="width:100%;font-size:12px;margin:4px 0 8px">${esc(r.prompt || "")}</textarea>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+        <input data-want placeholder="or just say it — “stop showing me shorts and hindi videos”, “read 200 comments per post”" style="flex:1;min-width:240px;font-size:12.5px"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();askBizRule('${id}')}">
+        <button class="btn" onclick="askBizRule('${id}')">Apply my words ▸</button>
+      </div>
+      <div data-prop style="display:none;font-size:12px;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:8px"></div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="btn" onclick="saveBizRule('${id}')">Save</button>
+        <span data-msg style="font-size:12px;color:var(--grn)"></span>
+        <details style="margin-left:auto;font-size:11px;color:var(--dim2)"><summary style="cursor:pointer">advanced (raw JSON)</summary>
+          <textarea data-adv rows="6" style="width:340px;max-width:80vw;font-family:ui-monospace,monospace;font-size:11px;margin-top:6px">${esc(JSON.stringify(r.collection || {}, null, 2))}</textarea></details>
+      </div>
+    </div>`;
+  const byCat = {}; for (const [id, r] of Object.entries(BR)) (byCat[r.category || "other"] ||= []).push([id, r]);
+  host.innerHTML = `<p class="intro"><b>BUSINESS RULES</b> — RayDar's own dials. Nothing here is generic: these are the actual parameters of your sweep, the actual prompts each source runs through, and the filter that decides what gets dropped. Saved rules apply to the very next sweep.</p>`
+    + BR_GROUPS.filter(([c]) => byCat[c]).map(([c, title, sub]) =>
+      `<div style="margin:20px 0 4px"><b style="color:var(--grn);font-size:13px;letter-spacing:.06em;text-transform:uppercase">${esc(title)}</b>
+        <p style="font-size:12px;color:var(--dim2);margin:3px 0 10px">${esc(sub)}</p></div>` + byCat[c].map(([id, r]) => card(id, r)).join("")).join("");
+}
+// plain English → a PROPOSED change (params + instruction), shown as a diff you confirm
+window.askBizRule = async (id) => {
+  const el = document.querySelector(`[data-rule="${id}"]`); if (!el) return;
+  const want = el.querySelector("[data-want]").value.trim(); if (!want) return;
+  const box = el.querySelector("[data-prop]");
+  box.style.display = "block"; box.innerHTML = `<img class="potspin" src="/brand/assets/logos/pot.png" alt=""> reading what you want…`;
+  try {
+    const j = await (await fetch(`/api/wh/rules/${id}/ask`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ want }) })).json();
+    if (!j.ok) { box.innerHTML = `<span style="color:var(--dim)">${esc(j.error || "could not read that")}</span>`; return; }
+    window._RDPROP = { ...(window._RDPROP || {}), [id]: j.proposal };
+    box.innerHTML = `<b>Proposed change</b> — nothing is saved until you accept.
+      <ul style="margin:6px 0 8px;padding-left:18px;line-height:1.6">${(j.proposal.changed || []).map((c) => `<li>${esc(c)}</li>`).join("") || "<li>updated the parameters</li>"}</ul>
+      <div style="display:flex;gap:8px"><button class="btn" onclick="acceptBizProp('${id}')">Accept</button>
+        <button class="btn" onclick="this.closest('[data-prop]').style.display='none'">Discard</button></div>`;
+  } catch (e) { box.innerHTML = `<span style="color:var(--dim)">${esc(String(e.message || e))}</span>`; }
+};
+window.acceptBizProp = (id) => {
+  const p = (window._RDPROP || {})[id]; const el = document.querySelector(`[data-rule="${id}"]`); if (!p || !el) return;
+  el.querySelector("[data-adv]").value = JSON.stringify(p.collection || {}, null, 2);   // fields re-read from here on save
+  if (p.prompt) el.querySelector("[data-pr]").value = p.prompt;
+  el.querySelectorAll("[data-bf]").forEach((f) => {                                     // reflect into the labelled fields
+    const v = (p.collection || {})[f.dataset.bf];
+    if (v === undefined) return;
+    if (f.dataset.t === "b") f.checked = !!v; else if (f.dataset.t === "l") f.value = Array.isArray(v) ? v.join(", ") : String(v); else f.value = v;
+  });
+  el.querySelector("[data-prop]").innerHTML = `<span style="color:var(--grn)">applied to the fields — press <b>Save</b> to commit</span>`;
+};
+window.saveBizRule = async (id) => {
+  const el = document.querySelector(`[data-rule="${id}"]`); if (!el) return;
+  let collection = {};
+  try { collection = JSON.parse(el.querySelector("[data-adv]").value || "{}"); }
+  catch { el.querySelector("[data-msg]").textContent = "invalid JSON in advanced"; return; }
+  el.querySelectorAll("[data-bf]").forEach((f) => {   // labelled fields win over the raw JSON
+    const k = f.dataset.bf, t = f.dataset.t;
+    collection[k] = t === "b" ? f.checked : t === "n" ? Number(f.value) : t === "l" ? f.value.split(",").map((x) => x.trim()).filter(Boolean) : f.value.trim();
+  });
+  const body = { collection, prompt: el.querySelector("[data-pr]").value };
+  const r = await fetch(`/api/wh/rules/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  el.querySelector("[data-msg]").textContent = r.ok ? "saved ✓ — applies to the next sweep" : "error";
+  BR = null; GUARD = null;
 };
 
 async function init() {
@@ -581,8 +718,8 @@ const _nfmt = (n) => Number(n || 0).toLocaleString();
 const _compact = (n) => { n = Number(n || 0); return n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "k" : String(n); };
 function feedSignalBlock() {
   const d = Array.isArray(FEED_SIGNAL) ? { kept: FEED_SIGNAL, dropped: [], stats: null } : (FEED_SIGNAL || {});
-  const kept = d.kept || [], dropped = d.dropped || [], st = d.stats;
-  if (!kept.length && !dropped.length) return "";
+  const kept = d.kept || [], dropped = d.dropped || [], repeats = d.repeats || [], st = d.stats;
+  if (!kept.length && !dropped.length && !repeats.length) return "";
   const why = (v) => {
     const b = [];
     if (v.views) b.push(`${_nfmt(v.views)} views${v.ageDays ? ` in ${v.ageDays}d` : ""}`);
@@ -608,9 +745,16 @@ function feedSignalBlock() {
     ${st.views_analysed ? `<span class="fst"><b>${_compact(st.views_analysed)}</b> views analysed</span>` : ""}
     ${st.questions ? `<span class="fst"><b>${st.questions}</b> question-comments mined</span>` : ""}
     ${st.kept != null ? `<span class="fst on"><b>${st.kept}</b> on-topic</span>` : ""}
-    ${st.dropped ? `<span class="fst off"><b>${st.dropped}</b> filtered off-topic</span>` : ""}
+    ${st.dropped ? `<span class="fst off"><b>${st.dropped}</b> filtered</span>` : ""}
+    ${st.repeats ? `<span class="fst off"><b>${st.repeats}</b> repeats hidden</span>` : ""}
   </div>` : "";
-  const droppedBlock = dropped.length ? `<details class="fsig-dropped"><summary>▸ ${dropped.length} filtered out as off-topic — see what &amp; why</summary>${dropped.map(dropRow).join("")}</details>` : "";
+  const droppedBlock = dropped.length ? `<details class="fsig-dropped"><summary>▸ ${dropped.length} filtered out — see what &amp; why (Shorts · memes · language · off-topic)</summary>${dropped.map(dropRow).join("")}</details>` : "";
+  // items seen in an EARLIER sweep — hidden by default, never removed (first sighting stays the record)
+  const repeatRow = (v) => `<a class="fsig-row drop" href="${esc(v.url)}" target="_blank" rel="noopener" title="open ↗">
+    <span class="fsig-src">${_srcIcon(v.source)}</span>
+    <span class="fsig-main"><span class="fsig-title">${esc(v.title || "(untitled)")}</span><span class="fsig-why">${_nfmt(v.views)} views · already surfaced in an earlier sweep</span></span>
+    <span class="fsig-ext">↗</span></a>`;
+  const repeatsBlock = repeats.length ? `<details class="fsig-dropped"><summary>▸ ${repeats.length} repeat${repeats.length === 1 ? "" : "s"} from earlier sweeps — hidden, not removed</summary>${repeats.map(repeatRow).join("")}</details>` : "";
   // tabs by source (YouTube · Reddit · SEO), only when more than one group is present
   const TAB_META = { youtube: { i: "▶️", l: "YouTube" }, reddit: { i: "👽", l: "Reddit" }, seo: { i: "✨", l: "SEO" }, other: { i: "🌐", l: "Other" } };
   const counts = kept.reduce((m, v) => { const g = grp(v); m[g] = (m[g] || 0) + 1; return m; }, {});
@@ -625,7 +769,7 @@ function feedSignalBlock() {
     <div class="fsig-note">Ranked by velocity (views ÷ days) — the live demand signal behind these ideas.${counts.seo ? " The <b>SEO</b> tab is what your uploaded keywords pulled in." : ""} Click any to open ↗</div>
     ${tabs}
     <div class="fsig-rows" data-tab="all">${kept.map(keptRow).join("")}</div>
-    ${droppedBlock}</details>`;
+    ${repeatsBlock}${droppedBlock}</details>`;
 }
 window.fsigTab = (btn, t) => {
   const wrap = btn.closest(".fsig"); if (!wrap) return;

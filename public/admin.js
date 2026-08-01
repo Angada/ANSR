@@ -8,7 +8,7 @@ let CFG = null;
 async function load() {
   CFG = await (await fetch("/api/config")).json();
   renderDefaultAll(); renderSkillFilter(); renderProducts();
-  renderIntegrations(); renderRules(); renderVault(); renderAccounts(); wireTabs();
+  renderIntegrations(); renderVault(); renderAccounts(); wireTabs();
 }
 // default provider·model applied to every skill
 function renderDefaultAll() {
@@ -22,7 +22,8 @@ window.applyAllDefault = async () => {
   CFG = await (await fetch("/api/config")).json(); renderProducts();
 };
 
-// ---- Business Rules: per-app, per-integration collection rules + prompt + gate ---
+// ---- Business rules have MOVED into each app (RayDar → its Business rules tab;
+// Q-Legal → Governance → Business rules). Admin keeps Vault/pipelines/keys only.
 let RULES = null, RULE_APP = "All";
 async function renderRules() {
   const host = document.getElementById("rules"); if (!host) return;

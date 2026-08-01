@@ -12,10 +12,11 @@ import { extractFile, toMarkdown } from "./extract.js";
 import { putOriginal, putExtract, getExtract, getOriginal } from "./storage.js";
 import { runPipeline } from "./ai.js";
 import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan, listSharePoint, ingestSharePointItem } from "./qlegal-sync.js";
+import { embedVersion, searchVectors, nearestDocs, embedStatus, embedSweep, clauseLibrary, estateMap } from "./qlegal-vectors.js";
 
 const TENANT = "Q-LEGAL"; // ring-fenced storage namespace (vault + docstore)
 // business-rule scopes → which pipeline step each rule set is injected into
-const SCOPES = ["global", "ingestion", "registers", "search", "obligations", "drafting"];
+const SCOPES = ["global", "ingestion", "registers", "search", "obligations", "drafting", "vectors", "sync"];
 
 // pull the first JSON object out of an LLM reply (tolerates prose / code fences)
 function jparse(text) {
@@ -26,13 +27,36 @@ function jparse(text) {
 const clip = (s, n) => String(s || "").slice(0, n);
 const validDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) ? s : null;
 
-// ---- business rules: active rules for a scope, injected into every prompt ----
+// ---- business rules = the OPERATING CONTROLS of each step -------------------
+// Each rule carries `params` (the numbers the code below actually reads) and
+// `body` (the prompt guidance injected into that step's call). Architectural
+// invariants — SharePoint is never written to, proposals always go through the
+// confirm queue — are NOT rules: they are how the code is built, so they carry
+// no toggle. Defaults here are the fallback when a rule row is missing.
+const RULE_PARAMS = {
+  "c1-read":     { max_transcript_chars: 400000, ocr_fallback: true, ocr_when_text_under_chars: 60 },
+  "c2-key":      { read_chars: 60000, max_tokens: 4000, classify_confidence_min: 0.7, max_clauses: 400, max_contents: 300 },
+  obligations:   { read_chars: 50000, max_tokens: 2500, max_per_contract: 60, default_lead_days: 30 },
+  registers:     { read_chars: 50000, max_tokens: 3000, sweep_batch: 25, keep_corrected: true },
+  families:      { candidates_considered: 200, lineage_similarity_min: 0.85, require_explicit_reference: true },
+  ask:           { documents_read: 4, semantic_candidates: 12, deep_text_chars: 10000, register_answers: 400, history_turns: 4, obligations_horizon_days: 120, max_tokens: 1500 },
+  vectors:       { granularities: ["document", "section", "clause"], max_clause_vectors: 240, max_section_vectors: 80, nearest_in_estate: 5, embed_batch: 48 },
+  drafting:      { candidates_ranked: 15, max_models: 3, model_read_chars: 20000, max_tokens: 8000 },
+  "sharepoint-scan": { nightly_hour_ist: 2, file_types: [".pdf", ".docx", ".doc", ".txt", ".md"], removal_detection: true, max_files_per_scan: 200 },
+};
+// one rule's live dials (DB override on top of the defaults)
+export async function ruleParams(code) {
+  const row = (await q(`select params, status from ql_rule where code=$1`, [code]).catch(() => ({ rows: [] }))).rows[0];
+  if (!row || row.status !== "active") return { ...(RULE_PARAMS[code] || {}) };
+  return { ...(RULE_PARAMS[code] || {}), ...(row.params || {}) };
+}
+// the prompt guidance of the rules that govern a scope (+ their codes, logged per call)
 async function rulesFor(scope) {
   const { rows } = await q(
-    `select code, title, body from ql_rule where status='active' and (scope='global' or scope=$1) order by id`, [scope]
+    `select code, title, body from ql_rule where status='active' and (scope='global' or scope=$1) and coalesce(body,'')<>'' order by id`, [scope]
   ).catch(() => ({ rows: [] }));
   if (!rows.length) return { text: "", codes: [] };
-  const text = "BUSINESS RULES (set by the legal team — follow them):\n" + rows.map((r) => `- ${r.title}: ${r.body}`).join("\n");
+  const text = "HOUSE RULES for this step (set by the legal team — follow them):\n" + rows.map((r) => `- ${r.title}: ${r.body}`).join("\n");
   return { text, codes: rows.map((r) => r.code) };
 }
 
@@ -102,11 +126,12 @@ Only propose a parent when the document itself references it (by name/date/parti
 // every new version AND by the re-index sweep on stored C1 — one pipeline, two doors.
 async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false }) {
   const cats = (await q(`select name from ql_category where status='active' order by name`)).rows.map((r) => r.name);
+  const P = await ruleParams("c2-key");                    // the C2 dials (Settings → Business Rules)
   const rules = await rulesFor("ingestion");
   const out = await runPipeline("qlegal-key", {
     system: [rules.text, keyContract(cats.length ? cats : ["MSA", "SOW", "NDA", "Other"])].filter(Boolean).join("\n\n"),
-    user: `Document filename: ${filename}\n\nContract:\n${clip(c1, 60000)}`,
-    maxTokens: 4000,
+    user: `Document filename: ${filename}\n\nContract:\n${clip(c1, P.read_chars)}`,
+    maxTokens: P.max_tokens,
   });
   await logRun(out, { ref_type: "version", ref_id: verId, rules: rules.codes, input: filename, output: "concise key (C2)" });
   const kp = jparse(out.text) || {};
@@ -114,8 +139,8 @@ async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false
   const tags = [...new Set([...(Array.isArray(kp.tags) ? kp.tags : []).map((t) => String(t).toLowerCase().trim()).filter(Boolean),
     ...(ocr ? ["scanned-source"] : []), ...(meta.executed ? ["executed"] : [])])].slice(0, 12);
   const c2 = { meta, summary: kp.summary || "", tags,
-    contents: (kp.contents || []).slice(0, 300),      // the contents wiki (navigate without re-reading)
-    clauses: (kp.clauses || []).slice(0, 400),        // the clause wiki (what each § actually says)
+    contents: (kp.contents || []).slice(0, P.max_contents),   // the contents wiki (navigate without re-reading)
+    clauses: (kp.clauses || []).slice(0, P.max_clauses),      // the clause wiki (what each § actually says)
     exhibits: (kp.exhibits || []).slice(0, 60),
     notice: kp.notice || {}, mode: out.mode };
   await q(`update ql_version set c2=$2::jsonb, is_executed=$3, status='done', error=null where id=$1`,
@@ -139,7 +164,7 @@ async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false
     await q(`insert into ql_category(name, source) values($1,'ai') on conflict (name) do nothing`, [clip(meta.doc_type, 40)]).catch(() => {});
   }
   const typeConf = Number(meta.doc_type_confidence);
-  if (!confirmed && (out.mode !== "ai" || !meta.doc_type || (typeConf && typeConf < 0.7))) {
+  if (!confirmed && (out.mode !== "ai" || !meta.doc_type || (typeConf && typeConf < P.classify_confidence_min))) {
     const open = (await q(`select 1 from ql_confirm where document_id=$1 and kind='classification' and status='open' limit 1`, [docId])).rows[0];
     if (!open) await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why) values('classification',$1,$2::jsonb,$3,$4)`,
       [docId, JSON.stringify({ doc_type: meta.doc_type || null }), out.mode === "ai" ? (typeConf || 0.4) : 0,
@@ -150,26 +175,32 @@ async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false
 
   // obligations — gated qlegal-obligations + obligations business rules
   try {
+    const OP = await ruleParams("obligations");
     const orules = await rulesFor("obligations");
     const oout = await runPipeline("qlegal-obligations", {
       system: [orules.text, OBLIG_CONTRACT].filter(Boolean).join("\n\n"),
-      user: `Today is ${new Date().toISOString().slice(0, 10)}.\n\nContract:\n${clip(c1, 50000)}`,
-      maxTokens: 2500,
+      user: `Today is ${new Date().toISOString().slice(0, 10)}.\n\nContract:\n${clip(c1, OP.read_chars)}`,
+      maxTokens: OP.max_tokens,
     });
     await logRun(oout, { ref_type: "document", ref_id: docId, rules: orules.codes, input: filename, output: "obligations" });
     const op = jparse(oout.text) || {};
     await q(`delete from ql_obligation where document_id=$1 and status='proposed'`, [docId]); // re-propose on re-run; confirmed rows kept
-    for (const o of (op.obligations || []).slice(0, 60)) {
+    for (const o of (op.obligations || []).slice(0, OP.max_per_contract)) {
       if (!o || !o.what) continue;
-      await q(`insert into ql_obligation(document_id, kind, what, who_owes, due_date, frequency, ref) values($1,$2,$3,$4,$5,$6,$7)`,
+      await q(`insert into ql_obligation(document_id, kind, what, who_owes, due_date, frequency, ref, lead_days) values($1,$2,$3,$4,$5,$6,$7,$8)`,
         [docId, clip(o.kind, 30) || "deliverable", clip(o.what, 300), clip(o.who_owes, 20) || "unknown",
-         validDate(o.due_date), clip(o.frequency, 20) || "one_time", clip(o.ref, 60)]).catch(() => {});
+         validDate(o.due_date), clip(o.frequency, 20) || "one_time", clip(o.ref, 60), OP.default_lead_days]).catch(() => {});
     }
   } catch { /* obligations are best-effort — the document still lands */ }
 
   // registers — every standing question, answered for this contract
   try { await runRegisters(docId, { c1, docType: meta.doc_type }); }
   catch { /* registers are best-effort */ }
+
+  // vector spine — embed document/section/clause (best-effort; the re-index
+  // embed sweep catches anything this misses, and FTS covers the meantime)
+  try { await embedVersion({ docId, verId, c2, filename }); }
+  catch { /* vectors are best-effort */ }
 
   return { mode: out.mode, docType: meta.doc_type || null };
 }
@@ -221,7 +252,7 @@ export async function ingestFile(f, { source = "upload", spItemId = null, spMeta
     // preserves tables and describes what the text layer flattens). This is the
     // deep substrate every later layer is built from and falls back to.
     const extract = await extractFile(f.path, f.originalname);
-    const c1 = clip(extract.text, 400000);
+    const c1 = clip(extract.text, (await ruleParams("c1-read")).max_transcript_chars);
     if (!c1.trim()) throw new Error("could not read any text from that file");
     const storagePath = await putOriginal(TENANT, sha256, ext, buf);
     const c1DocId = `ql-${doc.id}-v${versionNo}`;
@@ -273,11 +304,12 @@ async function runRegisters(docId, { c1, docType } = {}) {
   if (!text) return 0;
   const verId = (await q(`select v.id from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version where d.id=$1`, [docId])).rows[0]?.id || null;
 
+  const RP = await ruleParams("registers");
   const rules = await rulesFor("registers");
   const out = await runPipeline("qlegal-register", {
     system: [rules.text, REGISTER_CONTRACT].filter(Boolean).join("\n\n"),
-    user: `Standing questions to answer about this contract:\n${JSON.stringify(applicable.map((r) => ({ code: r.code, question: r.question, value_wanted: r.extract_hint || "" })))}\n\nContract:\n${clip(text, 50000)}`,
-    maxTokens: 3000,
+    user: `Standing questions to answer about this contract:\n${JSON.stringify(applicable.map((r) => ({ code: r.code, question: r.question, value_wanted: r.extract_hint || "" })))}\n\nContract:\n${clip(text, RP.read_chars)}`,
+    maxTokens: RP.max_tokens,
   });
   await logRun(out, { ref_type: "document", ref_id: docId, rules: rules.codes, input: `${applicable.length} registers`, output: "register answers" });
   const parsed = jparse(out.text);
@@ -308,8 +340,9 @@ async function runRegisters(docId, { c1, docType } = {}) {
 async function proposeLinks(docId) {
   const doc = (await q(`select id, filename, title, doc_type, party1, party2, summary from ql_document where id=$1`, [docId])).rows[0];
   if (!doc) return;
+  const FP = await ruleParams("families");
   const cands = (await q(
-    `select id, filename, title, doc_type, party1, party2 from ql_document where id<>$1 order by updated_at desc limit 200`, [docId]
+    `select id, filename, title, doc_type, party1, party2 from ql_document where id<>$1 order by updated_at desc limit $2`, [docId, FP.candidates_considered]
   )).rows;
   if (!cands.length) return;
   const c1 = (await q(`select c1_text from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version where d.id=$1`, [docId])).rows[0];
@@ -333,16 +366,17 @@ async function proposeLinks(docId) {
 function wordSet(s) { return new Set(clip(s, 40000).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3)); }
 function jaccard(a, b) { let i = 0; for (const w of a) if (b.has(w)) i++; return i / (a.size + b.size - i || 1); }
 async function proposeLineage(docId) {
+  const FP = await ruleParams("families");
   const mine = (await q(`select v.c1_text from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version where d.id=$1`, [docId])).rows[0];
   if (!mine?.c1_text) return;
   const my = wordSet(mine.c1_text);
   const others = (await q(
-    `select d.id, d.filename, v.c1_text from ql_document d join ql_version v on v.document_id=d.id and v.version_no=d.latest_version where d.id<>$1 limit 300`, [docId]
+    `select d.id, d.filename, v.c1_text from ql_document d join ql_version v on v.document_id=d.id and v.version_no=d.latest_version where d.id<>$1 limit $2`, [docId, Math.max(FP.candidates_considered, 100)]
   )).rows;
   for (const o of others) {
     if (!o.c1_text) continue;
     const sim = jaccard(my, wordSet(o.c1_text));
-    if (sim >= 0.85) {
+    if (sim >= FP.lineage_similarity_min) {
       await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why) values('lineage',$1,$2::jsonb,$3,$4)`,
         [docId, JSON.stringify({ other_id: o.id, relation_kind: "executed_of" }), Math.round(sim * 100) / 100,
          `near-identical text (${Math.round(sim * 100)}%) to “${o.filename}” — likely the same contract (draft ↔ executed)`]);
@@ -405,7 +439,9 @@ export function mountQLegal(app, upload) {
          from ql_register_hit h join ql_register r on r.id=h.register_id
         where h.document_id=$1 and r.status='active' order by r.builtin desc, r.id`, [id]
     )).rows;
-    res.json({ document: doc, versions, c2, obligations, children, parent, confirms, registers });
+    // the vector wiki's computed panel — semantically nearest contracts in the estate
+    const nearest = await nearestDocs(id, 5).catch(() => []);
+    res.json({ document: doc, versions, c2, obligations, children, parent, confirms, registers, nearest });
   });
   app.delete("/api/qlegal/document/:id", async (req, res) => {
     await q(`delete from ql_document where id=$1`, [Number(req.params.id)]); // cascades versions/obligations/confirms
@@ -443,30 +479,59 @@ export function mountQLegal(app, upload) {
     res.send(buf);
   });
 
-  // ---- global search: facts + full-text over C1 (hybrid; vectors arrive P2) ---
-  // OR-ranked: a doc matching ANY term hits; matching more terms ranks higher.
-  // (AND semantics silently drop "liability cap" when only "liability" is printed.)
+  // ---- global search: HYBRID, ALWAYS — facts + full-text + vector, rank-fused --
+  // FTS is OR-ranked: a doc matching ANY term hits; matching more terms ranks
+  // higher. (AND semantics silently drop "liability cap" when only "liability"
+  // is printed.) Vectors catch the paraphrase FTS can't ("terminate for
+  // convenience" ≈ "without cause"); a vector hit is only ever a pointer to a
+  // real § — the fused list still opens the actual document.
   const orQuery = (term) => clip(term, 200).split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}-]/gu, "")).filter((w) => w.length > 1).join(" OR ") || "";
+  // reciprocal-rank fusion over per-document ranked lists (k=60, the classic)
+  const rrfFuse = (lists) => {
+    const score = new Map();
+    for (const list of lists) list.forEach((id, rank) => score.set(id, (score.get(id) || 0) + 1 / (60 + rank)));
+    return [...score.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+  };
+  async function hybridSearch(term, { ftsLimit = 25, semLimit = 12 } = {}) {
+    const tsq = orQuery(term);
+    const [fts, sem] = await Promise.all([
+      tsq ? q(
+        `select d.id, d.filename, d.title, d.doc_type, d.party1, d.party2, d.tags, v.version_no,
+                ts_headline('english', v.c1_text, websearch_to_tsquery('english', $1),
+                  'MaxFragments=2, MaxWords=22, MinWords=8, FragmentDelimiter= … ') as snippet,
+                ts_rank(to_tsvector('english', coalesce(v.c1_text,'')), websearch_to_tsquery('english', $1)) as rank
+           from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version
+          where to_tsvector('english', coalesce(v.c1_text,'')) @@ websearch_to_tsquery('english', $1)
+          order by rank desc limit ${ftsLimit}`, [tsq]
+      ).then((r) => r.rows) : [],
+      searchVectors(term, { limit: semLimit }).catch(() => []),
+    ]);
+    // best semantic hit per document (a § pointer: ref + gist + similarity)
+    const semByDoc = new Map();
+    for (const s of sem) if (!semByDoc.has(Number(s.document_id))) semByDoc.set(Number(s.document_id), s);
+    const order = rrfFuse([fts.map((h) => Number(h.id)), [...semByDoc.keys()]]);
+    const ftsById = new Map(fts.map((h) => [Number(h.id), h]));
+    const hits = order.map((id) => {
+      const f = ftsById.get(id), s = semByDoc.get(id);
+      return {
+        ...(f || { id, filename: s.filename, title: s.doc_title, doc_type: s.doc_type }),
+        via: f && s ? "text+semantic" : f ? "text" : "semantic",
+        ...(s ? { sem_ref: s.ref, sem_snippet: s.content, sem_similarity: Math.round(s.similarity * 100) / 100 } : {}),
+      };
+    });
+    return { hits, semUsed: semByDoc.size > 0, semClauses: sem.filter((s) => s.granularity === "clause").slice(0, 8) };
+  }
   app.get("/api/qlegal/search", async (req, res) => {
     const term = clip(req.query.q, 200).trim();
     if (!term) return res.json({ hits: [] });
-    const tsq = orQuery(term);
-    const fts = tsq ? (await q(
-      `select d.id, d.filename, d.title, d.doc_type, d.party1, d.party2, d.tags, v.version_no,
-              ts_headline('english', v.c1_text, websearch_to_tsquery('english', $1),
-                'MaxFragments=2, MaxWords=22, MinWords=8, FragmentDelimiter= … ') as snippet,
-              ts_rank(to_tsvector('english', coalesce(v.c1_text,'')), websearch_to_tsquery('english', $1)) as rank
-         from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version
-        where to_tsvector('english', coalesce(v.c1_text,'')) @@ websearch_to_tsquery('english', $1)
-        order by rank desc limit 25`, [tsq]
-    )).rows : [];
+    const { hits } = await hybridSearch(term);
     const facts = (await q(
       `select id, filename, title, doc_type, party1, party2, tags from ql_document
         where filename ilike $1 or title ilike $1 or party1 ilike $1 or party2 ilike $1 or counterparty ilike $1 or tags::text ilike $1
         limit 10`, [`%${term}%`]
     )).rows;
-    const seen = new Set(fts.map((h) => h.id));
-    res.json({ hits: [...fts.map((h) => ({ ...h, via: "text" })), ...facts.filter((f) => !seen.has(f.id)).map((f) => ({ ...f, via: "facts" }))] });
+    const seen = new Set(hits.map((h) => Number(h.id)));
+    res.json({ hits: [...hits, ...facts.filter((f) => !seen.has(Number(f.id))).map((f) => ({ ...f, via: "facts" }))] });
   });
 
   // ---- Ask the repository — the RETRIEVAL LADDER --------------------------------
@@ -482,7 +547,8 @@ export function mountQLegal(app, upload) {
     if (!question) return res.status(400).json({ error: "no question" });
     // conversation: the last few turns travel with the question so follow-ups
     // ("and the SOW?", "what about the cap there?") keep their context.
-    const history = (Array.isArray(req.body?.history) ? req.body.history : []).slice(-4)
+    const AP = await ruleParams("ask");                    // the Ask dials (Settings → Business Rules)
+    const history = (Array.isArray(req.body?.history) ? req.body.history : []).slice(-AP.history_turns)
       .map((t) => ({ q: clip(t?.q, 400), a: clip(t?.a, 1200) })).filter((t) => t.q);
     try {
       const rungs = [];
@@ -491,25 +557,27 @@ export function mountQLegal(app, upload) {
       const regAnswers = (await q(
         `select r.name, r.question, d.id, coalesce(d.title, d.filename) as doc, h.present, h.answer, h.value, h.refs
            from ql_register_hit h join ql_register r on r.id=h.register_id join ql_document d on d.id=h.document_id
-          where r.status='active' order by r.id, d.id limit 400`
+          where r.status='active' order by r.id, d.id limit $1`, [AP.register_answers]
       )).rows;
       const soon = (await q(
         `select d.filename, o.kind, o.what, o.due_date from ql_obligation o join ql_document d on d.id=o.document_id
-          where o.status in ('proposed','confirmed') and o.due_date between current_date and current_date + 120 order by o.due_date limit 15`
+          where o.status in ('proposed','confirmed') and o.due_date between current_date and current_date + $1 order by o.due_date limit 15`, [AP.obligations_horizon_days]
       )).rows;
       rungs.push("C2/REGISTERS (structured, whole estate)");
 
-      // rung 2/3 — the documents that actually match the words of the question.
+      // rung 2/3 — the documents that actually match the question, HYBRID:
+      // FTS (literal words) + vectors (the paraphrase FTS can't see), rank-fused.
       // A follow-up ("and the cap there?") carries little signal on its own, so
       // search on the conversation's words too.
-      const tsq = orQuery([history.map((t) => t.q).join(" "), question].join(" ").trim());
-      const hits = tsq ? (await q(
-        `select d.id, d.filename, d.title, d.doc_type, v.c1_text, v.c2,
-                ts_rank(to_tsvector('english', coalesce(v.c1_text,'')), websearch_to_tsquery('english', $1)) as rank
+      const searchText = [history.map((t) => t.q).join(" "), question].join(" ").trim();
+      const { hits: fused, semUsed, semClauses } = await hybridSearch(searchText, { ftsLimit: 10, semLimit: AP.semantic_candidates });
+      const topIds = fused.slice(0, AP.documents_read).map((h) => Number(h.id));
+      const hits = topIds.length ? (await q(
+        `select d.id, d.filename, d.title, d.doc_type, v.c1_text, v.c2
            from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version
-          where to_tsvector('english', coalesce(v.c1_text,'')) @@ websearch_to_tsquery('english', $1)
-          order by rank desc limit 4`, [tsq]
-      )).rows : [];
+          where d.id = any($1)`, [topIds]
+      )).rows.sort((a, b) => topIds.indexOf(Number(a.id)) - topIds.indexOf(Number(b.id))) : [];
+      if (semUsed) rungs.push("VECTORS (semantic match)");
       if (hits.length) rungs.push("CLAUSE+CONTENTS WIKIS", "C1 deep text");
 
       const regBlock = regAnswers.length
@@ -522,13 +590,18 @@ export function mountQLegal(app, upload) {
         const clauses = (c2.clauses || []).map((x) => `${x.ref || ""} ${x.label || ""}: ${x.gist || ""}`).join("\n  ");
         return `DOCUMENT [${h.id}] ${h.title || h.filename} (${h.doc_type || "?"})\n CONTENTS WIKI: ${contents || "—"}\n CLAUSE WIKI:\n  ${clauses || "—"}`;
       }).join("\n\n");
-      const deepBlock = hits.map((h) => `DEEP TEXT (C1) — [${h.id}] ${h.title || h.filename}:\n${clip(h.c1_text, 10000)}`).join("\n\n");
+      const deepBlock = hits.map((h) => `DEEP TEXT (C1) — [${h.id}] ${h.title || h.filename}:\n${clip(h.c1_text, AP.deep_text_chars)}`).join("\n\n");
 
+      // vector hits are POINTERS to real §§ — the model still cites the document
+      const semBlock = (semClauses || []).length
+        ? "SEMANTICALLY CLOSEST CLAUSES (found by meaning, not words — each is a real § in the named contract):\n"
+          + semClauses.map((s) => `- [${s.document_id}] ${s.doc_title || s.filename} ${s.ref || ""} — ${s.content}`).join("\n")
+        : "";
       const ctx = [
         `REPOSITORY SHAPE: ${estate.map((e) => `${e.t}: ${e.c}`).join(" · ") || "empty"}`,
         regBlock,
         soon.length ? `UPCOMING OBLIGATIONS (120 days): ${soon.map((s) => `${s.filename} — ${s.what} (${s.due_date ? String(s.due_date).slice(0, 10) : "?"})`).join(" | ")}` : "",
-        wikiBlock, deepBlock,
+        semBlock, wikiBlock, deepBlock,
       ].filter(Boolean).join("\n\n");
 
       const rules = await rulesFor("search");
@@ -588,6 +661,7 @@ ${clip(d.c1_text, 55000)}${history.length ? `\n\nTHE CONVERSATION SO FAR (the qu
     if (!ask) return res.status(400).json({ error: "describe the contract you need" });
     try {
       // deterministic prefilter: FTS over the ask + executed/latest docs, then LLM ranks
+      const DP = await ruleParams("drafting");
       const tsq = orQuery(ask);
       const cands = (await q(
         `select d.id, coalesce(d.title, d.filename) as name, d.doc_type, d.party1, d.party2, d.summary, d.tags
@@ -595,7 +669,7 @@ ${clip(d.c1_text, 55000)}${history.length ? `\n\nTHE CONVERSATION SO FAR (the qu
           where coalesce(d.status,'active')<>'inactive'
           order by (${tsq ? `exists(select 1 from ql_version v where v.document_id=d.id and v.version_no=d.latest_version
                      and to_tsvector('english', coalesce(v.c1_text,'')) @@ websearch_to_tsquery('english', $1))` : "false"}) desc, d.updated_at desc
-          limit 15`, tsq ? [tsq] : []
+          limit ${Number(DP.candidates_ranked) || 15}`, tsq ? [tsq] : []
       )).rows;
       if (!cands.length) return res.json({ suggestions: [] });
       const rules = await rulesFor("drafting");
@@ -617,7 +691,8 @@ ${clip(d.c1_text, 55000)}${history.length ? `\n\nTHE CONVERSATION SO FAR (the qu
 
   app.post("/api/qlegal/draft/run", async (req, res) => {
     const ask = clip(req.body?.ask, 600).trim();
-    const ids = (req.body?.model_ids || []).slice(0, 3).map(Number).filter(Boolean);
+    const DP = await ruleParams("drafting");
+    const ids = (req.body?.model_ids || []).slice(0, DP.max_models).map(Number).filter(Boolean);
     if (!ask || !ids.length) return res.status(400).json({ error: "the ask + at least one model contract" });
     try {
       const models = (await q(
@@ -629,13 +704,13 @@ ${clip(d.c1_text, 55000)}${history.length ? `\n\nTHE CONVERSATION SO FAR (the qu
       const modelBlock = models.map((m) => {
         const c2 = m.c2 || {};
         const contents = (c2.contents || []).map((x) => `${x.ref || ""} ${x.heading || ""}`).join(" · ");
-        return `MODEL [${m.id}] ${m.name} (${m.doc_type || "?"})\n STRUCTURE: ${contents || "—"}\n TEXT (for standard positions & voice):\n${clip(m.c1_text, 20000)}`;
+        return `MODEL [${m.id}] ${m.name} (${m.doc_type || "?"})\n STRUCTURE: ${contents || "—"}\n TEXT (for standard positions & voice):\n${clip(m.c1_text, DP.model_read_chars)}`;
       }).join("\n\n");
       const out = await runPipeline("qlegal-draft", {
         system: [rules.text, `Draft a COMPLETE first-draft contract in proper legal voice, as clean Markdown (# title, ## clause headings, numbered clauses).
 The MODELS define the skeleton and the house's standard positions: include EVERY section the models consider standard (definitions, notices, severability, entire agreement, governing law…) even if the ask doesn't mention them — completeness comes from the models, not the prompt. Take particulars (parties, subject, term, commercials) from the ask; where the ask is silent, use the models' standard position; where nothing exists, insert [BRACKETED PLACEHOLDERS]. Never copy party names from the models. End with a signature block.`].filter(Boolean).join("\n\n"),
         user: `The ask: ${ask}\n\n${modelBlock}`,
-        maxTokens: 8000,
+        maxTokens: DP.max_tokens,
       });
       await logRun(out, { ref_type: "draft", rules: rules.codes, input: ask, output: `draft from models ${ids.join(",")}` });
       if (out.mode !== "ai") return res.json({ error: "no keyed model — point qlegal-draft at one in AI Skills & Pipelines" });
@@ -910,17 +985,20 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
     res.json({ rule: rows[0] });
   });
   app.post("/api/qlegal/rule/:id", async (req, res) => {
-    const { title, body, scope, status } = req.body || {};
+    const { title, body, scope, status, params } = req.body || {};
     const rows = (await q(
       `update ql_rule set title=coalesce($2,title), body=coalesce($3,body), scope=coalesce($4,scope),
-        status=coalesce($5,status), version=version+1, updated_at=now() where id=$1 returning *`,
-      [Number(req.params.id), title ? clip(title, 160) : null, body ? clip(body, 2000) : null,
+        status=coalesce($5,status), params=coalesce($6::jsonb, params), version=version+1, updated_at=now() where id=$1 returning *`,
+      [Number(req.params.id), title ? clip(title, 160) : null, body !== undefined ? clip(body, 2000) : null,
        SCOPES.includes(scope) ? scope : null,
-       ["active", "off"].includes(status) ? status : null]
+       ["active", "off"].includes(status) ? status : null,
+       params && typeof params === "object" ? JSON.stringify(params) : null]
     )).rows;
     if (!rows[0]) return res.status(404).json({ error: "not found" });
     res.json({ rule: rows[0] });
   });
+  // the engine defaults behind each lever (so the UI can show "default: 60000")
+  app.get("/api/qlegal/rule-defaults", (_req, res) => res.json({ defaults: RULE_PARAMS }));
 
   // ---- learning loop: corrections (Level 0 applies instantly) ------------------
   app.post("/api/qlegal/feedback", async (req, res) => {
@@ -966,7 +1044,26 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
                 and not exists(select 1 from ql_register_hit h where h.register_id=r.id and h.document_id=d.id))`),
       q(`select last_run, last_result, delta_link is not null as delta, config<>'{}'::jsonb as configured from ql_sync where id=1`).then((r) => r.rows[0]),
     ]);
-    res.json({ total, inactive, unclassified, stub_keyed: stubKeyed, error_versions: errors, unlinked, registers_pending: regPending, sharepoint: sp || {} });
+    const vectors = await embedStatus().catch(() => ({ available: false }));
+    res.json({ total, inactive, unclassified, stub_keyed: stubKeyed, error_versions: errors, unlinked, registers_pending: regPending, sharepoint: sp || {}, vectors });
+  });
+
+  // embed sweep: vectors for documents missing them under the CURRENT model —
+  // a model swap in Admin makes the estate pending again; sweep = the re-embed
+  // migration (both generations coexist until cutover; retrieval never mixes them)
+  app.post("/api/qlegal/sweep/embed", async (req, res) => {
+    try { res.json(await embedSweep(Math.min(Number(req.body?.limit) || 10, 50))); }
+    catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+
+  // ---- the vector wiki: estate map + emergent clause library --------------------
+  app.get("/api/qlegal/estate-map", async (_req, res) => {
+    try { res.json(await estateMap()); }
+    catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+  app.get("/api/qlegal/clause-library", async (req, res) => {
+    try { res.json(await clauseLibrary({ k: req.query.k ? Number(req.query.k) : undefined })); }
+    catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
   });
 
   // refresh C2/derived for documents whose key is a no-model stub — or everything

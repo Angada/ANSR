@@ -1,13 +1,13 @@
-// Shared UI: app header (logo home · Admin tab · user + role) + Dubai date util.
-const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
-
-// Dubai time, dd-MMM-yyyy (e.g. 14-JUN-2026).
-window.fmtDubai = (ts) => {
-  const d = ts ? new Date(ts) : new Date();
-  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dubai", day: "2-digit", month: "2-digit", year: "numeric" })
-    .formatToParts(d).reduce((o, x) => ((o[x.type] = x.value), o), {});
-  return `${p.day}-${MON[+p.month - 1]}-${p.year}`;
-};
+// Shared UI: app header (logo home · Admin tab · user + role) + the platform date
+// standard: INDIA format, IST always — readable "29 Jun, 2026" · compact "29-09-2026".
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const _istParts = (d) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "numeric" })
+  .formatToParts(d).reduce((o, x) => ((o[x.type] = x.value), o), {});
+// readable: "29 Jun, 2026"
+window.fmtIndia = (ts) => { const p = _istParts(ts ? new Date(ts) : new Date()); return `${+p.day} ${MON[+p.month - 1]}, ${p.year}`; };
+// compact: "29-09-2026"
+window.fmtIndiaShort = (ts) => { const p = _istParts(ts ? new Date(ts) : new Date()); return `${p.day}-${p.month}-${p.year}`; };
+window.fmtDubai = window.fmtIndia;   // legacy name — now the India format
 
 // ---- app modals (replace browser alert/confirm/prompt everywhere) ----------
 const _esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));

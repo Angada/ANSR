@@ -3,6 +3,7 @@
 > The single source of truth for the Q-Legal plan. If it isn't in here, it isn't agreed.
 > Companion checklist: [TODO.md](TODO.md). Core docs entry: [`docs/14-q-legal.md`](../docs/14-q-legal.md).
 > Status: **P1 cut BUILT inside ANSR Core (2026-07-30)** — nav: RayDar · Contra · **Q-Legal** · Mint · Admin; e2e smoke-tested locally. Scope email sent to client; commercials pending alignment. Build ledger: [TODO.md](TODO.md).
+> **P2 vector spine BUILT (2026-07-31)** — §4.5 is live: `ql_embedding` (pgvector 1536, HNSW) at document/section/clause granularity with § anchors; gated `qlegal-embed` pipeline (swap = re-embed sweep; key-free hash:v1 fallback); hybrid FTS+vector RRF in search & Ask; nearest-in-estate wiki panel; emergent clause library; Estate map (PCA 2D). Local docker db now `pgvector/pgvector:pg15`. Open: LLM query router, UMAP, real-model estate-scale embed run.
 
 ---
 

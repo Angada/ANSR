@@ -66,9 +66,9 @@ export function decryptKey(stored) {
 const DEFAULT_CONFIG = {
   providers: {
     anthropic: { label: "Claude", apiKey: "", models: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"] },
-    openai:    { label: "OpenAI", apiKey: "", models: ["gpt-5.1", "gpt-5.1-mini", "gpt-4.1", "gpt-4o"] },
-    google:    { label: "Gemini", apiKey: "", models: ["gemini-2.5-pro", "gemini-2.5-flash"] },
-    zai:       { label: "Z.AI", apiKey: "", models: ["glm-5.1", "glm-5", "glm-4.6", "glm-4.6-air", "glm-4.5", "glm-4.5v", "glm-4.5-x", "glm-4.5-air", "glm-4.5-airx", "glm-4.5-flash", "glm-z1-air", "glm-z1-flash", "glm-z1-rumination", "glm-4-plus", "glm-4-long"], baseURL: "https://api.z.ai/api/anthropic" },
+    openai:    { label: "OpenAI", apiKey: "", models: ["gpt-5.1", "gpt-5.1-mini", "gpt-4.1", "gpt-4o", "text-embedding-3-small", "text-embedding-3-large"] },
+    google:    { label: "Gemini", apiKey: "", models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-embedding-001"] },
+    zai:       { label: "Z.AI", apiKey: "", models: ["glm-5.1", "glm-5", "glm-4.6", "glm-4.6-air", "glm-4.5", "glm-4.5v", "glm-4.5-x", "glm-4.5-air", "glm-4.5-airx", "glm-4.5-flash", "glm-z1-air", "glm-z1-flash", "glm-z1-rumination", "glm-4-plus", "glm-4-long", "embedding-3", "embedding-2"], baseURL: "https://api.z.ai/api/anthropic" },
     xai:       { label: "x.AI", apiKey: "", models: ["grok-4", "grok-3", "grok-3-mini"] },
     deepseek:  { label: "DeepSeek", apiKey: "", models: ["deepseek-chat", "deepseek-reasoner"] },
   },
@@ -142,6 +142,9 @@ const DEFAULT_CONFIG = {
       description: "The drafting bookend. The lawyer describes the contract they need; the repo SUGGESTS suitable model contracts to base it on (ranked, with why); the lawyer selects up to 3; draft 1 comes out structurally COMPLETE \u2014 the models' contents wikis define the skeleton and standard positions (definitions, notices, severability appear because the models have them, not because someone remembered), the ask supplies the particulars, gaps become [BRACKETED PLACEHOLDERS]. Downloads as .docx and goes through the normal Word/SharePoint process.",
       provider: "anthropic", model: "claude-opus-4-8", skills: ["contra-archetype", "qansr-knowledge-store"], enabled: true,
       prompt: "You are the legal team's drafting assistant. Model contracts define structure and standard positions; the ask defines particulars. Draft complete, precise, in the house voice \u2014 never invent facts, bracket what is unknown." },
+    "qlegal-embed": { id: "qlegal-embed", product: "Q-Legal", name: "Vector Embeddings · the semantic spine", kind: "hybrid",
+      description: "Embeds every contract at three granularities — document (C2 summary: families, dedup, the estate map), section (contents-wiki headings), clause (every § with its gist) — into pgvector, each row carrying its § anchor and the model that wrote it. Retrieval is hybrid ALWAYS (facts + FTS + vector, rank-fused) and a vector hit is only ever a pointer to a real §. Swap the model here and the Re-index embed sweep re-embeds the estate; with no key it runs a deterministic hashed embedding (hash:v1) so nothing blocks. Embedding models only (embedding-3 / text-embedding-3-small / gemini-embedding-001) — chat models cannot embed.",
+      provider: "zai", model: "embedding-3", skills: ["qlegal", "atlas"], enabled: true, prompt: "" },
     "qlegal-ask": { id: "qlegal-ask", product: "Q-Legal", name: "Ask the Repository", kind: "hybrid",
       description: "Natural-language answers over the whole estate, via the RETRIEVAL LADDER — rung 1: C2 facts + register answers (structured, covers every contract, so 'which of our contracts…' is answered without reading them); rung 2: the contents & clause wikis of the matching documents; rung 3: the C1 deep text of the closest few; rung 4: the original, cited as the authority but never read by the model. Every claim cites document + §; says what's missing (and suggests a new standing register question) rather than guessing.",
       provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-knowledge-store", "munshi"], enabled: true,

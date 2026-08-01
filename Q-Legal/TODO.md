@@ -55,13 +55,14 @@
 - [ ] "Change of guard" demo query end-to-end (notice register populated → one-click answer)
 
 ## P2 — Intelligence (vectors, router, Standards, organism)
-### Vector spine
-- [ ] pgvector + HNSW; embed clause/section/document from C1/C2 with § anchors
-- [ ] Vector rows carry (embedding_model, model_version, embedded_at); embedding pipeline in Vault; batch re-embed migration
-- [ ] Hybrid retrieval: facts-SQL + FTS + vector, reciprocal-rank fusion
-- [ ] **Query router** behind the one Ask box (fact / clause / deep-read routes)
-- [ ] Wiki "nearest in estate" panels; clause clustering → emergent clause library; centroid benchmarking
-- [ ] Estate map screen (2D projection)
+### Vector spine ✅ BUILT (2026-07-31, e2e-verified locally)
+- [x] pgvector + HNSW; embed clause/section/document from C1/C2 with § anchors (`db/init/027_qlegal_vectors.sql` → `ql_embedding` vector(1536); `server/qlegal-vectors.js`)
+- [x] Vector rows carry (embedding_model, embedded_at); embedding = gated pipeline `qlegal-embed` (Admin-swappable: zai embedding-3 default / openai text-embedding-3 / gemini-embedding-001; **key-free `hash:v1` fallback** so the spine never blocks); re-embed = the same embed sweep (model swap ⇒ estate pending again; retrieval never mixes models)
+- [x] Hybrid retrieval **always**: facts-SQL + FTS + vector, reciprocal-rank fusion (k=60) in `/search` AND the Ask ladder rung 2/3 doc pick (+ a SEMANTIC POINTERS block of clause hits in the Ask context; rungs report "VECTORS (semantic match)")
+- [ ] **Query router** behind the one Ask box (fact / clause / deep-read routes) — hybrid fusion covers most of it; an explicit LLM router still open
+- [x] Wiki "nearest in estate" panel (doc-granularity knn); clause clustering → emergent clause library (k-means; centroid = estate norm, distance = non-standardness) on the Estate map screen
+- [x] Estate map screen (2D projection — **PCA** power-iteration, honestly labelled; UMAP upgrade open) + Re-index "Semantic vectors" card (status tile · resumable embed sweep)
+- [ ] Embed on a REAL model at estate scale (needs a keyed embedding model; local e2e ran hash:v1) + § anchors from C1 clause text (today clause vectors embed the clause-wiki gists)
 ### SharePoint + AD (mandatory integrations)
 - [ ] Azure AD app registration (`Sites.Selected` READ on the legal site) + Graph delta sync live
 - [ ] AD user sync (employee id, name, role; legal dept + named approvers/viewers) → RBAC roles in Q-Legal

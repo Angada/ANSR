@@ -27,37 +27,42 @@ function extractSeoTerms(text) {
 const jsonFrom = (text) => { const m = String(text || "").match(/\{[\s\S]*\}/); if (!m) return null; try { return JSON.parse(m[0]); } catch { return null; } };
 const enabled = (id) => { try { return !!publicIntegrations()[id]?.enabled && !!getIntegrationKey(id); } catch { return false; } };
 const timeout = (p, ms = 9000) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms))]);
-// India time (IST) stamp — "YYYY-MM-DD HH:MM" in Asia/Kolkata (server runs UTC on Cloud Run)
-const istStamp = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date()).replace(",", "");
+// India time (IST) stamp — "31-07-2026 14:30" in Asia/Kolkata (server runs UTC on Cloud Run)
+const istStamp = () => { const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date()).reduce((o, x) => ((o[x.type] = x.value), o), {}); return `${p.day}-${p.month}-${p.year} ${p.hour}:${p.minute}`; };
 
 // ---- Business rules per integration (editable in Settings; "80% no code") ---
 // Each: how we query it (collection) + the AI prompt + a model override
 // (""=use the pipeline default) + a gate. Stored in wh_business_rule(name=id).
 const RULE_DEFAULTS = {
-  youtube:    { app: "RayDar", pipeline: "trend-detect", collection: { regionCode: "IN", relevanceLanguage: "en", publishedDays: 30, maxResults: 20, commentsTopVideos: 5, commentsPerVideo: 20 }, prompt: "Classify each YouTube item → demand topic (1–6 / Emerging), 1Up franchise, 4-register distribution, and the underlying question. Comments carry the real feeling — weight them.", model: "", enabled: true },
-  reddit:     { app: "RayDar", pipeline: "trend-detect", collection: { subreddits: ["developersIndia", "IndianWorkplace", "IndiaCareers", "cscareerquestions", "leetcode"], topPosts: 50, timeframe: "month", commentTrees: 10, commentsPerPost: 100 }, prompt: "Classify each Reddit post/comment → topic, franchise, registers, underlying question. Comment trees are the highest-value signal.", model: "", enabled: true },
-  newsapi:    { app: "RayDar", pipeline: "trend-detect", collection: { language: "en", pageSize: 20, sortBy: "publishedAt" }, prompt: "Summarise each article's relevance to the demand topics.", model: "", enabled: true },
-  serpapi:    { app: "RayDar", pipeline: "trend-detect", collection: { gl: "in", hl: "en", num: 5 }, prompt: "Extract trending headlines relevant to the demand topics.", model: "", enabled: true },
-  tavily:     { app: "RayDar", pipeline: "feedstory-generate", collection: { max_results: 5, search_depth: "basic", include_answer: true }, prompt: "Use for VALIDATION — pull facts + cite source URLs. Flag claims that conflict with the feed.", model: "", enabled: true },
-  serper:     { app: "RayDar", pipeline: "feedstory-generate", collection: { gl: "in", hl: "en", num: 5 }, prompt: "Use for grounding + validation; cite links.", model: "", enabled: true },
-  perplexity: { app: "RayDar", pipeline: "feedstory-generate", collection: { model: "sonar", max_tokens: 500 }, prompt: "Research + validate with citations; India English context.", model: "", enabled: true },
+  youtube:    { app: "RayDar", pipeline: "trend-detect", collection: { regionCode: "IN", relevanceLanguage: "en", publishedDays: 30, maxResults: 20, commentsTopVideos: 5, commentsPerVideo: 20,
+      // the YouTube FILTER — enforced deterministically at collection (drops shown with reasons, quota never spent on their comments)
+      excludeShorts: true, minDurationSec: 90,
+      memeMarkers: ["meme", "memes", "funny", "comedy", "roast", "troll", "prank", "shitpost", "pov:", "wait for it", "😂", "🤣"],
+      hinglishGuard: true },
+    prompt: "Classify each YouTube item → demand topic (1–6 / Emerging), 1Up franchise, 4-register distribution, and the underlying question. Comments carry the real feeling — weight them." },
+  reddit:     { app: "RayDar", pipeline: "trend-detect", collection: { subreddits: ["developersIndia", "IndianWorkplace", "IndiaCareers", "cscareerquestions", "leetcode"], topPosts: 50, timeframe: "month", commentTrees: 10, commentsPerPost: 100 }, prompt: "Classify each Reddit post/comment → topic, franchise, registers, underlying question. Comment trees are the highest-value signal." },
+  newsapi:    { app: "RayDar", pipeline: "trend-detect", collection: { language: "en", pageSize: 20, sortBy: "publishedAt" }, prompt: "Summarise each article's relevance to the demand topics." },
+  serpapi:    { app: "RayDar", pipeline: "trend-detect", collection: { gl: "in", hl: "en", num: 5 }, prompt: "Extract trending headlines relevant to the demand topics." },
+  tavily:     { app: "RayDar", pipeline: "feedstory-generate", collection: { max_results: 5, search_depth: "basic", include_answer: true }, prompt: "Use for VALIDATION — pull facts + cite source URLs. Flag claims that conflict with the feed." },
+  serper:     { app: "RayDar", pipeline: "feedstory-generate", collection: { gl: "in", hl: "en", num: 5 }, prompt: "Use for grounding + validation; cite links." },
+  perplexity: { app: "RayDar", pipeline: "feedstory-generate", collection: { model: "sonar", max_tokens: 500 }, prompt: "Research + validate with citations; India English context." },
 };
 // tag the above as integrations, add the rest of the catalog + journey + scoring rules
 for (const k of Object.keys(RULE_DEFAULTS)) RULE_DEFAULTS[k].category = "integration";
 Object.assign(RULE_DEFAULTS, {
-  exa:       { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { numResults: 5, useAutoprompt: true }, prompt: "Neural search for validation — pull the most relevant sources + cite URLs.", model: "", enabled: false },
-  brave:     { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { count: 5, country: "in", search_lang: "en" }, prompt: "Web search for grounding + validation; cite links.", model: "", enabled: false },
-  factcheck: { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { languageCode: "en" }, prompt: "Check claims against published fact-checks; flag anything contradicted — never assert independently.", model: "", enabled: false },
-  wikidata:  { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { limit: 3 }, prompt: "Ground entities and definitions against Wikipedia / Wikidata.", model: "", enabled: false },
+  exa:       { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { numResults: 5, useAutoprompt: true }, prompt: "Neural search for validation — pull the most relevant sources + cite URLs." },
+  brave:     { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { count: 5, country: "in", search_lang: "en" }, prompt: "Web search for grounding + validation; cite links." },
+  factcheck: { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { languageCode: "en" }, prompt: "Check claims against published fact-checks; flag anything contradicted — never assert independently." },
+  wikidata:  { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { limit: 3 }, prompt: "Ground entities and definitions against Wikipedia / Wikidata." },
   // ---- journey steps (the Hunger routes) ----
-  trend_spotting: { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { topics: 6, include_emerging: true }, prompt: "From the chosen demand topics, frame the cohort's hunger — what they search, watch and complain about — and return the demand topics to sweep.", model: "", enabled: true },
-  seo_inputs:     { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { max_inputs: 50 }, prompt: "Parse pasted SEO research (keywords / GSC / competitor gaps) → demand signals mapped to the 6 topics; extract the highest-intent queries.", model: "", enabled: true },
-  talentmind:     { app: "RayDar", category: "journey", pipeline: "cohort-nl-query", collection: { tenure_max_years: 2, job_seekers_only: true }, prompt: "Job seekers only, under 2 years tenure per company. Parse each corpus into TalentMind chips, cohort them, read their hunger.", model: "", enabled: true },
+  trend_spotting: { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { topics: 6, include_emerging: true }, prompt: "From the chosen demand topics, frame the cohort's hunger — what they search, watch and complain about — and return the demand topics to sweep." },
+  seo_inputs:     { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { max_inputs: 50 }, prompt: "Parse pasted SEO research (keywords / GSC / competitor gaps) → demand signals mapped to the 6 topics; extract the highest-intent queries." },
+  talentmind:     { app: "RayDar", category: "journey", pipeline: "cohort-nl-query", collection: { tenure_max_years: 2, job_seekers_only: true }, prompt: "Job seekers only, under 2 years tenure per company. Parse each corpus into TalentMind chips, cohort them, read their hunger." },
   // ---- scoring (composite rank weights + gap map) ----
   scoring: { app: "RayDar", category: "scoring", pipeline: "raydar-rank",
     collection: { weights: { gap: 0.35, velocity: 0.25, strategic: 0.20, historical: 0.20 },
       gap_map: { "Keywords and resume": 0.9, "Salary negotiation": 0.85, "Using AI to get better jobs": 0.82, "Landing your dream job": 0.7, "Skills to get a new job": 0.6, "Which coding tool to use": 0.6, "Emerging": 0.75 } },
-    prompt: "Composite rank = Σ(weight × signal). Signals: gap (demand ÷ supply quality), velocity (views ÷ days), strategic (topic weight), historical (Used acceptance per franchise).", model: "", enabled: true },
+    prompt: "Composite rank = Σ(weight × signal). Signals: gap (demand ÷ supply quality), velocity (views ÷ days), strategic (topic weight), historical (Used acceptance per franchise)." },
   // ---- guardrails (from the Talent500 brief — prepended to every idea prompt) ----
   guardrails: { app: "RayDar", category: "guardrails", pipeline: "feedstory-generate",
     collection: {
@@ -69,7 +74,7 @@ Object.assign(RULE_DEFAULTS, {
       caveats: ["Reddit is a leading indicator, not a census", "velocity is directional, not precise"],
     },
     prompt: "GUARDRAILS (Talent500 brief):\n• Audience — Indian job seekers (GCC / tech talent). Write India English; use Indian workplace idiom (hike, notice period, CTC, package, service/product company, fresher, campus placement, on-site, bench). Use INR for money.\n• Voice — the whisperer posture: sound like you read the reader's mind before they spoke. Never hype, never generic. Be the only adult in the room. Do NOT replicate what's already out there — bring an original angle.\n• Output — a HEADING + topic-guide brief for a writer. NEVER finished copy.\n• Evidence must be specific (cite comment counts / sources), never vague.\n• Contradictions — you PROPOSE, you never ASSERT. Flag any 'this is wrong' for human verification; never assert independently.\n• Treat Reddit as a leading indicator (not a census) and velocity as directional (not precise).",
-    model: "", enabled: true },
+  },
 });
 const mergeRule = (id, r) => { const d = RULE_DEFAULTS[id] || {}; return { ...d, ...(r || {}), collection: { ...(d.collection || {}), ...((r || {}).collection || {}) } }; };
 async function getRule(id) { try { const r = (await q(`select rule from wh_business_rule where name=$1`, [id])).rows?.[0]?.rule; return mergeRule(id, r); } catch { return mergeRule(id, null); } }
@@ -77,6 +82,8 @@ async function getRule(id) { try { const r = (await q(`select rule from wh_busin
 // ---- Feed collection (real when a source's key is enabled; else []) ---------
 // YouTube: search → video stats (views + publishedAt) → top-N comments. The
 // comments are the demand signal; views÷age is velocity. All params from the rule.
+// ISO-8601 duration ("PT1M32S") → seconds
+const durSecs = (d) => { const m = String(d || "").match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/); return m ? (Number(m[1] || 0) * 3600 + Number(m[2] || 0) * 60 + Number(m[3] || 0)) : null; };
 async function fetchYouTube(topic) {
   const key = getIntegrationKey("youtube"); if (!key) return [];
   const c = (await getRule("youtube")).collection || {};
@@ -87,13 +94,32 @@ async function fetchYouTube(topic) {
   if (!vids.length) return [];
   const stats = {};
   try {
-    const st = await timeout(fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${vids.map((v) => v.id).join(",")}&key=${encodeURIComponent(key)}`));
+    const st = await timeout(fetch(`https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet,contentDetails&id=${vids.map((v) => v.id).join(",")}&key=${encodeURIComponent(key)}`));
     const stj = await st.json();
-    for (const it of (stj.items || [])) stats[it.id] = { views: Number(it.statistics?.viewCount || 0), comments: Number(it.statistics?.commentCount || 0), publishedAt: it.snippet?.publishedAt };
+    for (const it of (stj.items || [])) stats[it.id] = { views: Number(it.statistics?.viewCount || 0), comments: Number(it.statistics?.commentCount || 0), publishedAt: it.snippet?.publishedAt,
+      durationSec: durSecs(it.contentDetails?.duration), audioLang: (it.snippet?.defaultAudioLanguage || it.snippet?.defaultLanguage || "").toLowerCase() };
   } catch { /* stats optional */ }
-  const topN = Math.min(c.commentsTopVideos || 5, vids.length), perVid = c.commentsPerVideo || 20;
+  // ---- the YouTube FILTER (rule-driven, enforced in code — not prompt-only) ----
+  // Shorts, memes and wrong-audio-language videos are tagged with a drop_reason:
+  // they stay visible in the results' "dropped" list (auditable) but never ground
+  // an idea, and no comment quota is spent on them.
+  const markers = (Array.isArray(c.memeMarkers) ? c.memeMarkers : []).map((m) => String(m).toLowerCase()).filter(Boolean);
+  const dropReason = (v) => {
+    const st = stats[v.id] || {}; const title = String(v.title || "");
+    if (c.excludeShorts !== false) {
+      if (st.durationSec != null && st.durationSec < (c.minDurationSec || 90)) return `short (${st.durationSec}s)`;
+      if (/#shorts?\b/i.test(title)) return "short (#shorts)";
+    }
+    const tl = title.toLowerCase();
+    const meme = markers.find((m) => tl.includes(m));
+    if (meme) return `meme/entertainment ("${meme}")`;
+    return null;
+  };
+  for (const v of vids) v.drop_reason = dropReason(v);
+  const keptVids = vids.filter((v) => !v.drop_reason);
+  const topN = Math.min(c.commentsTopVideos || 5, keptVids.length), perVid = c.commentsPerVideo || 20;
   const cmts = {};
-  await Promise.allSettled(vids.slice(0, topN).map(async (v) => {
+  await Promise.allSettled(keptVids.slice(0, topN).map(async (v) => {
     try {
       const cr = await timeout(fetch(`https://www.googleapis.com/youtube/v3/commentThreads?part=snippet&videoId=${v.id}&maxResults=${perVid}&order=relevance&key=${encodeURIComponent(key)}`));
       const cj = await cr.json(); cmts[v.id] = (cj.items || []).map((x) => x.snippet?.topLevelComment?.snippet?.textDisplay || "").filter(Boolean);
@@ -103,7 +129,8 @@ async function fetchYouTube(topic) {
   return vids.map((v) => {
     const st = stats[v.id] || {}; const pub = st.publishedAt || v.publishedAt;
     const ageDays = pub ? Math.max(1, Math.round((now - new Date(pub).getTime()) / 864e5)) : null;
-    return { source: "youtube", external_id: v.id, title: v.title, url: `https://youtube.com/watch?v=${v.id}`, body: v.body, meta: { views: st.views || 0, ageDays, comments: cmts[v.id] || [] } };
+    return { source: "youtube", external_id: v.id, title: v.title, url: `https://youtube.com/watch?v=${v.id}`, body: v.body, drop_reason: v.drop_reason || null,
+      meta: { views: st.views || 0, ageDays, comments: cmts[v.id] || [], durationSec: st.durationSec ?? null, audioLang: st.audioLang || null } };
   });
 }
 // Reddit requires a unique, descriptive User-Agent (platform:appID:version) — generic
@@ -161,8 +188,14 @@ async function collectFeed(topics) {
       for (const b of batches) if (b.status === "fulfilled") for (const it of (b.value || [])) out.push({ ...it, topic: name, term });
     }
   }
-  // dedupe by url, persist (incl. metrics meta)
+  // dedupe by url within the sweep, then mark CROSS-SWEEP repeats: anything
+  // already in wh_feed_item was surfaced by an earlier sweep — it stays in the
+  // record (never removed) but is tagged so the results hide it as a repeat.
   const seen = new Set(); const uniq = out.filter((x) => x.url && !seen.has(x.url) && seen.add(x.url));
+  try {
+    const prior = new Set((await q(`select url from wh_feed_item where url = any($1)`, [uniq.map((x) => x.url)])).rows.map((r) => r.url));
+    for (const it of uniq) it.repeat = prior.has(it.url);
+  } catch { /* repeat-marking is best-effort */ }
   for (const it of uniq) await q(`insert into wh_feed_item(source,external_id,title,url,body,meta) values($1,$2,$3,$4,$5,$6::jsonb) on conflict do nothing`, [it.source, it.external_id || null, it.title || "", it.url, it.body || "", JSON.stringify(it.meta || {})]).catch(() => {});
   return uniq;
 }
@@ -193,18 +226,32 @@ function relevanceMatch(row) {
 const INDIC_RE = /[ऀ-ॿঀ-৿਀-੿઀-૿଀-୿஀-௿ఀ-౿ಀ-೿ഀ-ൿ]/;
 const LANG_TAG_RE = /\b(tamil|kannada|telugu|malayalam|hindi|marathi|bengali|punjabi|gujarati|urdu|odia|assamese)\b/i;
 const SCRIPT_LANG = [[/[஀-௿]/, "Tamil"], [/[ಀ-೿]/, "Kannada"], [/[ఀ-౿]/, "Telugu"], [/[ഀ-ൿ]/, "Malayalam"], [/[ऀ-ॿ]/, "Hindi/Devanagari"], [/[ঀ-৿]/, "Bengali"], [/[਀-੿]/, "Punjabi"], [/[઀-૿]/, "Gujarati"], [/[଀-୿]/, "Odia"]];
-function regionalLang(title) {
+// Romanised-Hindi (Hinglish) heuristic: vernacular videos often carry an
+// English-script title ("Job kaise paye", "Interview me kya bole") that the
+// Indic-script check can't see. Two or more Hinglish function-words → vernacular.
+const HINGLISH_WORDS = new Set("kaise kya hai hain mein nahi nahin karo kare karna paye paayein bolo bole batao bataya sikho seekho naukri paisa paise lakh crore wala wale ki ka ke ko se par aur bhi tarika tarike jaldi asaan puri pura sabse".split(" "));
+function hinglishScore(title) {
+  const words = String(title || "").toLowerCase().match(/[a-z]+/g) || [];
+  return words.filter((w) => HINGLISH_WORDS.has(w)).length;
+}
+function regionalLang(title, { audioLang = null, hinglishGuard = true } = {}) {
   const t = String(title || "");
   for (const [re, name] of SCRIPT_LANG) if (re.test(t)) return name;
   const m = t.match(LANG_TAG_RE); if (m) return m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+  // YouTube's own audio-language tag (from the videos API) — authoritative when present
+  if (audioLang && !/^en/.test(audioLang)) {
+    const byCode = Object.entries(LANG_CODE).find(([, c]) => audioLang.startsWith(c));
+    if (byCode) return byCode[0];
+  }
+  if (hinglishGuard && hinglishScore(t) >= 2) return "Hindi (romanised)";
   return null;
 }
 const LANG_CODE = { Tamil: "ta", Kannada: "kn", Telugu: "te", Malayalam: "ml", "Hindi/Devanagari": "hi", Bengali: "bn", Punjabi: "pa", Gujarati: "gu", Odia: "or", Hindi: "hi", Marathi: "mr", Urdu: "ur", Assamese: "as" };
 // Deterministic guardrail enforcement (RULE-DRIVEN, not prompt-only): given the
 // allowed-language codes from the business rule, return a drop-reason if this item
 // violates it, else null. English/undetected always passes; ["all"] disables it.
-function langExcludeReason(title, allowed) {
-  const lang = regionalLang(title);
+function langExcludeReason(title, allowed, { audioLang = null, hinglishGuard = true } = {}) {
+  const lang = regionalLang(title, { audioLang, hinglishGuard });
   if (!lang) return null;
   if (!allowed || allowed.includes("all")) return null;
   const code = LANG_CODE[lang] || lang.toLowerCase();
@@ -224,20 +271,26 @@ function rankFeedSignal(items, allowedLangs = ["en"]) {
     const questions = comments.filter(isQuestion).length;
     return { source: f.source, title: f.title || "", url: f.url, topic: f.topic || null, term: f.term || null,
       franchise: f.tags?.franchise || null, views, ageDays, comments: comments.length, questions,
+      audioLang: m.audioLang || null, drop_reason: f.drop_reason || null, repeat: !!f.repeat,
       velocity: Math.round(velocity * 100) / 100 };
   }).filter((x) => x.views > 0 || x.comments > 0 || x.source === "reddit")
     .sort((a, b) => b.velocity - a.velocity || b.views - a.views || b.comments - a.comments);
 
-  const kept = [], dropped = [];
+  const kept = [], dropped = [], repeats = [];
   for (const r of rows) {
-    const langReason = langExcludeReason(r.title, allowedLangs);
+    // collection-time filter (shorts / memes) — rule-driven hard drop, reason kept for the audit trail
+    if (r.drop_reason) { dropped.push({ ...r, reason: r.drop_reason, hard: true }); continue; }
+    const langReason = langExcludeReason(r.title, allowedLangs, { audioLang: r.audioLang });
     if (langReason) { dropped.push({ ...r, reason: langReason, hard: true }); continue; } // rule-driven hard drop, never promoted back
     const m = relevanceMatch(r);
-    if (m === null) dropped.push({ ...r, reason: "no topic-keyword match" });
-    else { r.match = m || null; kept.push(r); }
+    if (m === null) { dropped.push({ ...r, reason: "no topic-keyword match" }); continue; }
+    r.match = m || null;
+    // seen in a previous sweep → HIDDEN as a repeat (never removed; first sighting stays the record)
+    if (r.repeat) repeats.push(r); else kept.push(r);
   }
   let keptF = kept, dropF = dropped;
-  if (keptF.length < 3 && dropF.some((d) => !d.hard)) { // never near-empty the block (but never promote a regional drop)
+  if (keptF.length < 3 && repeats.length) keptF = keptF.concat(repeats.splice(0, 3 - keptF.length)); // a thin sweep may resurface repeats rather than show nothing
+  if (keptF.length < 3 && dropF.some((d) => !d.hard)) { // never near-empty the block (but never promote a hard drop)
     const promote = dropF.filter((d) => !d.hard).slice(0, 3 - keptF.length);
     const urls = new Set(promote.map((p) => p.url));
     keptF = keptF.concat(promote.map((d) => ({ ...d, match: null })));
@@ -245,13 +298,13 @@ function rankFeedSignal(items, allowedLangs = ["en"]) {
   }
   const sources = {}; for (const r of rows) sources[r.source] = (sources[r.source] || 0) + 1;
   const stats = {
-    collected: rows.length, kept: keptF.length, dropped: dropF.length,
+    collected: rows.length, kept: keptF.length, dropped: dropF.length, repeats: repeats.length,
     terms: new Set(rows.map((r) => r.term).filter(Boolean)).size, sources,
     views_analysed: rows.reduce((s, r) => s + (r.views || 0), 0),
     questions: rows.reduce((s, r) => s + (r.questions || 0), 0),
     comments: rows.reduce((s, r) => s + (r.comments || 0), 0),
   };
-  return { kept: keptF.slice(0, 15), dropped: dropF.slice(0, 12), stats };
+  return { kept: keptF.slice(0, 15), dropped: dropF.slice(0, 12), repeats: repeats.slice(0, 20), stats };
 }
 function topicSignals(items, gapMapVal) {
   const withMeta = items.filter((x) => x.meta && (x.meta.comments || x.meta.views != null));
@@ -338,13 +391,16 @@ async function classifyFeed(items) {
   for (const it of (items || [])) (bySrc[it.source] ||= []).push(it);
   for (const [src, arr] of Object.entries(bySrc)) {
     const rule = await getRule(src);
-    if (rule.enabled === false || !arr.length) continue;              // gate
-    const [prov, mdl] = (rule.model || "").includes("::") ? rule.model.split("::") : [undefined, undefined];
+    if (!arr.length) continue;
+    // ONE registry owns provider/model/gate: the AI-pipeline registry (Admin →
+    // AI & Pipelines). A business rule contributes the INSTRUCTION and the query
+    // params only — it no longer carries a model override or a second gate,
+    // which used to silently shadow the pipeline's own settings.
     try {
       const payload = JSON.stringify(arr.map((x, i) => ({ i, title: x.title, body: (x.body || "").slice(0, 300) }))).slice(0, 6000);
       const out = await runPipeline("raydar-classify", {
         system: `${rule.prompt}\nReturn STRICT JSON {"items":[{"i":<index>,"topic":"1..6|Emerging","franchise":"...","registers":{"FOMO":0-1,"Anxiety":0-1,"Optimism":0-1,"Ambition":0-1},"question":"..."}]}.`,
-        user: payload, provider: prov, model: mdl, maxTokens: 1500,
+        user: payload, maxTokens: 1500,
       });
       if (out.mode === "ai" && out.text) {
         const tags = jsonFrom(out.text);
@@ -535,7 +591,7 @@ export function mountWhisperer(app, slug, upload) {
     // scoring weights + gap map from the editable business rule
     const sc = (await getRule("scoring")).collection || {};
     const guard = await getRule("guardrails");                  // audience · language · region (editable)
-    const guardPrompt = guard.enabled === false ? "" : (guard.prompt || "");
+    const guardPrompt = guard.prompt || "";
     const allowedLangs = (guard.collection && guard.collection.languages) || ["en"]; // rule-driven, code-enforced (not prompt-only)
     const W = sc.weights || { gap: 0.35, velocity: 0.25, strategic: 0.20, historical: 0.20 };
     const GAPMAP = sc.gap_map || {};
@@ -569,10 +625,12 @@ export function mountWhisperer(app, slug, upload) {
     const made = [];
     for (const t of topicRows) {
       const research = await researchTopic(extra ? `${t.name} — ${extra}` : t.name).catch(() => null);
-      const items = (t.__seo
+      const pool = (t.__seo
         ? feed.filter((f) => f.topic === "__seo__")   // SEO idea grounds ONLY on the SEO feed (all via_seo)
         : feed.filter((f) => f.topic === t.name || f.topic === "__extra__" || (f.title || "").toLowerCase().includes(t.name.split(" ")[0].toLowerCase()))
-      ).filter((f) => !langExcludeReason(f.title, allowedLangs)).slice(0, 5); // rule-enforced: excluded-language items never ground an idea
+      ).filter((f) => !f.drop_reason && !langExcludeReason(f.title, allowedLangs, { audioLang: f.meta?.audioLang })); // rule-enforced: shorts/memes/excluded-language never ground an idea
+      // fresh items first; cross-sweep repeats only fill the gap when the sweep is thin
+      const items = [...pool.filter((f) => !f.repeat), ...pool.filter((f) => f.repeat)].slice(0, 5);
       const sig = topicSignals(items, GAPMAP[t.name]);          // Stage 3 — real demand/supply/velocity when live
       const velocity = sig.velocity != null ? sig.velocity : Math.min(1, 0.4 + items.length * 0.1);
       const strategic = Math.min(1, (Number(t.strategic_weight) || 1) / 1.5);
@@ -725,11 +783,26 @@ export function mountWhisperer(app, slug, upload) {
     const out = {}; for (const id of Object.keys(RULE_DEFAULTS)) out[id] = mergeRule(id, saved[id]);
     res.json({ rules: out });
   });
+  // "Tell it what you want" — plain English → a PROPOSED change to this rule's
+  // params + instruction. Never applied silently: the operator sees the diff and
+  // confirms. This is how a non-technical user edits the JSON without seeing JSON.
+  app.post("/api/wh/rules/:id/ask", async (req, res) => {
+    const id = req.params.id; if (!RULE_DEFAULTS[id]) return res.status(404).json({ error: "unknown rule" });
+    const want = String(req.body?.want || "").trim().slice(0, 600);
+    if (!want) return res.status(400).json({ error: "say what you want changed" });
+    const rule = await getRule(id);
+    const { j } = await ai("raydar-terms",
+      `You edit ONE control block of a content-sweep engine. Given its current parameters and instruction, and what the operator wants in plain English, return the UPDATED block. Change only what the request implies; keep every other key exactly as-is; never invent keys that don't exist unless the request clearly needs one. Return STRICT JSON {"collection":{...the full updated params...},"prompt":"the updated instruction","changed":["one short line per change, in plain English"]}.`,
+      `Control: ${id}\nCurrent parameters: ${JSON.stringify(rule.collection || {})}\nCurrent instruction: ${rule.prompt || ""}\n\nThe operator wants: ${want}`, 1200);
+    if (!j || (!j.collection && !j.prompt)) return res.json({ ok: false, error: "no keyed model, or it couldn't read that — try rephrasing, or edit the fields directly" });
+    res.json({ ok: true, proposal: { collection: j.collection || rule.collection, prompt: j.prompt || rule.prompt, changed: Array.isArray(j.changed) ? j.changed.slice(0, 8) : [] } });
+  });
+
   app.post("/api/wh/rules/:id", async (req, res) => {
     const id = req.params.id; if (!RULE_DEFAULTS[id]) return res.status(404).json({ error: "unknown integration" });
     const merged = mergeRule(id, req.body || {});
     await wq(`insert into wh_business_rule(name, rule) values($1,$2::jsonb) on conflict(name) do update set rule=excluded.rule`, [id, JSON.stringify(merged)]);
-    q(`insert into audit_log(actor,action,object_type,object_id,detail) values('admin','raydar.rule','integration',$1,$2::jsonb)`, [id, JSON.stringify({ model: merged.model, enabled: merged.enabled })]).catch(() => {});
+    q(`insert into audit_log(actor,action,object_type,object_id,detail) values('admin','raydar.rule','integration',$1,$2::jsonb)`, [id, JSON.stringify({ collection: merged.collection })]).catch(() => {});
     res.json({ ok: true, rule: merged });
   });
 

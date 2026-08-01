@@ -22,7 +22,7 @@ checklist: [Q-Legal/TODO.md](../../../Q-Legal/TODO.md) · core doc: [docs/14-q-l
 |---|---|
 | `server/qlegal.js` | `mountQLegal(app, upload)` — ingestion + all `/api/qlegal/*` endpoints |
 | `db/init/022_qlegal.sql` | ql_* schema + seeded business rules + tag vocabulary (idempotent) |
-| `public/qlegal.html` + `public/qlegal.js` | the RayDar-skinned shell (Repository · Tasks · Governance) |
+| `public/qlegal.html` + `public/qlegal.js` | the shell — nav: Ask · Browse · Manage · **Settings** (Business Rules · AI Pipelines · Integrations=SharePoint); Vault/keys stay in global Admin (common to all apps) |
 | `server/store.js` | the 5 `qlegal-*` pipelines (product "Q-Legal") |
 | storage | ring-fenced under tenant `Q-LEGAL` — vault `uploads/Q-LEGAL/originals/`, docstore `docstore/Q-LEGAL/` (bucket in prod) |
 
@@ -33,8 +33,14 @@ checklist: [Q-Legal/TODO.md](../../../Q-Legal/TODO.md) · core doc: [docs/14-q-l
 | **C1** | the comprehensive transcript: every clause, table, field; scans/images via Munshi vision (`munshi3:read`) | `qlegal-c1` |
 | **C2** | the concise key **+ the two wikis every doc gets** — the **contents wiki** (its own structure) and the **clause wiki** (each § + topic + gist) — plus facts, tags, notice register | `qlegal-key` |
 | **Registers** | **"C2 you define"** — a standing question written once in plain English, answered for EVERY contract with § evidence. This is how an *infinite* set of lawyer questions is served without re-reading the estate. | `qlegal-register` |
+| **Vectors** | the semantic spine (`ql_embedding`, pgvector 1536 + HNSW) — document/section/clause granularity, § anchors kept, built from C2's wikis at ingestion. A vector hit is only ever a POINTER to a real §. | `qlegal-embed` |
 
-Ask climbs these as a **retrieval ladder**, cheapest first: registers+facts (whole estate) → contents/clause wikis → C1 deep text → original (cited, never fed to the model).
+Ask climbs these as a **retrieval ladder**, cheapest first: registers+facts (whole estate) → contents/clause wikis → C1 deep text → original (cited, never fed to the model). Doc selection for rungs 2/3 is **hybrid always**: FTS + vector, reciprocal-rank fused (`hybridSearch` in qlegal.js) — same fusion behind `GET /search`.
+
+## Vector spine (server/qlegal-vectors.js · migration 027)
+- `qlegal-embed` pipeline: embeddings bypass `runPipeline` (no Anthropic-compat shape) but honour its gate (enabled + key) — provider adapters for openai/google/zai + **key-free `hash:v1` trigram fallback** so the spine never blocks. Rows store `embedding_model`; **never knn across models**; model swap in Admin ⇒ estate pending ⇒ the Re-index **embed sweep IS the re-embed migration**.
+- Wiki panel "nearest in estate" (`nearestDocs`) · Browse → **Estate map** (PCA 2D, honestly not UMAP) + **emergent clause library** (k-means; centroid = estate norm, distance = non-standardness).
+- Local dev db must be the `pgvector/pgvector:pg15` image; if the extension is missing everything degrades to FTS (`vectorsReady()` feature-detect, Re-index card says so).
 
 ## Ingestion (per file — persisted per step, resumable)
 `POST /api/qlegal/upload` (multi ≤20) →
@@ -49,7 +55,7 @@ Ask climbs these as a **retrieval ladder**, cheapest first: registers+facts (who
 8. No keyed model / unclassified → `ql_confirm` kind `classification`.
 
 ## Pipelines (registry ids — swap model/gate in Admin)
-`qlegal-c1` (zai/glm-4.5v, hybrid) · `qlegal-key` (opus) · `qlegal-register` (opus) · `qlegal-obligations` (sonnet) · `qlegal-link` (sonnet) · `qlegal-diff` (sonnet) · `qlegal-ask` (opus).
+`qlegal-c1` (zai/glm-4.5v, hybrid) · `qlegal-key` (opus) · `qlegal-register` (opus) · `qlegal-obligations` (sonnet) · `qlegal-link` (sonnet) · `qlegal-diff` (sonnet) · `qlegal-ask` (opus) · `qlegal-draft` (opus) · `qlegal-embed` (zai/embedding-3, hash:v1 fallback).
 Output contracts are passed **caller-side** in `system` (immune to stored-prompt drift — the Contra lesson).
 
 ## Gotchas that have already bitten
@@ -81,6 +87,6 @@ Views re-render from server state (no client-held progress). Facts on the wiki a
 Every document page carries the three-way open row (file · C1 · C2) + a Family jump; the family cards navigate to the related contract.
 
 ## Not built yet (P2/P3 — see TODO.md)
-SharePoint Graph delta sync + AD roles · pgvector spine (semantic recall behind the same ladder) + estate map · organism loops (gardener/drift/tag-hygiene) ·
+AD roles/RBAC · LLM query router (hybrid fusion covers most of it) · UMAP estate map (PCA today) · real-model estate-scale embed run · organism loops (gardener/drift/tag-hygiene) ·
 Standards + Create-a-Draft · reminder emails/scheduler · rule promotion ladder L1/L2 · stage-time analytics ·
 register **suggestions** (mine `ql_feedback`/failed Asks for questions worth making standing).

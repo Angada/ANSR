@@ -22,7 +22,9 @@ const line = (runs, opts = {}) => new Paragraph({ spacing: { after: 90 }, ...opt
 export async function buildReviewDocx(review) {
   const rep = review.report || {};
   const emblem = emblemBuf();
-  const date = new Date(rep.generated_at || Date.now()).toLocaleDateString();
+  // India format, IST — "29 Jun, 2026" (platform standard)
+  const dp = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" }).formatToParts(new Date(rep.generated_at || Date.now())).reduce((o, x) => ((o[x.type] = x.value), o), {});
+  const date = `${dp.day} ${dp.month}, ${dp.year}`;
   const ref = `Ref: ${review.contract_name || "contract"} · Review #${review.id} · ${(rep.archetypes || []).join(" + ") || "—"} · ${date}`;
 
   const header = new Header({
