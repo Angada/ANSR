@@ -17,7 +17,8 @@ Live on GCP (Mumbai) + Supabase (Mumbai). Account `angad.a@gmail.com`, TKB org.
   Always pass `--project ansr-tkb --account angad.a@gmail.com` (gcloud config otherwise flips to another account/project).
 - **Secrets** (Secret Manager → compute SA): `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `CONFIG_SECRET`. Env: `PGSSL=1`, `NODE_ENV=production`, `--port 4100`.
 - **Domain:** Cloud Run domain-mapping isn't supported in asia-south1 → global HTTPS LB. Static IP **8.233.13.30** (`ansr-ip`) → serverless NEG `ansr-neg` → backend `ansr-be` → urlmap `ansr-lb` → managed cert `ansr-cert` (for `qansr.thekettleblack.in`) → proxy `ansr-https` → fwd rule `ansr-fr`:443.
-- **DNS (user action):** A record `qansr.thekettleblack.in` → `8.233.13.30`. Cert goes ACTIVE once DNS resolves.
+- **DNS: LIVE** (verified 2026-08-01). A record `qansr.thekettleblack.in` → `8.233.13.30`; managed cert ACTIVE (valid to 12 Sep 2026, auto-renews).
+- **Two public front doors, one service:** `https://qansr.thekettleblack.in` (domain → LB → serverless NEG) and `https://ansr-121188302790.asia-south1.run.app` (Cloud Run direct, bypasses the LB). Same app, same database, same auth — the Cloud Run URL is the origin, not a separate environment. Give clients the domain.
 
 ## Supabase — project `ANSR` (`tjhfdpdmuntiyufomkkv`, ap-south-1)
 - **Pooler host is `aws-1-ap-south-1`** (not aws-0). Sessions=5432 (migrations/DDL), transaction=6543 (app runtime). Direct `db.<ref>.supabase.co` is IPv6-only → won't resolve on this Mac; always use the pooler.
