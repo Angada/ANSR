@@ -15,7 +15,9 @@
     --bg:#F4F3EF; --bg2:#F9FAFB; --panel:#FFFFFF; --panel-solid:#FFFFFF;
     --line:#E7E3DC; --line2:#D9D3C8;
     --grn:#CE4502; --grn-dim:#FF5400; --cyan:#005465; --amber:#C77B2B; --mag:#B5316E; --red:#C0392B;
-    --txt:#141414; --dim:#54504A; --dim2:#7A7266;
+    /* secondary text was too light to read at small sizes — darkened so labels
+       and captions clear WCAG AA on the cream/white panels. */
+    --txt:#141414; --dim:#3B3733; --dim2:#554E45;
     --sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
     --mono:var(--sans);
     --r:14px;
@@ -260,17 +262,21 @@
   .tsr-block{border:1px solid var(--line);border-radius:12px;background:var(--bg2);padding:13px 14px;min-width:0}
   .tsr-block.span2{grid-column:span 2}
   @media(max-width:560px){.tsr-block.span2{grid-column:auto}}
-  .tsr-k{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--dim2);margin-bottom:10px}
+  .tsr-k{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--dim);margin-bottom:10px}
   .tsr-k .n{margin-left:auto;color:var(--grn);font-weight:700}
   .tsr-chips{display:flex;flex-wrap:wrap;gap:7px}
-  .tsr-chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--txt);background:#fff;border:1px solid var(--line2);border-radius:999px;padding:4px 6px 4px 11px;line-height:1;max-width:100%}
+  /* right padding was 6px against ITALIC text (.mut) — the last glyph leaned
+     out of the box and got clipped, and line-height:1 cut descenders. */
+  .tsr-chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--txt);background:#fff;border:1px solid var(--line2);border-radius:999px;padding:5px 13px;line-height:1.45;max-width:100%;white-space:normal;overflow:visible}
+  .tsr-chip .t{overflow:visible}
   .tsr-chip span.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tsr-chip b{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#FFF1E9;color:var(--grn);font-size:11px;font-weight:700;flex:0 0 auto}
   .tsr-chip.mut{color:var(--dim2);border-style:dashed}
   .tsr-tiles{display:flex;gap:9px;flex-wrap:wrap}
   .tsr-tile{flex:1;min-width:64px;background:#fff;border:1px solid var(--line2);border-radius:10px;padding:9px 11px}
   .tsr-tile .v{font-size:20px;font-weight:700;color:var(--txt);line-height:1}
-  .tsr-tile .l{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim2);margin-top:5px}
+  /* tile captions: 9.5px light grey was unreadable — bigger, bolder, darker */
+  .tsr-tile .l{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--dim);margin-top:6px;line-height:1.3}
   .tsr-note{font-size:12px;color:var(--dim);line-height:1.5;margin-top:9px}
   .tsr-note b{color:var(--txt)}
 
@@ -452,8 +458,8 @@
   .rcp-c{font-size:12.5px;font-weight:600;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
   .rcp-fr{font-size:10.5px;font-weight:500;color:var(--dim2)}
   .rcp-t{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
-  .rcp-term{font-size:11px;padding:2px 7px;border:1px solid var(--line2);border-radius:999px;color:var(--dim);background:var(--bg2)}
-  .rcp-term.mut,.rcp .mut{color:var(--dim2);font-style:italic}
+  .rcp-term{font-size:11.5px;padding:4px 11px;border:1px solid var(--line2);border-radius:999px;color:var(--dim);background:var(--bg2);line-height:1.45;white-space:normal}
+  .rcp-term.mut,.rcp .mut{color:var(--dim2);font-style:italic;padding-right:13px}
   .rcp-prev{font-size:11.5px;color:var(--dim2);line-height:1.5}
   .rcp-brief{font-size:12.5px;line-height:1.6;color:var(--dim);background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:9px 11px}
   @media(max-width:640px){.rcp-row{grid-template-columns:1fr;gap:4px}}
@@ -537,7 +543,14 @@
   .jnext-s{font-size:14px;line-height:1.6;color:var(--txt);max-width:74ch}
   .jnext-b{margin-top:11px}
   /* numbered "what to do here" — the hand-held bit */
-  .jhow{margin:12px 0;border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:11px 13px}
+  /* the how-to and the why both FOLD AWAY. A station opens showing its
+     controls — the reading is there for whoever wants it, not in the way. */
+  .jhow-w>summary,.jwhy-w>summary{cursor:pointer;font-size:12px;color:var(--dim);padding:6px 0;list-style:none}
+  .jhow-w>summary::-webkit-details-marker{display:none}
+  .jhow-w>summary::before{content:"▸ ";color:var(--grn)}
+  .jhow-w[open]>summary::before{content:"▾ "}
+  .jhow-w>summary:hover{color:var(--txt)}
+  .jhow{margin:4px 0 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:11px 13px}
   .jhow-k{font-size:15px;font-weight:700;letter-spacing:-.01em;color:var(--txt);margin-bottom:8px;
     padding-bottom:7px;border-bottom:2px solid var(--grn-dim);display:inline-block}
   .jhow-l{margin:0;padding-left:20px;font-size:13px;line-height:1.75;color:var(--txt)}

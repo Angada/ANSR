@@ -1164,12 +1164,13 @@ function station(st, data) {
       <span class="jny-count"><b>${n}</b> ${st.id === "radar" ? "candidates" : "topics"}<span class="tsr-chev">▾</span></span>
     </summary>
     <div class="jny-body">
-      ${(st.steps || []).length ? `<div class="jhow">
-        <div class="jhow-k">What to do here</div>
-        <ol class="jhow-l">${(st.steps || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ol>
-        ${st.you_get ? `<div class="jhow-g"><b>You'll end up with:</b> ${esc(st.you_get)}</div>` : ""}
-        ${st.then ? `<div class="jhow-t">${esc(st.then)}</div>` : ""}
-      </div>` : ""}
+      ${body}
+      ${(st.steps || []).length ? `<details class="jhow-w"><summary>How do I use this step?</summary>
+        <div class="jhow">
+          <ol class="jhow-l">${(st.steps || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ol>
+          ${st.you_get ? `<div class="jhow-g"><b>You'll end up with:</b> ${esc(st.you_get)}</div>` : ""}
+          ${st.then ? `<div class="jhow-t">${esc(st.then)}</div>` : ""}
+        </div></details>` : ""}
       <details class="jwhy-w"><summary>Why does this step exist? What is the AI doing?</summary>
       <div class="jwhy">
         <div class="jwhy-r"><div class="jwhy-k">Why</div><div>${esc(st.why)}</div></div>
@@ -1178,7 +1179,6 @@ function station(st, data) {
         <div class="jwhy-r gate"><div class="jwhy-k">You</div><div>${esc(st.human)}</div></div>
         ${(st.pipelines || []).length ? `<div class="jwhy-p">runs through${(st.pipelines || []).map((p) => `<span class="pp">${esc(p)}</span>`).join("")}· gated + model-swappable in Admin</div>` : `<div class="jwhy-p">no model call at this station</div>`}
       </div></details>
-      ${body}
     </div></details>`;
 }
 window.jToggle = (id, open) => { if (open) JOPEN = id; };
