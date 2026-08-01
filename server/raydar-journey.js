@@ -243,6 +243,81 @@ export function mountJourney(app, upload) {
       [story_id || null, batch_id || null, extra.actor || "operator", action, extra.from || null, extra.to || null,
        extra.field || null, extra.before == null ? null : String(extra.before), extra.after == null ? null : String(extra.after), extra.note || null]);
 
+  // ---- THEMES — described in the team's words, compiled into pipeline logic
+  // The content team never writes search syntax. They describe the theme; this
+  // turns the description into the terms the sweep fires, the sub-series it
+  // routes to, and what counts as on/off-theme. Nothing saves without a human
+  // pressing save — the compile step only PROPOSES.
+  app.get("/api/wh/themes", async (_req, res) => {
+    const themes = (await jq(`select id, name, question, description, definition, franchise, series, format_home,
+                                     strategic_weight, terms, compiled, compiled_at, notes, active
+                                from wh_demand_topic order by active desc, id`)).rows;
+    const series = (await jq(`select name, parent, stage, format_home, blurb, active from wh_franchise order by (parent is not null), id`)).rows;
+    res.json({ themes, series });
+  });
+
+  // describe → compile. Returns a PROPOSAL; the UI shows it for confirmation.
+  app.post("/api/wh/theme/compile", async (req, res) => {
+    const { name, description, franchise } = req.body || {};
+    if (!description || !String(description).trim()) return res.status(400).json({ error: "describe the theme first — a sentence or two in your own words" });
+    const series = (await jq(`select name, parent, blurb from wh_franchise where active`)).rows;
+    const user = [
+      `THEME: ${name || "(unnamed)"}`,
+      franchise ? `ROUTES TO (the team's pick): ${franchise}` : "",
+      "",
+      "THE CONTENT TEAM DESCRIBES IT AS:",
+      String(description).trim(),
+      "",
+      "AVAILABLE SUB-SERIES TO ROUTE TO:",
+      series.map((s) => `· ${s.name}${s.parent ? ` (part of ${s.parent})` : ""} — ${s.blurb || ""}`).join("\n"),
+    ].filter(Boolean).join("\n");
+
+    const out = await runPipeline("raydar-theme-compile", "", user, 1400);
+    const j = out.mode === "ai" ? jsonFrom(out.text) : null;
+    if (!j) {
+      // no key / disabled → a deterministic starting point from their own words,
+      // so the screen is never a dead end. Clearly labelled as not-AI.
+      const words = String(description).toLowerCase().match(/[a-z][a-z-]{2,}/g) || [];
+      const stop = new Set("the a an and or for with that this what how why you your they them their are is be of to in on at it its as from into over about very more most just only than then when which who whom whose there here".split(" "));
+      const keys = [...new Set(words.filter((w) => !stop.has(w) && w.length > 3))].slice(0, 8);
+      return res.json({
+        ok: true, mode: out.mode,
+        compiled: { terms: keys.map((k) => `${k} india`), franchise: franchise || null, question: null, registers: [], on_theme: keys, off_theme: [], why: "No AI model is enabled, so these are the distinctive words from your description turned into starter queries. Edit them — they are only a starting point." },
+      });
+    }
+    res.json({ ok: true, mode: out.mode, compiled: { ...j, terms: (j.terms || []).map((t) => String(t).toLowerCase().trim()).filter(Boolean).slice(0, 12) } });
+  });
+
+  // save the confirmed theme — the compiled TERMS become what the sweep fires
+  app.post("/api/wh/theme/save", async (req, res) => {
+    const { old_name, name, description, franchise, series, question, strategic_weight, terms, compiled, active } = req.body || {};
+    if (!name) return res.status(400).json({ error: "name required" });
+    const arr = Array.isArray(terms) ? terms : String(terms || "").split(",").map((t) => t.trim()).filter(Boolean);
+    const key = old_name || name;
+    const exists = (await jq(`select 1 from wh_demand_topic where name=$1`, [key])).rows.length;
+    if (exists) {
+      await jq(`update wh_demand_topic set name=$2, description=$3, franchise=coalesce($4,franchise), series=coalesce($5,series),
+                       question=coalesce($6,question), strategic_weight=coalesce($7,strategic_weight), terms=$8,
+                       compiled=coalesce($9::jsonb,compiled), compiled_at=case when $9 is null then compiled_at else now() end,
+                       active=coalesce($10,active)
+                 where name=$1`,
+        [key, name, description || null, franchise || null, series || null, question || null,
+         strategic_weight != null ? Number(strategic_weight) : null, arr,
+         compiled ? JSON.stringify(compiled) : null, active == null ? null : !!active]);
+    } else {
+      await jq(`insert into wh_demand_topic(name, description, franchise, series, question, strategic_weight, terms, compiled, compiled_at, source, active)
+                values($1,$2,$3,$4,$5,$6,$7,$8::jsonb, case when $8 is null then null else now() end, 'user', true)`,
+        [name, description || null, franchise || null, series || "1Up", question || null,
+         strategic_weight != null ? Number(strategic_weight) : 1, arr, compiled ? JSON.stringify(compiled) : null]);
+    }
+    res.json({ ok: true });
+  });
+
+  app.post("/api/wh/theme/:name/active", async (req, res) => {
+    await jq(`update wh_demand_topic set active=$2 where name=$1`, [req.params.name, !!req.body?.active]);
+    res.json({ ok: true });
+  });
+
   // ---- the station handbook (explainable AI, one source of truth) ---------
   app.get("/api/wh/journey/stations", (_req, res) => res.json({ stations: STATIONS }));
 

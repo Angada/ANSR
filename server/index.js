@@ -745,6 +745,26 @@ app.post("/api/providers/:id/test", async (req, res) => {
       await client.messages.create({ model, max_tokens: 1, messages: [{ role: "user", content: "ping" }] });
       return res.json({ ok: true, detail: `live ok · ${model}`, ms: Date.now() - t0 });
     }
+    // OpenAI / Gemini aren't Anthropic-compatible, so they get their own live ping.
+    // Listing models proves the key works without spending a generation.
+    if (id === "openai") {
+      const r = await fetch("https://api.openai.com/v1/models", { headers: { authorization: `Bearer ${key}` } });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return res.json({ ok: false, detail: `HTTP ${r.status}: ${String(j?.error?.message || "").slice(0, 120)}` });
+      const names = (j.data || []).map((m) => m.id);
+      const emb = names.filter((n) => n.includes("embedding"));
+      return res.json({ ok: true, ms: Date.now() - t0,
+        detail: `live ok · ${names.length} models${emb.length ? ` · embeddings: ${emb.slice(0, 3).join(", ")}` : ""}` });
+    }
+    if (id === "google") {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return res.json({ ok: false, detail: `HTTP ${r.status}: ${String(j?.error?.message || "").slice(0, 120)}` });
+      const names = (j.models || []).map((m) => String(m.name || "").replace(/^models\//, ""));
+      const emb = names.filter((n) => n.includes("embedding"));
+      return res.json({ ok: true, ms: Date.now() - t0,
+        detail: `live ok · ${names.length} models${emb.length ? ` · embeddings: ${emb.slice(0, 3).join(", ")}` : ""}` });
+    }
     return res.json({ ok: true, detail: "key present (live test not wired for this provider)" });
   } catch (e) {
     return res.json({ ok: false, detail: String(e.message || e).slice(0, 120) });

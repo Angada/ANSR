@@ -201,6 +201,7 @@ async function init() {
   renderSubnav(); rail(); renderBatchPick();
   ALL_TOPICS = (await (await fetch("/api/wh/topics")).json()).topics || [];
   FRANCHISES = ((await (await fetch("/api/wh/franchises")).json()).franchises) || [];
+  await loadThemes();
   try { GUARD = (((await (await fetch("/api/wh/rules")).json()).rules || {}).guardrails || {}).collection || {}; } catch { GUARD = {}; }
   renderHunger();
   renderIdeas(null);
@@ -262,7 +263,7 @@ async function renderHunger() {
 function conceptModal() {
   return `<div class="cmodal-ov" onclick="if(event.target===this)toggleConcepts()">
     <div class="cmodal">
-      <div class="cmodal-h"><div><b>Edit demand concepts</b><span class="cmodal-s">the search terms fired at YouTube/Reddit · ✨ = AI-suggest, you confirm</span></div>
+      <div class="cmodal-h"><div><b>Your content themes</b><span class="cmodal-s">describe each theme — RayDar works out what to search · you confirm before it saves</span></div>
         <button class="btn small" onclick="toggleConcepts()">Done ✓</button></div>
       <div class="cmodal-b">${conceptEditor()}</div>
     </div></div>`;
@@ -284,8 +285,102 @@ window.uploadSeo = async (file) => {
 };
 window.delSeo = async (id) => { await fetch(`/api/wh/seo/${id}/delete`, { method: "POST" }); renderHunger(); };
 
-// ---- Trend Spotting concept editor — edit terms, add/remove concepts, save --
+// ---- THEME EDITOR — describe it in your words; RayDar compiles the logic ---
+// The content team never writes search syntax. They write a sentence about what
+// the theme IS; raydar-theme-compile turns that into the terms the sweep fires,
+// the 1Up sub-series it routes to, and what counts as on/off-theme. Nothing is
+// saved until they press Save — the compile only ever proposes.
+let THEMES = [], SERIES = [], TDRAFT = {};
+async function loadThemes() {
+  try { const j = await (await fetch("/api/wh/themes")).json(); THEMES = j.themes || []; SERIES = j.series || []; }
+  catch { THEMES = []; SERIES = []; }
+}
 function conceptEditor() {
+  const active = THEMES.filter((t) => t.active && t.name !== "Emerging");
+  const retired = THEMES.filter((t) => !t.active);
+  const seriesOpts = (sel) => SERIES.filter((s) => s.active).map((s) => `<option ${sel === s.name ? "selected" : ""}>${esc(s.name)}</option>`).join("");
+  const card = (t, i) => {
+    const d = TDRAFT[t.name] || {};
+    const c = d.compiled || t.compiled || null;
+    return `<div class="tcard">
+      <div class="tcard-h">
+        <input id="tn-${i}" value="${esc(t.name)}" placeholder="theme name">
+        <select id="tf-${i}">${seriesOpts(d.franchise || t.franchise)}</select>
+        <input id="tw-${i}" value="${esc(t.strategic_weight ?? 1)}" title="how much this theme matters to the business" style="width:56px;text-align:center">
+      </div>
+      <label class="fld">Describe it — what is this theme, in your own words?</label>
+      <textarea id="td-${i}" rows="3" placeholder="e.g. Resume tips and fixes — framing over content. How the resume is structured and worded, and the keywords that get it read.">${esc(d.description ?? t.description ?? "")}</textarea>
+      <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
+        <button class="btn small" onclick="compileTheme(${i},'${esc(t.name).replace(/'/g, "\\'")}')">✨ Work out the logic from this</button>
+        <button class="btn small" onclick="saveTheme('${esc(t.name).replace(/'/g, "\\'")}',${i})">Save</button>
+        <button class="btn small" onclick="retireTheme('${esc(t.name).replace(/'/g, "\\'")}')" title="stop using this theme (nothing is deleted)">Retire</button>
+        <span id="tm-${i}" class="tcard-msg"></span>
+      </div>
+      ${c ? `<div class="tcomp">
+        <div class="tcomp-k">What that description becomes</div>
+        ${c.why ? `<div class="tcomp-why">${esc(c.why)}</div>` : ""}
+        <div class="tcomp-r"><span class="tk">Searches fired</span><div class="tv">
+          <input id="tt-${i}" value="${esc((d.terms ?? c.terms ?? t.terms ?? []).join(", "))}" placeholder="the phrases sent to YouTube / Reddit">
+          <div class="tcomp-n">These are the exact queries the sweep runs. Edit freely — they're yours.</div></div></div>
+        ${c.question ? `<div class="tcomp-r"><span class="tk">The question in their head</span><div class="tv">${esc(c.question)}</div></div>` : ""}
+        ${(c.registers || []).length ? `<div class="tcomp-r"><span class="tk">Usual feeling</span><div class="tv">${(c.registers || []).map((r) => `<span class="rcp-term">${esc(r)}</span>`).join("")}</div></div>` : ""}
+        ${(c.on_theme || []).length ? `<div class="tcomp-r"><span class="tk">Counts as on-theme</span><div class="tv">${(c.on_theme || []).map((r) => `<span class="rcp-term">${esc(r)}</span>`).join("")}</div></div>` : ""}
+        ${(c.off_theme || []).length ? `<div class="tcomp-r"><span class="tk">Must NOT be collected</span><div class="tv">${(c.off_theme || []).map((r) => `<span class="rcp-term">${esc(r)}</span>`).join("")}</div></div>` : ""}
+      </div>` : `<div class="tcomp-empty">Not worked out yet — describe it above, then press <b>✨ Work out the logic from this</b>. RayDar will suggest the searches to fire; you confirm before anything saves.
+        ${(t.terms || []).length ? `<div class="tcomp-n" style="margin-top:6px">Currently searching: ${(t.terms || []).map(esc).join(" · ")}</div>` : ""}</div>`}
+    </div>`;
+  };
+  return `<div class="tset">
+    <p class="tset-i">These are Talent500's own themes, in Talent500's words. Write what each one <b>is</b> — RayDar turns your description into the searches it fires, where the idea gets routed, and what to ignore. You confirm everything before it saves.</p>
+    ${active.map(card).join("")}
+    <div class="tcard tcard-new">
+      <div class="tcard-h">
+        <input id="tn-new" placeholder="+ a new theme">
+        <select id="tf-new">${seriesOpts(null)}</select>
+        <input id="tw-new" value="1" style="width:56px;text-align:center">
+      </div>
+      <label class="fld">Describe it in your own words</label>
+      <textarea id="td-new" rows="2" placeholder="what is this theme about?"></textarea>
+      <div class="row" style="gap:8px;margin-top:8px"><button class="btn small" onclick="addTheme()">Add theme</button></div>
+    </div>
+    ${retired.length ? `<details class="tretired"><summary>${retired.length} retired theme${retired.length === 1 ? "" : "s"} — kept for the record, not swept</summary>
+      <div class="tcomp-n" style="padding:8px 0">${retired.map((t) => esc(t.name)).join(" · ")}</div></details>` : ""}
+  </div>`;
+}
+window.compileTheme = async (i, name) => {
+  const msg = $(`#tm-${i}`), description = $(`#td-${i}`)?.value.trim();
+  if (!description) return rdAlert("Describe it first", "Write a sentence or two about what this theme is, then press again.");
+  if (msg) msg.textContent = "working it out…";
+  const j = await (await fetch("/api/wh/theme/compile", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: $(`#tn-${i}`)?.value.trim() || name, description, franchise: $(`#tf-${i}`)?.value }) })).json();
+  if (j.error) { if (msg) msg.textContent = ""; return rdAlert("Couldn't work it out", j.error); }
+  TDRAFT[name] = { description, franchise: $(`#tf-${i}`)?.value, compiled: j.compiled, terms: j.compiled?.terms || [] };
+  if (msg) msg.textContent = j.mode === "ai" ? "✓ suggested — check it, then Save" : "✓ starting point (no AI enabled) — edit, then Save";
+  renderHunger();
+};
+window.saveTheme = async (oldName, i) => {
+  const d = TDRAFT[oldName] || {};
+  const body = { old_name: oldName, name: $(`#tn-${i}`)?.value.trim(), description: $(`#td-${i}`)?.value.trim(),
+    franchise: $(`#tf-${i}`)?.value, strategic_weight: $(`#tw-${i}`)?.value.trim(),
+    terms: $(`#tt-${i}`)?.value ?? (d.terms || []).join(", "), compiled: d.compiled || null };
+  if (!body.name) return;
+  await fetch("/api/wh/theme/save", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  delete TDRAFT[oldName];
+  await loadThemes(); await refreshTopics();
+};
+window.addTheme = async () => {
+  const name = $("#tn-new")?.value.trim(); if (!name) return;
+  await fetch("/api/wh/theme/save", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, description: $("#td-new")?.value.trim(), franchise: $("#tf-new")?.value, strategic_weight: $("#tw-new")?.value.trim() }) });
+  await loadThemes(); await refreshTopics();
+};
+window.retireTheme = async (name) => {
+  await fetch(`/api/wh/theme/${encodeURIComponent(name)}/active`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ active: false }) });
+  await loadThemes(); await refreshTopics();
+};
+
+// ---- (legacy) compact concept editor — kept for reference ------------------
+function conceptEditorLegacy() {
   const rows = ALL_TOPICS.filter((t) => t.name !== "Emerging").map((t, i) => `
     <div class="cedit">
       <input id="cn-${i}" value="${esc(t.name)}" placeholder="concept" style="font-weight:600">

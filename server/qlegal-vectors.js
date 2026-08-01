@@ -215,8 +215,9 @@ export async function nearestDocs(docId, limit = 5) {
 // ---- status + resumable sweep (Re-index console) ------------------------------
 export async function embedStatus() {
   if (!(await vectorsReady())) return { available: false, model: embedModelId(), embedded: 0, pending: 0, vectors: 0 };
-  // count against the model the rows actually carry — otherwise a failing target
-  // model shows the whole estate as "pending" forever and the sweep loops.
+  // `model` = what the rows actually carry (readers follow this); `target` = what
+  // Admin is configured to use. pending counts against the TARGET so a model swap
+  // shows real work to do; `degraded` says the two disagree.
   const model = await storedModelId();
   const target = embedModelId();
   const one = async (sql, p = []) => Number((await q(sql, p)).rows[0]?.c || 0);
@@ -225,7 +226,7 @@ export async function embedStatus() {
     one(`select count(*) c from ql_document d
           where coalesce(d.status,'active')<>'inactive'
             and exists(select 1 from ql_version v where v.document_id=d.id and v.c1_text is not null)
-            and not exists(select 1 from ql_embedding e where e.document_id=d.id and e.embedding_model=$1)`, [model]),
+            and not exists(select 1 from ql_embedding e where e.document_id=d.id and e.embedding_model=$1)`, [target]),
     one(`select count(*) c from ql_embedding`),
   ]);
   // target ≠ model means the configured provider rejected the call and the spine
@@ -237,21 +238,30 @@ export async function embedStatus() {
 // call again to continue; a model swap simply makes everything pending again)
 export async function embedSweep(limit = 10) {
   if (!(await vectorsReady())) return { processed: 0, remaining: 0, available: false };
-  const model = await storedModelId();
+  // Pending is measured against the TARGET model, so swapping the model in Admin
+  // genuinely re-embeds the estate. The failing-target loop is broken separately:
+  // if a pass writes rows under a DIFFERENT model than the target, the provider
+  // rejected the call and retrying can only fail the same way — stop and say so
+  // rather than spinning ("processed 5, remaining 5" forever).
+  const target = embedModelId();
   const docs = (await q(
     `select d.id, d.filename, v.id as version_id, v.c2 from ql_document d
       join ql_version v on v.document_id=d.id and v.version_no=d.latest_version
      where coalesce(d.status,'active')<>'inactive' and v.c1_text is not null
        and not exists(select 1 from ql_embedding e where e.document_id=d.id and e.embedding_model=$1)
-     order by d.id limit $2`, [model, Math.min(limit, 50)]
+     order by d.id limit $2`, [target, Math.min(limit, 50)]
   )).rows;
-  let done = 0;
+  let done = 0, wrote = null;
   for (const d of docs) {
     const r = await embedVersion({ docId: d.id, verId: d.version_id, c2: d.c2, filename: d.filename }).catch(() => null);
-    if (r) done++;
+    if (r) { done++; wrote = r.model; }
   }
   const st = await embedStatus();
-  return { processed: done, remaining: st.pending, model: st.model, available: true };
+  if (wrote && wrote !== target) {
+    return { processed: done, remaining: 0, model: wrote, target, degraded: true, available: true,
+      error: `${target} rejected the request — embedded on the ${wrote} fallback instead. Check the model name and key in Admin → AI & Pipelines; the AI activity log has the provider's exact error.` };
+  }
+  return { processed: done, remaining: st.pending, model: st.model, target, degraded: st.degraded, available: true };
 }
 
 // ---- emergent clause library: k-means over clause vectors ---------------------

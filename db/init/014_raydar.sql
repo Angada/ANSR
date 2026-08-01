@@ -39,8 +39,13 @@ insert into wh_franchise(name, stage, format_home) values
   ('Emerging', 'watch bucket', 'TBD — new topics born here')
 on conflict (name) do nothing;
 
--- reset demand topics to the approved 6 + Emerging, with franchise routing
-delete from wh_demand_topic;
+-- Seed demand topics to the approved 6 + Emerging, with franchise routing.
+-- NOTE: this used to `delete from wh_demand_topic` unconditionally. Because
+-- every db/init file is re-applied on EVERY boot, that silently wiped any
+-- concept the team added in the in-app editor. The reset now fires only on a
+-- genuinely empty table (a fresh database); an existing estate is left alone
+-- and its live taxonomy comes from 031 (the client's own wording).
+delete from wh_demand_topic where not exists (select 1 from wh_demand_topic);
 insert into wh_demand_topic(name, question, definition, source, franchise, format_home, strategic_weight, notes) values
   ('Skills to get a new job',  'What do I learn?',                    'Foundational skills demand', 'seed', 'Skill Up',         'Tutorial / explainer',            1.0, 'Steady volume'),
   ('Keywords and resume',      'Why am I not getting callbacks?',     'Resume / ATS / keywords',    'seed', 'Stack Up',         'Carousel · quick video',          1.1, 'Highest volume + most misinformation → biggest correction opportunity'),
@@ -51,8 +56,8 @@ insert into wh_demand_topic(name, question, definition, source, franchise, forma
   ('Emerging',                 'What new thing is being born?',       'Fits none of the six — watch','seed','Emerging',          'TBD',                             0.8, 'Where new topics are born — watch closely')
 on conflict (name) do update set question=excluded.question, franchise=excluded.franchise, format_home=excluded.format_home, strategic_weight=excluded.strategic_weight, notes=excluded.notes;
 
--- reset emotional registers to the approved 4 (scored as a distribution)
-delete from wh_emotional_register;
+-- seed the 4 emotional registers (same fresh-DB-only guard as above)
+delete from wh_emotional_register where not exists (select 1 from wh_emotional_register);
 insert into wh_emotional_register(name, definition) values
   ('FOMO',      'Everyone''s already doing this → orient: cut noise, name what matters'),
   ('Anxiety',   'I''ll be left behind / replaced → steady: honest on risk, concrete on action'),
