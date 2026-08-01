@@ -38,6 +38,13 @@ export const STATIONS = [
     ai: "The machine clusters and scores. It does NOT decide what you publish — it hands you a ranked candidate list and shows the score breakdown behind every one.",
     human: "Nothing to do here. Run a sweep, then pull the candidates into Shortlist.",
     pipelines: ["trend-detect", "raydar-classify", "raydar-gap", "raydar-rank"],
+    steps: [
+      "Go to the New Sweep tab and run a sweep (tick a few concepts, press Run the sweep).",
+      "Come back here. The topics it found are sitting below as CANDIDATES.",
+      "Press ‘Auto-promote the top candidates’ — or tick the ones you like and press ‘Promote ticked’.",
+    ],
+    you_get: "A shortlist of topics, each with a score and the reason behind it.",
+    then: "Nothing has been written or committed yet — you're just choosing what to look at properly.",
   },
   {
     id: "shortlist", n: "02", title: "Shortlist", owner: "Content", short: "you decide what lives",
@@ -46,6 +53,14 @@ export const STATIONS = [
     ai: "The machine proposes an order and flags anything you've already published. Every verdict is yours, and each one is recorded with your name and the time on the topic's timeline.",
     human: "GATE — a topic only moves to Dump when you mark it keep or refresh.",
     pipelines: ["raydar-rank"],
+    steps: [
+      "Read down the list. Each row is one topic idea.",
+      "Give every row a verdict: Keep (we'll do this), Refresh (we've done it — update it), Merge (same as another), Park (later), Kill (no).",
+      "To clear several at once: tick the boxes, then press the verdict button at the top.",
+      "Missing something obvious? Press ‘+ Add a topic the radar missed’ and type it in yourself.",
+    ],
+    you_get: "Only the topics you said Keep or Refresh move on. Everything else stops here.",
+    then: "Your Keeps land at station 03, where SEO adds their research.",
   },
   {
     id: "dump", n: "03", title: "Dump", owner: "SEO", short: "drop your research in",
@@ -54,6 +69,14 @@ export const STATIONS = [
     ai: "A format it recognises is parsed by rules — deterministic, instant, no model call, no cost. Only a NEW format costs one call, and what it learns is saved so that format is free forever after. Anything it can't confidently match to a topic is put in front of you rather than guessed.",
     human: "GATE — confirm the low-confidence attachments. Everything else is already done.",
     pipelines: ["raydar-dump"],
+    steps: [
+      "Open whatever research SEO already has — an Ahrefs or Semrush export, a Search Console download, a SERP screenshot list, a PDF audit.",
+      "Either paste it into the box, or press the ⤒ button and pick the file. Don't tidy it up first — messy is fine.",
+      "Press ‘Read this dump’. RayDar tells you what it found and which topic it attached it to.",
+      "If it says it wasn't sure, pick the right topic from the dropdown next to that dump. That's the only thing it needs from you.",
+    ],
+    you_get: "Your keywords, volumes, difficulty and positions, attached to the right topic — not sitting in someone's Downloads folder.",
+    then: "Once a topic has research on it, press ‘Build the brief →’ and station 04 writes it up.",
   },
   {
     id: "brief", n: "04", title: "Brief", owner: "SEO", short: "the handover artifact",
@@ -62,6 +85,13 @@ export const STATIONS = [
     ai: "Every keyword and number comes from YOUR dump — if the dump has no volumes, the brief shows none rather than inventing them. The machine arranges; it does not research.",
     human: "GATE — approve the brief. That stamps it with a time and an owner and releases it to Content.",
     pipelines: ["raydar-brief", "raydar-contradiction"],
+    steps: [
+      "Read the brief below — keywords, questions to answer, what competitors missed, the meta title and description.",
+      "Not right? Press ‘↻ Rebuild from the dump’, or dump more research at station 03 and rebuild.",
+      "Happy? Press ‘✓ Approve — release to Content’.",
+    ],
+    you_get: "A dated, owned brief a writer can pick up without asking anyone a single question.",
+    then: "It moves to station 05, where you put a name and a date on it.",
   },
   {
     id: "assign", n: "05", title: "Assign", owner: "Content", short: "who's writing it, by when",
@@ -70,6 +100,13 @@ export const STATIONS = [
     ai: "None. This station is pure tracking, on purpose.",
     human: "Assign a writer and a date; mark it done when it's filed.",
     pipelines: [],
+    steps: [
+      "Press ‘Assign a writer’ and type their name.",
+      "Add a due date (or leave it blank).",
+      "When the piece goes live, press ‘It's live →’ and paste the URL.",
+    ],
+    you_get: "A clear view of who owes what, and by when.",
+    then: "The published URL goes into station 06 and starts teaching the radar.",
   },
   {
     id: "live", n: "06", title: "Live + Learn", owner: "SEO", short: "did the bet pay?",
@@ -78,6 +115,12 @@ export const STATIONS = [
     ai: "Deterministic arithmetic, no model call. Connect Search Console and this fills itself; until then you can paste the numbers.",
     human: "Paste the URL when it goes live.",
     pipelines: ["raydar-performance"],
+    steps: [
+      "Nothing to do — pieces land here when you mark them live at station 05.",
+      "Later, add the clicks and impressions from Search Console (or connect it once and it fills itself).",
+    ],
+    you_get: "A record of what you published and how it did.",
+    then: "Next month's sweep knows you've already covered these, and pushes the topics that actually worked.",
   },
 ];
 
@@ -132,7 +175,7 @@ function rowsFromColmap(header, lines, colmap) {
 
 // The full read: try a known shape (free) → else ask the model once and LEARN
 // the shape so the next file of this kind is free too.
-async function readDump(text) {
+export async function readDump(text) {
   const lines = String(text || "").split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return { rows: [], shape_id: null, confidence: 0, learned: false };
   const shapes = (await jq(`select shape_id,label,signature,colmap from wh_dump_shape`)).rows;
