@@ -660,22 +660,31 @@ ${clip(d.c1_text, 55000)}${history.length ? `\n\nTHE CONVERSATION SO FAR (the qu
     const ask = clip(req.body?.ask, 600).trim();
     if (!ask) return res.status(400).json({ error: "describe the contract you need" });
     try {
-      // deterministic prefilter: FTS over the ask + executed/latest docs, then LLM ranks
+      // Prefilter is HYBRID, like every other retrieval path: word-match alone
+      // misses the model you want whenever the ask and the contract use different
+      // vocabulary ("data-processing angle" vs a contract that says "processor
+      // obligations"). Semantic candidates come first, then recency fills the list,
+      // then the LLM ranks the shortlist for fit.
       const DP = await ruleParams("drafting");
-      const tsq = orQuery(ask);
+      const cap = Number(DP.candidates_ranked) || 15;
+      const { hits: fused } = await hybridSearch(ask, { ftsLimit: cap, semLimit: cap });
+      const ranked = fused.slice(0, cap).map((h) => Number(h.id));
       const cands = (await q(
         `select d.id, coalesce(d.title, d.filename) as name, d.doc_type, d.party1, d.party2, d.summary, d.tags
            from ql_document d
           where coalesce(d.status,'active')<>'inactive'
-          order by (${tsq ? `exists(select 1 from ql_version v where v.document_id=d.id and v.version_no=d.latest_version
-                     and to_tsvector('english', coalesce(v.c1_text,'')) @@ websearch_to_tsquery('english', $1))` : "false"}) desc, d.updated_at desc
-          limit ${Number(DP.candidates_ranked) || 15}`, tsq ? [tsq] : []
-      )).rows;
+          order by (d.id = any($1)) desc, d.updated_at desc
+          limit ${cap}`, [ranked]
+      )).rows.sort((a, b) => {
+        const i = ranked.indexOf(Number(a.id)), j = ranked.indexOf(Number(b.id));
+        return (i < 0 ? 99 : i) - (j < 0 ? 99 : j);   // keep the fused order
+      });
       if (!cands.length) return res.json({ suggestions: [] });
+      const viaSem = new Set(fused.filter((h) => String(h.via || "").includes("semantic")).map((h) => Number(h.id)));
       const rules = await rulesFor("drafting");
       const out = await runPipeline("qlegal-draft", {
         system: [rules.text, `A lawyer wants to draft a new contract. From the candidate contracts in the repository, pick the 2-5 BEST models to base the draft on (right type, right structure, closest subject). Return STRICT JSON only: {"suggestions":[{"id":<candidate id>,"fit":0-1,"why":"one line — why this is a good model"}]} ranked best first. Only ids from the list.`].filter(Boolean).join("\n\n"),
-        user: `The ask: ${ask}\n\nCandidates:\n${JSON.stringify(cands.map((c) => ({ id: Number(c.id), name: c.name, type: c.doc_type, parties: [c.party1, c.party2].filter(Boolean), summary: clip(c.summary, 200), tags: c.tags })))}`,
+        user: `The ask: ${ask}\n\nCandidates (listed closest-first; "semantic_match" means it matched the ask by MEANING rather than shared words — often the better model):\n${JSON.stringify(cands.map((c) => ({ id: Number(c.id), name: c.name, type: c.doc_type, parties: [c.party1, c.party2].filter(Boolean), summary: clip(c.summary, 200), tags: c.tags, semantic_match: viaSem.has(Number(c.id)) || undefined })))}`,
         maxTokens: 800,
       });
       await logRun(out, { ref_type: "draft", rules: rules.codes, input: ask, output: "suggest models" });
