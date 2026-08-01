@@ -134,12 +134,46 @@ export async function embedTexts(texts, forceModel) {
 
 const vlit = (v) => `[${v.join(",")}]`;   // pgvector literal
 
+// ---- locate a clause's REAL text in the C1 transcript -------------------------
+// The clause wiki (C2) gives a one-line gist; embedding that indexes a summary of
+// a summary. The actual clause body is what a lawyer's question should match, so
+// we find each § anchor in C1 and take everything up to the next one.
+function findRef(text, ref) {
+  const i = text.indexOf(ref);
+  if (i >= 0) return i;
+  const bare = String(ref).replace(/^§\s*/, "").trim();
+  if (!bare) return -1;
+  const esc = bare.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(`(^|\\n)[ \\t]*(?:§\\s*)?${esc}[.):\\s]`, "m").exec(text);
+  return m ? m.index + (m[1] ? 1 : 0) : -1;
+}
+function clauseBodies(c1, clauses) {
+  const text = String(c1 || "");
+  const out = {};
+  if (!text || !clauses?.length) return out;
+  const hits = [];
+  for (const cl of clauses) {
+    const ref = String(cl?.ref || "").trim();
+    if (!ref || out[ref] !== undefined) continue;
+    const idx = findRef(text, ref);
+    if (idx >= 0) hits.push({ ref, idx });
+  }
+  hits.sort((a, b) => a.idx - b.idx);
+  for (let i = 0; i < hits.length; i++) {
+    const end = i + 1 < hits.length ? hits[i + 1].idx : Math.min(text.length, hits[i].idx + 3000);
+    const body = text.slice(hits[i].idx, end).trim();
+    if (body.length > 20) out[hits[i].ref] = body;   // too short = a stray match, not a clause
+  }
+  return out;
+}
+
 // ---- build the embeddable items for one document (from C1/C2, § anchors kept) --
-function itemsFor({ meta = {}, summary = "", tags = [], contents = [], clauses = [] }, filename) {
+function itemsFor({ meta = {}, summary = "", tags = [], contents = [], clauses = [] }, filename, c1 = "") {
   const items = [];
   const docText = [meta.title || filename, meta.doc_type, [meta.party1, meta.party2].filter(Boolean).join(" / "),
     meta.governing_law, summary, (tags || []).join(" ")].filter(Boolean).join(" · ");
   items.push({ granularity: "document", ref: null, title: meta.title || filename, content: clip(docText, 1200) });
+  const bodies = clauseBodies(c1, clauses);
   // sections: a contents heading + the gists of the clauses whose § falls under it
   const norm = (r) => String(r || "").replace(/[§\s]/g, "");
   for (const c of (contents || []).slice(0, 80)) {
@@ -150,9 +184,15 @@ function itemsFor({ meta = {}, summary = "", tags = [], contents = [], clauses =
     const text = [c.heading, ...under.map((cl) => cl.gist || cl.label)].filter(Boolean).join(" · ");
     if (text.trim()) items.push({ granularity: "section", ref: clip(c.ref, 60) || null, title: clip(c.heading, 200), content: clip(text, 900) });
   }
+  // clauses: the REAL clause text from C1 when we can find its § anchor, with the
+  // label + gist prefixed for context. Falls back to the gist alone when the
+  // anchor isn't locatable (scans, odd numbering) — `source` records which, so
+  // the coverage panel can show what the index is actually built on.
   for (const cl of (clauses || []).slice(0, 240)) {
-    const text = [cl.label, cl.gist].filter(Boolean).join(": ");
-    if (text.trim()) items.push({ granularity: "clause", ref: clip(cl.ref, 60) || null, title: clip(cl.label, 120), content: clip(text, 600) });
+    const body = bodies[String(cl?.ref || "").trim()];
+    const head = [cl.label, cl.gist].filter(Boolean).join(": ");
+    const text = body ? clip([head, body].filter(Boolean).join("\n"), 2000) : head;
+    if (text.trim()) items.push({ granularity: "clause", ref: clip(cl.ref, 60) || null, title: clip(cl.label, 120), content: text, source: body ? "c1" : "gist" });
   }
   return items;
 }
@@ -160,20 +200,27 @@ function itemsFor({ meta = {}, summary = "", tags = [], contents = [], clauses =
 // ---- embed one document's latest version (called at ingestion + by the sweep).
 // One live vector set per document: previous rows are replaced wholesale — the
 // spine is derived and rebuildable, never precious.
-export async function embedVersion({ docId, verId, c2, filename }) {
+export async function embedVersion({ docId, verId, c2, filename, c1 }) {
   if (!(await vectorsReady())) return null;
-  const items = itemsFor(c2 || {}, filename);
+  // the sweep hands us c2 only; fetch C1 so clause vectors carry real clause text
+  let text = c1;
+  if (text === undefined) {
+    text = (await q(`select c1_text from ql_version where id=$1`, [verId]).catch(() => ({ rows: [] }))).rows[0]?.c1_text || "";
+  }
+  const items = itemsFor(c2 || {}, filename, text);
   if (!items.length) return null;
   const { model, vectors } = await embedTexts(items.map((i) => i.content));
   await q(`delete from ql_embedding where document_id=$1`, [docId]);
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
-    await q(`insert into ql_embedding(document_id, version_id, granularity, ref, title, content, embedding, embedding_model)
-             values($1,$2,$3,$4,$5,$6,$7::vector,$8)`,
-      [docId, verId, it.granularity, it.ref, it.title, it.content, vlit(vectors[i]), model]);
+    await q(`insert into ql_embedding(document_id, version_id, granularity, ref, title, content, source, embedding, embedding_model)
+             values($1,$2,$3,$4,$5,$6,$7,$8::vector,$9)`,
+      [docId, verId, it.granularity, it.ref, it.title, it.content, it.source || null, vlit(vectors[i]), model]);
   }
-  await vlog({ model, ref_type: "document", ref_id: docId, input: filename, output: `${items.length} vectors (doc/section/clause)` });
-  return { model, count: items.length };
+  const fromC1 = items.filter((i) => i.source === "c1").length;
+  await vlog({ model, ref_type: "document", ref_id: docId, input: filename,
+    output: `${items.length} vectors (doc/section/clause) · ${fromC1} clause bodies from C1` });
+  return { model, count: items.length, from_c1: fromC1 };
 }
 
 // ---- semantic search: embed the query, knn over rows of the SAME model --------
@@ -223,10 +270,16 @@ export async function embedStatus() {
   const one = async (sql, p = []) => Number((await q(sql, p)).rows[0]?.c || 0);
   const [embedded, pending, vectors] = await Promise.all([
     one(`select count(distinct document_id) c from ql_embedding where embedding_model=$1`, [model]),
+    // pending = never embedded on the target model, OR the rows point at an older
+    // version, OR they predate the document's last update (a corrected fact changes
+    // the document vector). This is what makes the spine self-refreshing.
     one(`select count(*) c from ql_document d
-          where coalesce(d.status,'active')<>'inactive'
-            and exists(select 1 from ql_version v where v.document_id=d.id and v.c1_text is not null)
-            and not exists(select 1 from ql_embedding e where e.document_id=d.id and e.embedding_model=$1)`, [target]),
+          join ql_version v on v.document_id=d.id and v.version_no=d.latest_version
+          where coalesce(d.status,'active')<>'inactive' and v.c1_text is not null
+            and not exists(
+              select 1 from ql_embedding e
+               where e.document_id=d.id and e.embedding_model=$1
+                 and e.version_id = v.id and e.embedded_at >= d.updated_at)`, [target]),
     one(`select count(*) c from ql_embedding`),
   ]);
   // target ≠ model means the configured provider rejected the call and the spine
@@ -248,7 +301,10 @@ export async function embedSweep(limit = 10) {
     `select d.id, d.filename, v.id as version_id, v.c2 from ql_document d
       join ql_version v on v.document_id=d.id and v.version_no=d.latest_version
      where coalesce(d.status,'active')<>'inactive' and v.c1_text is not null
-       and not exists(select 1 from ql_embedding e where e.document_id=d.id and e.embedding_model=$1)
+       and not exists(
+              select 1 from ql_embedding e
+               where e.document_id=d.id and e.embedding_model=$1
+                 and e.version_id = v.id and e.embedded_at >= d.updated_at)
      order by d.id limit $2`, [target, Math.min(limit, 50)]
   )).rows;
   let done = 0, wrote = null;
@@ -262,6 +318,44 @@ export async function embedSweep(limit = 10) {
       error: `${target} rejected the request — embedded on the ${wrote} fallback instead. Check the model name and key in Admin → AI & Pipelines; the AI activity log has the provider's exact error.` };
   }
   return { processed: done, remaining: st.pending, model: st.model, target, degraded: st.degraded, available: true };
+}
+
+// ---- coverage: exactly what the semantic index holds for ONE document ---------
+// The fourth way in, beside file / C1 / C2: not the vectors (1536 floats help
+// nobody) but the CHUNKS — what search can actually match on, each with its §.
+// A clause the extractor never chunked is invisible to search forever; this is
+// the only surface that shows that gap.
+export async function docCoverage(docId) {
+  if (!(await vectorsReady())) return { available: false, chunks: [] };
+  const rows = (await q(
+    `select granularity, ref, title, content, source, embedding_model, embedded_at, version_id
+       from ql_embedding where document_id=$1
+      order by case granularity when 'document' then 0 when 'section' then 1 else 2 end, id`, [docId]
+  )).rows;
+  const cur = (await q(
+    `select v.id as version_id, d.updated_at, v.c2 from ql_document d
+      join ql_version v on v.document_id=d.id and v.version_no=d.latest_version where d.id=$1`, [docId]
+  )).rows[0];
+  const target = embedModelId();
+  // is what's indexed still current for this document?
+  const fresh = rows.length > 0 && rows.every((r) =>
+    r.embedding_model === target && Number(r.version_id) === Number(cur?.version_id) &&
+    cur?.updated_at && new Date(r.embedded_at) >= new Date(cur.updated_at));
+  // clauses C2 knows about but that never made it into the index
+  const known = (cur?.c2?.clauses || []).map((c) => String(c.ref || "").trim()).filter(Boolean);
+  const indexed = new Set(rows.filter((r) => r.granularity === "clause").map((r) => String(r.ref || "").trim()));
+  const missing = known.filter((r) => !indexed.has(r));
+  const byGran = {};
+  for (const r of rows) byGran[r.granularity] = (byGran[r.granularity] || 0) + 1;
+  const fromC1 = rows.filter((r) => r.source === "c1").length;
+  const fromGist = rows.filter((r) => r.source === "gist").length;
+  return {
+    available: true, model: rows[0]?.embedding_model || null, target, fresh,
+    embedded_at: rows[0]?.embedded_at || null, counts: byGran, from_c1: fromC1, from_gist: fromGist,
+    missing_clauses: missing.slice(0, 40),
+    chunks: rows.map((r) => ({ granularity: r.granularity, ref: r.ref, title: r.title, source: r.source,
+      preview: clip(r.content, 300), chars: (r.content || "").length })),
+  };
 }
 
 // ---- emergent clause library: k-means over clause vectors ---------------------

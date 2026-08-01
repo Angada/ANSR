@@ -12,7 +12,7 @@ import { extractFile, toMarkdown } from "./extract.js";
 import { putOriginal, putExtract, getExtract, getOriginal } from "./storage.js";
 import { runPipeline } from "./ai.js";
 import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan, listSharePoint, ingestSharePointItem } from "./qlegal-sync.js";
-import { embedVersion, searchVectors, nearestDocs, embedStatus, embedSweep, clauseLibrary, estateMap } from "./qlegal-vectors.js";
+import { embedVersion, searchVectors, nearestDocs, embedStatus, embedSweep, clauseLibrary, estateMap, docCoverage } from "./qlegal-vectors.js";
 
 const TENANT = "Q-LEGAL"; // ring-fenced storage namespace (vault + docstore)
 // business-rule scopes → which pipeline step each rule set is injected into
@@ -1059,6 +1059,11 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
   // ---- the vector wiki: estate map + emergent clause library --------------------
   app.get("/api/qlegal/estate-map", async (_req, res) => {
     try { res.json(await estateMap()); }
+    catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+  // what the semantic index actually holds for one document (the coverage panel)
+  app.get("/api/qlegal/coverage/:id", async (req, res) => {
+    try { res.json(await docCoverage(Number(req.params.id))); }
     catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
   });
   app.get("/api/qlegal/clause-library", async (req, res) => {

@@ -291,8 +291,13 @@ window.qUpload = async (files) => {
 // ==========================================================================
 // The contract page — blocks by importance
 // ==========================================================================
+let COVER = null;   // "what the search sees" for the open contract
 window.openDoc = async (id) => {
   try { OPEN = await (await fetch(`/api/qlegal/document/${id}`)).json(); } catch { return; }
+  COVER = null;
+  fetch(`/api/qlegal/coverage/${id}`).then((r) => r.json()).then((c) => {
+    if (OPEN?.document?.id && Number(OPEN.document.id) === Number(id)) { COVER = c; renderRegistry(); }
+  }).catch(() => {});
   AREA = "browse"; SUB.browse = "contracts"; renderNav();
   Object.values(VIEWS).forEach((v) => ($(v).hidden = true)); $("#view-registry").hidden = false;
   renderRegistry(); window.scrollTo({ top: 0, behavior: "smooth" });
@@ -395,8 +400,41 @@ function wikiView() {
       </div>
       <button class="btn small touch" onclick="delDoc(${d.id})" title="remove from the derived layer only">✕</button>
     </div>`;
-  return head + askDocBox(d) + highlight + setting + parties + summary + confs + regCard + noticeCard + oblCard + treeCard + nearCard + contentsCard + clauseCard;
+  // ---- COVERAGE: what the semantic search can actually match on for this contract
+  const cv = COVER;
+  const coverCard = (cv && cv.available) ? (() => {
+    const c = cv.counts || {};
+    const gap = (cv.missing_clauses || []).length;
+    return `<div class="wikicard reveal"><div class="rsec-lbl">What the search sees · the semantic index for this contract</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <span class="duechip ${cv.fresh ? "due-ok" : "due-soon"}">${cv.fresh ? "up to date" : "needs re-indexing"}</span>
+        <span class="tagchip">${c.document || 0} document</span>
+        <span class="tagchip">${c.section || 0} sections</span>
+        <span class="tagchip">${c.clause || 0} clauses</span>
+        ${cv.from_c1 ? `<span class="tagchip" title="indexed on the real clause text from the transcript">${cv.from_c1} full clause text</span>` : ""}
+        ${cv.from_gist ? `<span class="tagchip" style="color:var(--amber);border-color:#EAD3AE" title="the § anchor could not be located in the transcript, so only the one-line summary is indexed">${cv.from_gist} summary only</span>` : ""}
+        <span class="am" style="margin-left:auto">${esc(cv.model || "—")}${cv.embedded_at ? ` · ${fmtDT(cv.embedded_at)}` : ""}</span>
+      </div>
+      ${gap ? `<div class="rsummary" style="color:var(--amber);margin-bottom:8px">⚠ ${gap} clause${gap === 1 ? "" : "s"} in the clause wiki never made it into the index — invisible to semantic search: ${(cv.missing_clauses || []).slice(0, 12).map((r) => `<span class="ref">${esc(r)}</span>`).join(" ")}</div>` : ""}
+      ${!cv.fresh ? `<div style="margin-bottom:9px"><button class="btn small btn--org touch" onclick="reindexDoc(${d.id})">Re-index this contract ▸</button>
+        <span class="am" style="margin-left:8px">the nightly scan and any new version do this automatically</span></div>` : ""}
+      <details><summary style="cursor:pointer;font-size:12.5px;color:var(--org)">▸ show the ${(cv.chunks || []).length} indexed chunks</summary>
+        <div style="max-height:40vh;overflow-y:auto;margin-top:9px">
+          ${(cv.chunks || []).map((k) => `<div style="padding:7px 0;border-bottom:1px solid var(--line)">
+            <span class="tagchip">${esc(k.granularity)}</span>${k.ref ? ` <span class="ref">${esc(k.ref)}</span>` : ""}
+            ${k.source === "gist" ? ' <span class="am" style="color:var(--amber)">summary only</span>' : ""}
+            <b style="font-size:12.5px"> ${esc(k.title || "")}</b>
+            <div class="am" style="margin-top:2px;line-height:1.5">${esc(k.preview)}${k.chars > 300 ? "…" : ""}</div></div>`).join("")}
+        </div></details></div>`;
+  })() : "";
+  return head + askDocBox(d) + highlight + setting + parties + summary + confs + regCard + noticeCard + oblCard + treeCard + nearCard + coverCard + contentsCard + clauseCard;
 }
+// re-embed just this contract (the sweep is estate-wide; this is the one-doc door)
+window.reindexDoc = async (id) => {
+  const j = await (await fetch("/api/qlegal/sweep/embed", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 50 }) })).json();
+  if (j.error) return rdAlert("Re-index failed", j.error);
+  openDoc(id);
+};
 window.setDocCategory = async (id, name) => {
   await fetch(`/api/qlegal/document/${id}/category`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ doc_type: name }) });
   await loadRegistry(); await loadCats(); loadConfirmCount().then(renderNav); openDoc(id);

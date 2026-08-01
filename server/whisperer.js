@@ -692,10 +692,16 @@ export function mountWhisperer(app, slug, upload) {
 
   // ---- Library: every generated story across all batches -------------------
   app.get("/api/wh/library", async (req, res) => {
-    const { franchise, feedback, batch } = req.query; const args = []; const w = ["s.status<>'deleted'", "s.in_library"];
+    const { franchise, feedback, batch, stage, reason } = req.query; const args = []; const w = ["s.status<>'deleted'", "s.in_library"];
     if (franchise && franchise !== "all") { args.push(franchise); w.push(`s.franchise=$${args.length}`); }
-    if (feedback && feedback !== "all") { args.push(feedback); w.push(`s.feedback=$${args.length}`); }
-    if (batch) { args.push(Number(batch)); w.push(`s.batch_id=$${args.length}`); }
+    // 'unmarked' = never reviewed. Without this you cannot find what still needs a decision.
+    if (feedback === "unmarked") w.push(`s.feedback is null`);
+    else if (feedback && feedback !== "all") { args.push(feedback); w.push(`s.feedback=$${args.length}`); }
+    if (reason && reason !== "all") { args.push(reason); w.push(`s.reject_reason=$${args.length}`); }
+    // journey stage — 'none' = express-sweep only, never enrolled in the journey
+    if (stage === "none") w.push(`s.stage is null`);
+    else if (stage && stage !== "all") { args.push(stage); w.push(`s.stage=$${args.length}`); }
+    if (batch && batch !== "all") { args.push(Number(batch)); w.push(`s.batch_id=$${args.length}`); }
     const sql = `select s.*, b.name as batch_name from wh_feed_story s left join wh_batch b on b.id=s.batch_id where ${w.join(" and ")} order by s.score desc nulls last, s.id desc limit 300`;
     res.json({ stories: (await wq(sql, args)).rows });
   });

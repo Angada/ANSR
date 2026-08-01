@@ -50,7 +50,7 @@ export const STATIONS = [
     id: "shortlist", n: "02", title: "Shortlist", owner: "Content", short: "you decide what lives",
     why: "This is the cheapest place to say no. Killing a weak topic here costs nothing; killing it after a brief has been written costs a person's afternoon.",
     does: "Every candidate gets a verdict — keep, kill, merge, park, or refresh-existing. You can add your own topic that the radar never saw. Bulk-select to clear a screen in one click.",
-    ai: "The machine proposes an order and flags anything you've already published. Every verdict is yours, and each one is recorded with your name and the time on the topic's timeline.",
+    ai: "The machine only proposes an order — every verdict is yours, and each one is recorded with your name and the time on the topic's timeline. (It does NOT yet cross-check what you've already published; that arrives when Search Console is connected.)",
     human: "GATE — a topic only moves to Dump when you mark it keep or refresh.",
     pipelines: ["raydar-rank"],
     steps: [
@@ -372,7 +372,7 @@ export function mountJourney(app, upload) {
                          where batch_id=$1 and id = any($2::int[]) and stage is null returning id`, [batchId, ids])).rows;
     } else {
       // shortcut: auto-promote the top N over the score floor, per the journey rule
-      const rule = (await jq(`select rule from wh_business_rule where name='journey'`)).rows[0]?.rule || {};
+      const rule = (await jq(`select rule from wh_business_rule where name='journey_lane'`)).rows[0]?.rule || {};
       const ap = rule.auto_promote || {};
       rows = (await jq(`update wh_feed_story set stage='shortlist', owner_team='Content'
                          where id in (select id from wh_feed_story
@@ -477,7 +477,7 @@ export function mountJourney(app, upload) {
     const dumps = (await jq(`select filename, shape_id, parsed from wh_seo_input where story_id=$1`, [id])).rows;
     const rows = dumps.flatMap((d) => d.parsed?.rows || []);
     const questions = dumps.flatMap((d) => d.parsed?.questions || []);
-    const rule = (await jq(`select rule from wh_business_rule where name='journey'`)).rows[0]?.rule || {};
+    const rule = (await jq(`select rule from wh_business_rule where name='journey_lane'`)).rows[0]?.rule || {};
     if ((rule.dump_required_before_brief ?? true) && !rows.length)
       return res.status(400).json({ error: "no research dumped for this topic yet — station 03 feeds station 04" });
 

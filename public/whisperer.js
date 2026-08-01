@@ -994,7 +994,10 @@ function libraryBoard(s, i, franchises) {
       <span class="exp" title="Explainable AI — the maths behind this idea" onclick="explainIdea(${s.id})">e</span>
       ${s.gap_type ? `<span class="chip tag-cyan" style="cursor:default">${esc(s.gap_type)}</span>` : ""}
       ${s.contradiction ? `<span class="chip flag" style="cursor:default">${ic("bolt")} contradiction</span>` : ""}
-      ${fb ? `<span class="chip ${fb === "used" ? "tag-grn" : fb === "saved" ? "tag-amber" : "tag-mag"}" style="cursor:default">${esc(fb)}</span>` : ""}
+      ${fb ? `<span class="chip ${fb === "used" ? "tag-grn" : fb === "saved" ? "tag-amber" : "tag-mag"}" style="cursor:default">${esc(fb)}</span>` : `<span class="chip" style="cursor:default;border-style:dashed;color:var(--dim2)">not judged yet</span>`}
+      ${s.reject_reason ? `<span class="chip tag-mag" style="cursor:default" title="the reason given when this was rejected">${esc(s.reject_reason)}</span>` : ""}
+      ${s.stage ? `<span class="chip tag-cyan" style="cursor:default" title="how far this got through the detailed journey">${esc(JSTAGE_LABEL[s.stage] || s.stage)}</span>` : ""}
+      ${s.selected ? `<span class="chip tag-grn" style="cursor:default" title="ticked to build">▸ to build</span>` : ""}
       ${s.batch_name ? `<span class="chip" style="cursor:default;margin-left:auto">${ic("box")} ${esc(s.batch_name)}</span>` : ""}
     </div>
     <h3 class="board-q">${esc(s.demand_topic)}</h3>
@@ -1003,22 +1006,43 @@ function libraryBoard(s, i, franchises) {
     ${leadIdea(s, franchises)}
   </article>`;
 }
-let LIB_FR = "all", LIB_FB = "all";
+// ---- LIBRARY — where every decision has to end up being findable ----------
+// Marking an idea Used / Saved / Rejected is only worth doing if you can get
+// back to it. These filters are that downstream: by outcome (including the ones
+// nobody has judged yet), by WHY it was rejected, by where it has reached in
+// the journey, and by which sweep it came from.
+let LIB_FR = "all", LIB_FB = "all", LIB_ST = "all", LIB_RS = "all", LIB_BA = "all", LIB_BATCHES = [];
+const REJECT_REASONS = ["off-brand", "not interesting", "already covered", "wrong timing"];
+const JSTAGE_LABEL = { radar: "01 Radar", shortlist: "02 Shortlist", dump: "03 Dump", brief: "04 Brief", assign: "05 Assign", live: "06 Live" };
 async function loadLibrary() {
-  const qs = new URLSearchParams(); if (LIB_FR !== "all") qs.set("franchise", LIB_FR); if (LIB_FB !== "all") qs.set("feedback", LIB_FB);
+  const qs = new URLSearchParams();
+  if (LIB_FR !== "all") qs.set("franchise", LIB_FR);
+  if (LIB_FB !== "all") qs.set("feedback", LIB_FB);
+  if (LIB_ST !== "all") qs.set("stage", LIB_ST);
+  if (LIB_RS !== "all") qs.set("reason", LIB_RS);
+  if (LIB_BA !== "all") qs.set("batch", LIB_BA);
   const { stories } = await (await fetch(`/api/wh/library?${qs}`)).json();
+  if (!LIB_BATCHES.length) { try { LIB_BATCHES = (await (await fetch("/api/wh/batches")).json()).batches || []; } catch { LIB_BATCHES = []; } }
+  const sel = (label, cur, opts, fn, title) => `<label class="lf" title="${esc(title || "")}"><span class="lf-k">${label}</span>
+    <select onchange="${fn}(this.value)">${opts.map(([v, l]) => `<option value="${esc(v)}" ${cur === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
   const filters = `<div class="lib-filters">
-      <span class="chip" style="border:none;background:none;padding:0">franchise</span>
-      <select onchange="setLibFR(this.value)"><option value="all">all</option>${FRANCHISES.map((f) => `<option ${LIB_FR === f.name ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
-      <span class="chip" style="border:none;background:none;padding:0">status</span>
-      <select onchange="setLibFB(this.value)">${["all", "used", "saved", "rejected"].map((x) => `<option ${LIB_FB === x ? "selected" : ""}>${x}</option>`).join("")}</select>
-      <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${stories.length} stories</span>
+      ${sel("Outcome", LIB_FB, [["all", "all"], ["used", "used"], ["saved", "saved"], ["rejected", "rejected"], ["unmarked", "not judged yet"]], "setLibFB", "What you marked it in the action bar")}
+      ${LIB_FB === "rejected" ? sel("Why rejected", LIB_RS, [["all", "any reason"], ...REJECT_REASONS.map((r) => [r, r])], "setLibRS", "The reason given when it was rejected") : ""}
+      ${sel("Journey", LIB_ST, [["all", "all"], ["none", "not in the journey"], ...Object.entries(JSTAGE_LABEL)], "setLibST", "How far it got through the detailed journey")}
+      ${sel("Series", LIB_FR, [["all", "all"], ...FRANCHISES.map((f) => [f.name, f.name])], "setLibFR", "Which 1Up sub-series it routes to")}
+      ${sel("Sweep", LIB_BA, [["all", "all"], ...LIB_BATCHES.map((b) => [String(b.id), b.name])], "setLibBA", "Which sweep produced it")}
+      <span class="lf-n">${stories.length} idea${stories.length === 1 ? "" : "s"}</span>
+      ${[LIB_FB, LIB_ST, LIB_FR, LIB_BA, LIB_RS].some((x) => x !== "all") ? `<button class="btn small" onclick="clearLibFilters()">Clear filters</button>` : ""}
     </div>`;
-  $("#view-library").innerHTML = `<p class="intro"><b>LIBRARY</b> — every idea ever generated, across all batches. Click a story to expand the reasoning.</p>` +
-    filters + (stories.length ? `<div class="boards">${stories.map((s, i) => libraryBoard(s, i, FRANCHISES)).join("")}</div>` : `<div class="empty">// nothing here //</div>`);
+  $("#view-library").innerHTML = `<p class="intro"><b>LIBRARY</b> — every idea ever generated, across every sweep. Nothing you mark is lost: filter by what you decided, why you rejected it, or how far it got. Click a story to expand the reasoning.</p>` +
+    filters + (stories.length ? `<div class="boards">${stories.map((s, i) => libraryBoard(s, i, FRANCHISES)).join("")}</div>` : `<div class="empty">// nothing matches these filters //</div>`);
 }
 window.setLibFR = (v) => { LIB_FR = v; loadLibrary(); };
-window.setLibFB = (v) => { LIB_FB = v; loadLibrary(); };
+window.setLibFB = (v) => { LIB_FB = v; if (v !== "rejected") LIB_RS = "all"; loadLibrary(); };
+window.setLibST = (v) => { LIB_ST = v; loadLibrary(); };
+window.setLibRS = (v) => { LIB_RS = v; loadLibrary(); };
+window.setLibBA = (v) => { LIB_BA = v; loadLibrary(); };
+window.clearLibFilters = () => { LIB_FR = LIB_FB = LIB_ST = LIB_RS = LIB_BA = "all"; loadLibrary(); };
 
 // ==========================================================================
 // JOURNEY — the gated, high-involvement lane. Runs ALONGSIDE the express
@@ -1032,7 +1056,16 @@ window.setLibFB = (v) => { LIB_FB = v; loadLibrary(); };
 // GATE you have to close. Copy is served from the server handbook
 // (/journey/stations) so screen and docs can't drift apart.
 // ==========================================================================
-let JSTATIONS = [], JOPEN = "shortlist", JSEL = new Set();
+let JSTATIONS = [], JOPEN = "shortlist", JSEL = new Set(), JCHIPS = {};
+// preset chips come from wh_journey_chip, NOT from a hard-coded array — so the
+// team can add a verdict, a season or a dump kind in the DB without a deploy.
+const chipsOf = (kind, fallback = []) => (JCHIPS[kind] || []).length ? JCHIPS[kind].map((c) => c.value) : fallback;
+async function loadJChips() {
+  try {
+    const { chips } = await (await fetch("/api/wh/journey/chips")).json();
+    JCHIPS = (chips || []).reduce((a, c) => ((a[c.kind] = a[c.kind] || []).push(c), a), {});
+  } catch { JCHIPS = {}; }
+}
 
 async function renderJourney() {
   const host = $("#view-journey");
@@ -1042,6 +1075,7 @@ async function renderJourney() {
     return;
   }
   if (!JSTATIONS.length) { try { JSTATIONS = (await (await fetch("/api/wh/journey/stations")).json()).stations || []; } catch { JSTATIONS = []; } }
+  if (!Object.keys(JCHIPS).length) await loadJChips();
   try { JOURNEY = await (await fetch(`/api/wh/journey/${BATCH.id}`)).json(); } catch { JOURNEY = null; }
   if (!JOURNEY) { host.innerHTML = `<div class="empty">// could not load the journey //</div>`; return; }
 
@@ -1148,7 +1182,8 @@ function stRadar(d) {
 // ---- 02 Shortlist — verdicts, bulk actions, add-your-own ------------------
 function stShortlist(d) {
   const rows = d.stories.filter((s) => s.stage === "shortlist");
-  const V = [["keep", "Keep"], ["refresh", "Refresh"], ["merge", "Merge"], ["park", "Park"], ["kill", "Kill"]];
+  const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
+  const V = chipsOf("verdict", ["keep", "refresh", "merge", "park", "kill"]).map((v) => [v, cap(v)]);
   return `<div class="jrow-a" style="margin-bottom:8px">
       ${V.map(([v, l]) => `<button class="jv ${v}" onclick="jVerdictSel('${v}')">${l} ticked (${JSEL.size})</button>`).join("")}
       <button class="jv" onclick="jAddTopic()">+ Add a topic the radar missed</button>
@@ -1165,7 +1200,7 @@ function stShortlist(d) {
 // ---- 03 Dump — SEO drops research; RayDar reads it, never researches ------
 function stDump(d) {
   const rows = d.stories.filter((s) => s.stage === "dump");
-  const KINDS = ["Keyword export", "GSC export", "SERP snapshot", "Competitor audit", "PAA / questions", "Trend report"];
+  const KINDS = chipsOf("dumpkind", ["Keyword export", "GSC export", "SERP snapshot", "Competitor audit", "PAA / questions", "Trend report"]);
   return `<div class="jdz">
       <textarea id="jDumpText" rows="3" placeholder="paste an export — keywords, GSC rows, a SERP snapshot, a PAA list…"></textarea>
       <div class="jrow-a" style="justify-content:center">
@@ -1197,21 +1232,35 @@ function stDump(d) {
 function stBrief(d) {
   const rows = d.stories.filter((s) => s.stage === "brief");
   if (!rows.length) return `<div class="empty">// no briefs yet — build one from a topic at Dump //</div>`;
-  const L = (k, v) => v == null || (Array.isArray(v) && !v.length) || v === "" ? "" : `<div class="jbrief-r"><div class="jbrief-k">${k}</div><div>${Array.isArray(v) ? v.map(esc).join(" · ") : esc(String(v))}</div></div>`;
+  // every field is an INPUT — the brief is genuinely editable before approval,
+  // and Save writes it back through /journey/story/:id/brief/save.
+  const L = (id, path, k, v, arr) => `<div class="jbrief-r"><div class="jbrief-k">${k}</div>
+    <div><input id="bf-${id}-${path}" data-arr="${arr ? 1 : 0}" value="${esc(Array.isArray(v) ? v.join(" · ") : (v ?? ""))}" placeholder="${arr ? "separate with ·" : "—"}"></div></div>`;
   return rows.map((s) => {
     const b = s.brief || {};
     return `<div class="jrow" style="align-items:flex-start"><div class="jrow-h" style="min-width:100%">
       ${esc(s.heading || "untitled")}
       <div class="jrow-m"><span>built from ${b._rows || 0} dumped rows</span>${b._sources?.length ? `<span>${esc(b._sources.join(", "))}</span>` : ""}${b._built ? `<span class="chip tag-amber" style="cursor:default">${esc(b._built)}</span>` : ""}<a href="#" onclick="jTimeline(${s.id});return false">timeline</a></div>
       <div class="jbrief">
-        ${L("Primary keyword", b.primary_keyword)}${L("Secondary", b.secondary_keywords)}${L("Search intent", b.search_intent)}
-        ${L("FAQs", b.faqs)}${L("People also ask", b.paa)}${L("AI Overview", b.ai_overview)}${L("Related searches", b.related_searches)}
-        ${L("Competitor gaps", b.competitor_gaps)}${L("Must cover", b.must_cover)}
-        ${L("Meta title", b.metadata?.title)}${L("Meta description", b.metadata?.description)}${L("Slug", b.metadata?.slug)}${L("Internal links", b.internal_links)}
+        ${L(s.id, "primary_keyword", "Primary keyword", b.primary_keyword)}
+        ${L(s.id, "secondary_keywords", "Secondary", b.secondary_keywords, 1)}
+        ${L(s.id, "search_intent", "Search intent", b.search_intent)}
+        ${L(s.id, "faqs", "FAQs", b.faqs, 1)}
+        ${L(s.id, "paa", "People also ask", b.paa, 1)}
+        ${L(s.id, "ai_overview", "AI Overview", b.ai_overview)}
+        ${L(s.id, "related_searches", "Related searches", b.related_searches, 1)}
+        ${L(s.id, "competitor_gaps", "Competitor gaps", b.competitor_gaps, 1)}
+        ${L(s.id, "must_cover", "Must cover", b.must_cover, 1)}
+        ${L(s.id, "metadata.title", "Meta title", b.metadata?.title)}
+        ${L(s.id, "metadata.description", "Meta description", b.metadata?.description)}
+        ${L(s.id, "metadata.slug", "Slug", b.metadata?.slug)}
+        ${L(s.id, "internal_links", "Internal links", b.internal_links, 1)}
       </div>
       <div class="jrow-a" style="margin-top:9px">
+        <button class="jv" onclick="jBriefSave(${s.id})">Save my edits</button>
         <button class="jv keep" onclick="jApprove(${s.id})">✓ Approve — release to Content</button>
         <button class="jv" onclick="jBrief(${s.id})">↻ Rebuild from the dump</button>
+        <span id="bmsg-${s.id}" class="tcard-msg"></span>
       </div></div></div>`;
   }).join("");
 }
@@ -1242,7 +1291,13 @@ function stLive(d) {
 
 // ---- actions --------------------------------------------------------------
 const jPost = (url, body) => fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) }).then((r) => r.json());
-window.jSel = (id, on) => { if (on) JSEL.add(id); else JSEL.delete(id); renderJourney(); };
+// ticking a box PERSISTS (wh_feed_story.selected) — it survives a refresh and
+// is visible in the Library as "to build". Not client-only state.
+window.jSel = async (id, on) => {
+  if (on) JSEL.add(id); else JSEL.delete(id);
+  await jPost("/api/wh/journey/select", { ids: [id], on: !!on });
+  renderJourney();
+};
 window.jPromote = async () => { const r = await jPost(`/api/wh/journey/${BATCH.id}/promote`); rdAlert("Promoted", `${r.promoted || 0} candidate${r.promoted === 1 ? "" : "s"} moved into Shortlist. Nothing was written to any of them yet — they're waiting on your verdict.`); JSEL.clear(); JOPEN = "shortlist"; renderJourney(); };
 window.jPromoteSel = async () => { if (!JSEL.size) return rdAlert("Nothing ticked", "Tick the candidates you want, then press again."); await jPost(`/api/wh/journey/${BATCH.id}/promote`, { ids: [...JSEL] }); JSEL.clear(); JOPEN = "shortlist"; renderJourney(); };
 window.jVerdict = async (id, v) => { await jPost("/api/wh/journey/verdict", { ids: [id], verdict: v }); renderJourney(); };
@@ -1277,7 +1332,32 @@ window.jBrief = async (id) => {
   if (r.error) return rdAlert("Can't build the brief yet", r.error);
   JOPEN = "brief"; renderJourney();
 };
-window.jApprove = async (id) => { await jPost(`/api/wh/journey/story/${id}/approve`); JOPEN = "assign"; renderJourney(); };
+// read every brief field back off the screen and persist it. Approving saves
+// first, so you can never approve a version different from the one you're
+// looking at.
+function briefFromScreen(id) {
+  const src = (JOURNEY?.stories || []).find((s) => s.id === id)?.brief || {};
+  const out = { ...src, metadata: { ...(src.metadata || {}) } };
+  document.querySelectorAll(`[id^="bf-${id}-"]`).forEach((el) => {
+    const path = el.id.slice(`bf-${id}-`.length);
+    const v = el.dataset.arr === "1"
+      ? el.value.split("·").map((x) => x.trim()).filter(Boolean)
+      : (el.value.trim() || null);
+    if (path.startsWith("metadata.")) out.metadata[path.slice(9)] = v;
+    else out[path] = v;
+  });
+  return out;
+}
+window.jBriefSave = async (id) => {
+  await jPost(`/api/wh/journey/story/${id}/brief/save`, { brief: briefFromScreen(id) });
+  const m = $(`#bmsg-${id}`); if (m) m.textContent = "✓ saved";
+  await renderJourney();
+};
+window.jApprove = async (id) => {
+  await jPost(`/api/wh/journey/story/${id}/brief/save`, { brief: briefFromScreen(id) });  // never approve stale text
+  await jPost(`/api/wh/journey/story/${id}/approve`);
+  JOPEN = "assign"; renderJourney();
+};
 window.jAssign = (id) => rdPrompt("Assign a writer", "Who's writing this?", "", async (who) => {
   if (!who) return;
   rdPrompt("Due date", "YYYY-MM-DD (leave blank for none)", "", async (due) => {

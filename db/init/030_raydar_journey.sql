@@ -134,7 +134,7 @@ on conflict (kind, value) do nothing;
 
 -- ---- journey dials live with the other editable business rules ------------
 insert into wh_business_rule(name, category, rule) values
-  ('journey', 'journey', '{
+  ('journey_lane', 'journey', '{
      "gates":        {"shortlist": true, "dump": true, "brief": true},
      "auto_promote": {"enabled": true, "top_n": 12, "min_score": 0.35},
      "sla_days":     {"shortlist": 2, "dump": 3, "brief": 2, "assign": 5},
