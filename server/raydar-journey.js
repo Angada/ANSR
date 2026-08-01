@@ -343,8 +343,12 @@ export function mountJourney(app, upload) {
       `select s.id, s.heading, s.summary, s.demand_topic, s.franchise, s.stage, s.verdict, s.owner_team,
               s.assignee, s.due_at, s.published_url, s.brief, s.brief_at, s.score, s.score_breakdown,
               s.gap_type, s.emotional_register, s.status, s.selected, s.merged_into,
-              (select count(*) from wh_seo_input d where d.story_id = s.id) as dumps,
-              (select count(*) from wh_story_event e where e.story_id = s.id) as events
+              -- ::int matters: count(*) is bigint, which node-postgres returns as a
+              -- STRING. "0" is truthy in JS, so every count-based test silently
+              -- inverted (the "dump research first" hint never showed, and every
+              -- row read "1 dumps"). Cast here, once, rather than coerce per use.
+              (select count(*) from wh_seo_input d where d.story_id = s.id)::int as dumps,
+              (select count(*) from wh_story_event e where e.story_id = s.id)::int as events
          from wh_feed_story s
         where s.batch_id=$1 and s.stage is not null and s.status <> 'deleted'
         order by s.score desc nulls last, s.id`, [batchId])).rows;
@@ -355,7 +359,7 @@ export function mountJourney(app, upload) {
         order by score desc nulls last limit 60`, [batchId])).rows;
     const dumps = (await jq(
       `select id, kind, filename, shape_id, confidence, status, story_id,
-              coalesce(jsonb_array_length(parsed->'rows'),0) as rows
+              coalesce(jsonb_array_length(parsed->'rows'),0)::int as rows
          from wh_seo_input where batch_id=$1 order by id desc`, [batchId])).rows;
     const batch = (await jq(`select id,name,created_at,swept_at from wh_batch where id=$1`, [batchId])).rows[0] || null;
     const counts = Object.fromEntries(STAGES.map((s) => [s, stories.filter((x) => x.stage === s).length]));

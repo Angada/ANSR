@@ -967,10 +967,24 @@ function renderIdeas(stories, franchises) {
     ? `<div class="empty">// all judged — nothing left in this batch //</div>`
     : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`;
   host.innerHTML = `<p class="intro"><b>IDEAS</b> — grouped into <b>story boards</b> by concept. Mark each one <b>Used</b>, <b>Save</b> or <b>Reject</b> and it drops out of this list into the done drawer below, so the list shrinks as you go. Everything stays findable in the <b>Library</b>.</p>` +
-    recapBlock() + trendReport(stories) + feedSignalBlock() + filter +
+    recapBlock() + trendReport(stories) + feedSignalBlock() + journeyCTA(stories) + filter +
     (boards.length ? `<div class="boards">${boards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>` : emptyMsg) + doneDrawer;
 }
 window.toggleDone = () => { SHOW_DONE = !SHOW_DONE; loadIdeas(); };
+
+// The bridge from Journey 1 to Journey 2. Ideas on their own stop here; this is
+// how a batch becomes briefed, owned, dated work. Without a door this obvious
+// nobody finds the Journey tab, because nothing on the results page points at it.
+function journeyCTA(stories) {
+  const enrolled = (stories || []).filter((s) => s.stage).length;
+  return `<div class="jcta">
+    <div class="jcta-t">${enrolled ? "This batch is already in the journey" : "Turn these ideas into actual work"}</div>
+    <div class="jcta-s">${enrolled
+      ? `${enrolled} topic${enrolled === 1 ? " is" : "s are"} being tracked through the six stations — shortlist, research, brief, writer, published.`
+      : "Ideas stop here. The journey takes them the rest of the way: you shortlist, SEO drops their research in, RayDar builds the brief, you put a writer and a date on it — every step logged."}</div>
+    <button class="sweep-btn jcta-b" onclick="setView('journey')">${enrolled ? "◎ Open the journey" : "◎ Start the journey with this batch"} →</button>
+  </div>`;
+}
 window.setFR = (v) => { FR = v; loadIdeas(); };
 function refreshCurrent() { if (VIEW === "library") loadLibrary(); else loadIdeas(); }
 window.idea = async (id, action) => { await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) }); refreshCurrent(); };
@@ -1239,11 +1253,11 @@ function stDump(d) {
             ${rows.map((s) => `<option value="${s.id}">${esc((s.heading || "").slice(0, 60))}</option>`).join("")}
           </select>` : `<span class="det">→ ${esc((rows.find((s) => s.id === x.story_id)?.heading || "attached").slice(0, 50))}</span>`}
       </div>`).join("")}</div>` : ""}
-    <div style="margin-top:10px">${rows.length ? rows.map((s) => `<div class="jrow">
+    <div style="margin-top:10px">${rows.length ? `<div class="tsr-note" style="margin-bottom:4px">Topics waiting on research — each one gets a <b>Build the brief →</b> button once you've dropped something in.</div>` : ""}${rows.length ? rows.map((s) => `<div class="jrow">
       <div class="jrow-h">${esc(s.heading || "untitled")}
         <div class="jrow-m"><span>${s.dumps || 0} dump${s.dumps === 1 ? "" : "s"} attached</span>${s.verdict ? `<span class="chip tag-cyan" style="cursor:default">${esc(s.verdict)}</span>` : ""}<a href="#" onclick="jTimeline(${s.id});return false">timeline</a></div>
       </div>
-      <div class="jrow-a"><button class="jv keep" onclick="jBrief(${s.id})" ${s.dumps ? "" : 'title="dump some research for this topic first"'}>Build the brief →</button></div>
+      <div class="jrow-a"><button class="jv ${s.dumps ? "keep" : ""}" onclick="jBrief(${s.id})" ${s.dumps ? "" : 'title="drop some research in above first — the brief is built from it"'}>Build the brief →</button></div>
     </div>`).join("") : `<div class="empty">// nothing waiting on research — keep something at Shortlist first //</div>`}</div>`;
 }
 
