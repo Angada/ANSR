@@ -552,12 +552,28 @@ export function mountWhisperer(app, slug, upload) {
       hunger = { who: `Batch seeded from ${[routes.trend ? "Trend Spotting" : "", routes.seo ? "SEO inputs" : ""].filter(Boolean).join(" + ") || "all topics"}.`, demand_topics: topics, cares_about: topics.slice(0, 4), motivations: ["growth"], routes };
     }
     if (extra) hunger.extra_prompt = extra;              // the user's free-text sweep brief (context + feed query)
-    const b = await wq(`insert into wh_batch(name,source,routes,demand_topics,cohort_id,hunger,status) values($1,$2,$3::jsonb,$4,$5,$6::jsonb,'draft') returning id`,
-      [nm, source, JSON.stringify(routes), topics, cohortId, JSON.stringify(hunger)]);
-    res.json({ ok: true, id: b.rows?.[0]?.id, name: nm });
+    // a batch describes ITSELF from what went into it — "Batch 01-08 17:44" is
+    // useless three weeks later; the themes + research + brief are not.
+    const desc = [
+      topics.length ? topics.slice(0, 4).join(", ") + (topics.length > 4 ? ` +${topics.length - 4} more` : "") : "all active themes",
+      routes.seo ? "with SEO research" : null,
+      routes.talentmind ? "TalentMind cohort" : null,
+      extra ? `“${extra.slice(0, 70)}${extra.length > 70 ? "…" : ""}”` : null,
+    ].filter(Boolean).join(" · ");
+    const b = await wq(`insert into wh_batch(name,source,routes,demand_topics,cohort_id,hunger,status,description) values($1,$2,$3::jsonb,$4,$5,$6::jsonb,'draft',$7) returning id`,
+      [nm, source, JSON.stringify(routes), topics, cohortId, JSON.stringify(hunger), desc]);
+    res.json({ ok: true, id: b.rows?.[0]?.id, name: nm, description: desc });
   });
   // list saved batches (history)
-  app.get("/api/wh/batches", async (_req, res) => res.json({ batches: (await wq(`select id,name,source,routes,demand_topics,status,story_count,created_at,swept_at from wh_batch order by id desc`)).rows }));
+  app.get("/api/wh/batches", async (_req, res) => res.json({ batches: (await wq(`select b.id,b.name,b.description,b.source,b.routes,b.demand_topics,b.status,
+      (select count(*) from wh_feed_story s where s.batch_id=b.id and s.status<>'deleted')::int as story_count,
+      b.created_at,b.swept_at from wh_batch b order by b.id desc`)).rows }));
+  // rename / re-describe a batch by hand
+  app.post("/api/wh/batch/:id/describe", async (req, res) => {
+    await wq(`update wh_batch set name=coalesce($2,name), description=coalesce($3,description) where id=$1`,
+      [Number(req.params.id), req.body?.name || null, req.body?.description || null]);
+    res.json({ ok: true });
+  });
 
   // ---- Hunger (Hunt Outcome) ------------------------------------------------
   app.post("/api/wh/hunger/:cohortId", async (req, res) => {

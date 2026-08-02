@@ -996,7 +996,7 @@ async function renderBatches() {
   const { batches } = await (await fetch("/api/wh/batches")).json();
   $("#view-batches").innerHTML = `<p class="intro"><b>BATCHES</b> — every sweep you've run, newest first. Open one to revisit its ranked ideas.</p>` +
     (batches.length ? batches.map((b) => `<div class="batch-row" onclick="openBatch(${b.id},'${esc(b.name).replace(/'/g, "\\'")}')">
-      <span class="bn">${esc(b.name)}</span>
+      <span class="bn">${esc(b.name)}${b.description ? `<span class="bd">${esc(b.description)}</span>` : ""}</span>
       <span class="bm">${esc(b.source)}</span>
       <span class="bm">${b.story_count || 0} ideas</span>
       <span class="chip ${b.status === "swept" ? "tag-grn" : ""}" style="cursor:default">${esc(b.status)}</span>
@@ -1006,14 +1006,34 @@ async function renderBatches() {
 window.openBatch = async (id, name) => { BATCH = { id, name }; FR = "all"; setView("sweep"); await loadIdeas(); toIdeas(); renderBatchPick(); };
 
 // batches dropdown on the sweep page — jump straight to any saved batch's ideas
+// Batch picker — the option text now carries the AUTO-WRITTEN description, so
+// you can tell "Batch 01-08 17:44" from "Batch 01-08 19:26" without opening both.
+let BATCHES_CACHE = [];
+function batchOptions(selectedId) {
+  return `<option value="">— pick a batch —</option>` + (BATCHES_CACHE || []).map((b) =>
+    `<option value="${b.id}" data-n="${esc(b.name)}" ${selectedId === b.id ? "selected" : ""}>${esc(b.name)} · ${b.story_count || 0} ideas${b.description ? ` — ${esc(String(b.description).slice(0, 70))}` : ""}</option>`).join("");
+}
+async function loadBatches(force) {
+  if (force || !BATCHES_CACHE.length) { try { BATCHES_CACHE = (await (await fetch("/api/wh/batches")).json()).batches || []; } catch { BATCHES_CACHE = []; } }
+  return BATCHES_CACHE;
+}
 async function renderBatchPick() {
   const host = $("#batchpick"); if (!host) return;
-  const { batches } = await (await fetch("/api/wh/batches")).json();
-  host.innerHTML = `batch <select onchange="if(this.value)openBatch(+this.value, this.selectedOptions[0].dataset.n)">
-    <option value="">— new sweep —</option>
-    ${(batches || []).map((b) => `<option value="${b.id}" data-n="${esc(b.name)}" ${BATCH && BATCH.id === b.id ? "selected" : ""}>${esc(b.name)} · ${b.story_count || 0} ideas · ${esc(b.source || "")}</option>`).join("")}
-  </select>`;
+  await loadBatches(true);
+  host.innerHTML = `
+    <button class="sweep-btn newsweep-btn" onclick="startNewSweep()">◎ New sweep</button>
+    <label class="bp"><span class="bp-k">or reopen a batch</span>
+      <select onchange="if(this.value)openBatch(+this.value, this.selectedOptions[0].dataset.n)">${batchOptions(BATCH?.id)}</select>
+    </label>`;
 }
+// clears the current batch and drops you back on the Hunger screen, armed
+window.startNewSweep = () => {
+  BATCH = null; TOPICS = []; ROUTES = { trend: false, seo: false, talentmind: false }; TM = null;
+  SWEEP_PROMPT = ""; RECAP = null; STAGE = 1;
+  setView("sweep"); $("#track").classList.remove("at-ideas");
+  renderHunger(); renderIdeas(null); renderBatchPick(); rail();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
 
 // ---- Library view ----------------------------------------------------------
 // Library reuses the EXACT Ideas story-board styling — one rich board per story
@@ -1102,9 +1122,28 @@ async function loadJChips() {
 
 async function renderJourney() {
   const host = $("#view-journey");
+  await loadBatches(!BATCH);
+  // The journey starts HERE too — you shouldn't have to go back to New Sweep to
+  // begin one. Same three feeds, plus a batch picker to reopen an old sweep.
+  const opener = `<div class="jopen">
+    <div class="jopen-r">
+      <button class="sweep-btn" onclick="startNewSweep()">◎ Start a new sweep</button>
+      <label class="bp"><span class="bp-k">or run the journey on an existing batch</span>
+        <select onchange="if(this.value)openBatchInJourney(+this.value, this.selectedOptions[0].dataset.n)">${batchOptions(BATCH?.id)}</select>
+      </label>
+    </div>
+    <details class="jopen-f"><summary>Arm the feeds — Trend Spotting · SEO Inputs · TalentMind</summary>
+      <div class="jopen-fb">The three feeds live on the <b>New Sweep</b> screen, because a journey always starts from a sweep. Press <b>Start a new sweep</b> above to arm them, then come back here.</div>
+      <div class="jopen-g">
+        <div class="jopen-c"><b>Feed 01 · Trend Spotting</b><span>Pick the themes. Each fires its own search terms at YouTube and Reddit.</span></div>
+        <div class="jopen-c"><b>Feed 02 · SEO Inputs</b><span>Paste or upload keyword research to steer the sweep before it runs.</span></div>
+        <div class="jopen-c"><b>Feed 03 · TalentMind</b><span>Demand read from the talent themselves. Simulation only for now.</span></div>
+      </div>
+    </details>
+  </div>`;
   if (!BATCH) {
-    host.innerHTML = `<p class="intro"><b>JOURNEY</b> — the slower, tracked lane: six owned stations with a human gate between each. Every act is journalled, so you can always see who moved what, and when.</p>
-      <div class="empty">// pick a batch in Batches, or run a sweep first //</div>`;
+    host.innerHTML = `<p class="intro"><b>JOURNEY</b> — the slower, tracked lane: six owned stations with a human gate between each. Every act is journalled, so you can always see who moved what, and when.</p>`
+      + opener + `<div class="empty">// pick a batch above to walk it through the six stations //</div>`;
     return;
   }
   if (!JSTATIONS.length) { try { JSTATIONS = (await (await fetch("/api/wh/journey/stations")).json()).stations || []; } catch { JSTATIONS = []; } }
@@ -1115,8 +1154,10 @@ async function renderJourney() {
   const { stories = [], candidates = [], dumps = [], counts = {} } = JOURNEY;
   host.innerHTML = `
     <p class="intro"><b>JOURNEY</b> — the same batch as the sweep, walked slowly. Six stations, each owned by a team, each with a gate you close by hand. Open any station to read <b>why it exists</b> and <b>what it does</b>.</p>
+    ${opener}
     <div class="jn-head">
       <span class="chip tag-grn" style="cursor:default">${ic("box")} ${esc(BATCH.name || "batch")}</span>
+      ${JOURNEY.batch?.description ? `<span class="chip" style="cursor:default;color:var(--dim)">${esc(JOURNEY.batch.description)}</span>` : ""}
       <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${candidates.length} candidates · ${stories.length} in the journey · ${dumps.length} research dump${dumps.length === 1 ? "" : "s"}</span>
     </div>
     ${nextAction({ stories, candidates, dumps, counts })}
@@ -1158,6 +1199,12 @@ function nextAction(d) {
     ${step.btn ? `<button class="jv keep jnext-b" onclick="${step.btn[1]}">${esc(step.btn[0])} →</button>` : ""}
   </div>`;
 }
+// open a batch straight into the journey, without bouncing via the sweep tab
+window.openBatchInJourney = async (id, name) => {
+  BATCH = { id, name }; RECAP = null; JOPEN = "shortlist"; JSEL.clear();
+  await renderJourney(); renderBatchPick();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
 window.jGo = (id) => {
   JOPEN = id; renderJourney();
   setTimeout(() => document.querySelector(`.jny[data-st="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);

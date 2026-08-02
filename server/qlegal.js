@@ -561,7 +561,9 @@ export function mountQLegal(app, upload) {
       )).rows;
       const soon = (await q(
         `select d.filename, o.kind, o.what, o.due_date from ql_obligation o join ql_document d on d.id=o.document_id
-          where o.status in ('proposed','confirmed') and o.due_date between current_date and current_date + $1 order by o.due_date limit 15`, [AP.obligations_horizon_days]
+          where o.status in ('proposed','confirmed')
+            and o.due_date between current_date and current_date + ($1::int)
+          order by o.due_date limit 15`, [AP.obligations_horizon_days]
       )).rows;
       rungs.push("C2/REGISTERS (structured, whole estate)");
 
