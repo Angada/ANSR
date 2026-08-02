@@ -6,3 +6,7 @@ data/
 uploads/
 docstore/
 db/backups/
+
+# Client-facing proposal — kept LOCAL by request (2026-08-02). Carries commercials;
+# not for the repo. Delete this line if you ever want it version-controlled.
+docs/qlegal-proposal.md
