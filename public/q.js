@@ -96,6 +96,15 @@ window.qHeader = (activeTab = "home") => {
   // Tabs are filtered to the signed-in account's apps once /api/me resolves.
   // (The server enforces access too — this only keeps the bar honest.)
   const ALL_TABS = [["raydar", "RayDar", "/whisperer.html"], ["contra", "Contra", "/contra.html"], ["qlegal", "Q-Legal", "/qlegal.html"], ["mint", "Mint", "/mint.html"], ["admin", "Admin", "/admin.html"]];
+  // What each app is, in one sentence — shown when someone can see an app but
+  // can't open it, so a lock explains itself instead of just refusing.
+  window.Q_APP_ABOUT = {
+    raydar: { name: "RayDar", what: "Talent trend radar. Reads what your audience is actually watching, asking and complaining about across YouTube and Reddit, and turns it into ranked, justified content ideas — never finished copy.", who: "the Content team" },
+    contra: { name: "Contra", what: "Contract review. You teach it a contract TYPE once — the sections a reviewer must check and the house rules in plain English — and it then reviews whole contracts against that standard: a verdict per section with the § evidence, your rules marked pass or breach, contradictions flagged, and tracked-change redlines you can open in Word.", who: "the Legal review team" },
+    qlegal: { name: "Q-Legal", what: "Legal repository intelligence. Reads every contract once, then answers questions across the whole estate with a citation for every claim.", who: "the Legal team" },
+    mint: { name: "Mint", what: "Contract-aware billing. Turns a signed SOW plus a monthly worksheet into a computed, explainable invoice where every number traces back to its clause.", who: "the Finance team" },
+    admin: { name: "Admin", what: "The Vault, the AI-pipeline registry, integrations and accounts — the platform's shared controls.", who: "platform administrators" },
+  };
   const tabs = ALL_TABS;
   // Render the bar synchronously (no await) so it never pops in late / shifts
   // the page. The username + role fill in after /api/me resolves, without moving
@@ -117,9 +126,12 @@ window.qHeader = (activeTab = "home") => {
     const u = document.getElementById("q-usr"); if (u) u.textContent = "USR:" + (me.user || "—");
     const rl = document.getElementById("q-role"); if (rl && me.role) { rl.textContent = me.role; rl.style.display = ""; }
     if (Array.isArray(me.apps)) {
-      const mine = ALL_TABS.filter(([k]) => (k === "admin" ? me.admin : me.apps.includes(k)));
+      const locked = me.locked || [];
+      const mine = ALL_TABS.filter(([k]) => (k === "admin" ? me.admin : me.apps.includes(k) || locked.includes(k)));
       const nav = document.querySelector(".q-term__nav");
-      if (nav) nav.innerHTML = mine.map(([k, l, h]) => `<a href="${h}" class="q-term__tab ${activeTab === k ? "on" : ""}">${l}</a>`).join("");
+      if (nav) nav.innerHTML = mine.map(([k, l, h]) => locked.includes(k)
+        ? `<a href="#" class="q-term__tab" style="opacity:.55" title="You don't have access yet" onclick="qLocked('${k}');return false">🔒 ${l}</a>`
+        : `<a href="${h}" class="q-term__tab ${activeTab === k ? "on" : ""}">${l}</a>`).join("");
       // a single-app account has nothing to go "home" to — point the logo at its app
       if (!me.admin && me.apps.length === 1) {
         const brand = document.querySelector(".q-term__brand");
@@ -158,4 +170,40 @@ window.fetch = (...args) => {
   const p = _origFetch(...args);
   if (isAI) p.finally(() => window.aiSpin(false));
   return p;
+};
+
+
+// ---- a locked app explains itself, and lets you ask for it -------------------
+// Seeing an app you can't open is only useful if it tells you what it is and gives
+// you a way in. A bare "access denied" teaches nothing and leaves no trail.
+window.qLocked = (key) => {
+  const a = (window.Q_APP_ABOUT || {})[key] || { name: key, what: "", who: "its team" };
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  bg.innerHTML = `<div class="modal" style="max-width:520px">
+    <h3 style="margin:0 0 4px">🔒 ${_esc(a.name)}</h3>
+    <div style="font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#5C564D;margin-bottom:12px">You don't have access to this app</div>
+    <p style="line-height:1.6;margin:0 0 12px">${_esc(a.what)}</p>
+    <p style="line-height:1.6;margin:0 0 16px;color:#3D3934">It's normally used by <b>${_esc(a.who)}</b>. If you need it, ask and an administrator will be notified — nothing is granted automatically.</p>
+    <textarea id="qlock-note" rows="2" placeholder="Optional: why do you need it?" style="width:100%;padding:9px 11px;border:1px solid #D9D3C8;border-radius:9px;font:inherit;font-size:13px"></textarea>
+    <div id="qlock-msg" style="font-size:13px;margin-top:8px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button class="btn" id="qlock-x">Close</button>
+      <button class="btn btn--primary" id="qlock-go">Request access</button>
+    </div></div>`;
+  document.body.appendChild(bg);
+  const close = () => bg.remove();
+  bg.onclick = (e) => { if (e.target === bg) close(); };
+  bg.querySelector("#qlock-x").onclick = close;
+  bg.querySelector("#qlock-go").onclick = async () => {
+    const note = bg.querySelector("#qlock-note").value.trim();
+    const msg = bg.querySelector("#qlock-msg");
+    try {
+      const r = await fetch("/api/access-request", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ app: key, note }) });
+      msg.innerHTML = r.ok
+        ? '<span style="color:#2E7D4F">Requested — an administrator has been notified. You\'ll keep working as normal until they grant it.</span>'
+        : '<span style="color:#C0392B">Could not send that. Try again shortly.</span>';
+      if (r.ok) bg.querySelector("#qlock-go").disabled = true;
+    } catch { msg.innerHTML = '<span style="color:#C0392B">Could not send that. Try again shortly.</span>'; }
+  };
 };

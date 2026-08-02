@@ -57,7 +57,11 @@ const AUTH_PW = process.env.QANSR_PW || "admin";
 const ACCOUNTS = [
   { user: AUTH_USER, pw: AUTH_PW, role: "Admin", apps: ["raydar", "contra", "qlegal", "mint"], admin: true },
   { user: process.env.CONTENT_USER || "content", pw: process.env.CONTENT_PW || "content", role: "Content", apps: ["raydar"], admin: false },
-  { user: process.env.LEGAL_USER || "legal", pw: process.env.LEGAL_PW || "legal", role: "Legal", apps: ["qlegal", "contra"], admin: false },
+  // `locked` apps are SEEN but not entered: the tile renders with a lock, clicking
+  // explains what the app does and offers to request access. Access itself is still
+  // decided by `apps` — a locked app is simply not in it, so the server blocks it
+  // exactly as it blocks any other app the account doesn't hold.
+  { user: process.env.LEGAL_USER || "legal", pw: process.env.LEGAL_PW || "legal", role: "Legal", apps: ["qlegal"], locked: ["contra"], admin: false },
 ];
 // which pages + api prefixes belong to each app (everything else is admin-only)
 const APP_ROUTES = {
@@ -113,7 +117,18 @@ app.post("/api/login", (req, res) => {
 app.get("/api/me", (req, res) => {
   const acct = accountOf(req);
   if (!acct) return res.status(401).json({ error: "auth required" });
-  res.json({ user: acct.user, role: acct.role, apps: acct.apps, admin: acct.admin });
+  res.json({ user: acct.user, role: acct.role, apps: acct.apps, locked: acct.locked || [], admin: acct.admin });
+});
+// "I can see this app but can't open it — please give me access." Recorded, not
+// granted: an admin still has to act. Append-only, like every other decision.
+app.post("/api/access-request", async (req, res) => {
+  const acct = accountOf(req);
+  if (!acct) return res.status(401).json({ error: "auth required" });
+  const app_id = String(req.body?.app || "").slice(0, 40);
+  if (!app_id) return res.status(400).json({ error: "app required" });
+  await q(`insert into audit_log(actor, action, object_type, object_id, detail) values($1,'access.request','app',$2,$3::jsonb)`,
+    [acct.user, app_id, JSON.stringify({ role: acct.role, note: String(req.body?.note || "").slice(0, 300) })]).catch(() => {});
+  res.json({ ok: true });
 });
 app.post("/api/logout", (_req, res) => {
   res.setHeader("Set-Cookie", `qansr_auth=; HttpOnly; Path=/; Max-Age=0${IS_PROD ? "; Secure" : ""}`);
@@ -218,7 +233,26 @@ app.get("/api/docs/:customer", async (req, res) => {
 });
 
 // ---- shell data (stub until Phase A + calc engine land) --------------------
-app.get("/api/ops", (_req, res) => res.json({ ops: stubOps() }));
+// The hub shows only the agents the signed-in account actually holds. This is
+// filtered SERVER-side, not hidden in CSS: a Content login must not even be told
+// that Mint or Q-Legal exist. `locked` apps are the deliberate exception — they
+// render as a locked tile the account can ask for access to. Admin sees all.
+app.get("/api/ops", (req, res) => {
+  const acct = accountOf(req);
+  const all = stubOps();
+  if (!acct || acct.admin) return res.json({ ops: all });
+  // map each live tile to its app key via APP_ROUTES (href → app), so this stays
+  // correct automatically when a page is added to an app.
+  const appOf = (href) => Object.entries(APP_ROUTES).find(([, r]) => r.pages.includes(href))?.[0] || null;
+  const mine = new Set(acct.apps || []), locked = new Set(acct.locked || []);
+  const ops = all.filter((a) => {
+    if (a.href === "/admin.html") return false;              // admin console is admin-only
+    const app = appOf(a.href);
+    if (!app) return false;                                  // "coming soon" tiles: noise for a scoped login
+    return mine.has(app) || locked.has(app);
+  }).map((a) => (locked.has(appOf(a.href)) ? { ...a, status: "locked" } : a));
+  res.json({ ops });
+});
 app.get("/api/contracts", (_req, res) => res.json({ contracts: stubContracts() }));
 app.get("/api/contract/:id", (req, res) => res.json(stubContract(slug(req.params.id))));
 app.get("/api/runs/:customer", (req, res) => res.json({ runs: stubRuns(slug(req.params.customer)) }));
