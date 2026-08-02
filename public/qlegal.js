@@ -230,6 +230,8 @@ const REG_COLS = [
     fmt: (v) => (v && v !== "—" ? fmtNice(v) : "no date"),
     cmp: (a, b) => String((a.facts || {}).expiry_date || "9999").localeCompare(String((b.facts || {}).expiry_date || "9999")),
     sortLabels: ["Soonest first", "Latest first"] },
+  { key: "source", label: "Source", get: (d) => (d.source === "sharepoint" ? "SharePoint" : "Device upload"),
+    hint: "SharePoint documents are governed by the nightly scan; device uploads are not" },
   { key: "tags", label: "Tags", get: (d) => (d.tags || []).length ? d.tags : ["—"] },
   { key: "ver", label: "Ver", num: true, get: (d) => d.latest_version, sortLabels: ["Fewest versions", "Most versions"] },
   { key: "oblig", label: "Oblig.", num: true, get: (d) => Number(d.open_obligations) || 0,
@@ -265,11 +267,14 @@ function renderRegistry() {
   const rows = list.map((d) => {
     const f = d.facts || {};
     const conf = f.doc_type_confirmed ? "" : (f.doc_type_confidence ? ` <span class="am" title="AI classification — confirm it on the contract page">AI ${Math.round(Number(f.doc_type_confidence) * 100)}%</span>` : "");
-    return `<tr class="clk touch" data-k="1" onclick="openDoc(${d.id})">
+    const dev = d.source !== "sharepoint";
+    return `<tr class="clk touch ${dev ? "srcdev" : ""}" data-k="1" onclick="openDoc(${d.id})"
+        title="${dev ? "Uploaded from a device — not governed by the SharePoint scan" : "From SharePoint — kept in step by the nightly scan"}">
       <td><b>${esc(d.title || d.filename)}</b>${d.title ? `<div class="am">${esc(d.filename)}</div>` : ""}</td>
       <td>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>${conf}` : "<span class='am'>—</span>"}</td>
       <td>${esc([d.party1, d.party2].filter(Boolean).join(" ⟷ ")) || "<span class='am'>—</span>"}</td>
       <td>${[f.effective_date, f.expiry_date].filter(Boolean).map(fmtNice).join(" → ") || "<span class='am'>—</span>"}</td>
+      <td><span class="srcpill ${dev ? "dev" : "sp"}">${dev ? "device" : "SharePoint"}</span></td>
       <td>${(d.tags || []).slice(0, 3).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ") || "<span class='am'>—</span>"}</td>
       <td>v${d.latest_version}${d.source === "sharepoint" ? ' <span class="am" title="synced from SharePoint">· SP</span>' : ""}${d.scanned ? ' <span class="am">· scan</span>' : ""}${d.status === "inactive" ? ' <span class="ochip o-dismissed">inactive</span>' : ""}</td>
       <td>${Number(d.open_obligations) ? `<span class="duechip due-soon">${d.open_obligations}</span>` : "<span class='am'>—</span>"}</td>
@@ -293,7 +298,11 @@ window.dzLeave = (e) => { e.currentTarget.classList.remove("over"); };
 window.dzDrop = (e) => { e.preventDefault(); e.currentTarget.classList.remove("over"); const fs = e.dataTransfer?.files; if (fs && fs.length) qUpload(fs); };
 window.qUpload = async (files) => {
   if (!files || !files.length) return;
-  const fd = new FormData(); [...files].forEach((f) => fd.append("files", f));
+  const fd = new FormData();
+  // webkitRelativePath is populated for folder drops; browsers never expose an
+  // absolute device path, so this is the most specific origin available.
+  fd.append("paths", JSON.stringify([...files].map((f) => f.webkitRelativePath || "")));
+  [...files].forEach((f) => fd.append("files", f));
   const req = (async () => { const r = await fetch("/api/qlegal/upload", { method: "POST", body: fd }); return { ok: r.ok, j: await r.json() }; })();
   try {
     const { ok, j } = await runWithMeter("qproc", ["Reading file(s) · vision-OCR for scans", "Vault snapshot + C1 transcript", "Concise key · Legal Setting · contents & clause wikis", "Standing questions & obligations", "Family links & lineage"], req);
@@ -420,7 +429,9 @@ function wikiView() {
       <div class="chead-body">
         <div class="chead-titlerow"><span class="chead-title">${esc(d.title || d.filename)}</span>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>` : ""}${(d.tags || []).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ")}</div>
         ${(d.party1 || d.party2) ? `<div class="chead-parties">${esc(d.party1 || "?")}<span class="vs">⟷</span>${esc(d.party2 || "?")}</div>` : ""}
-        ${d.source === "sharepoint" && f.sp_web_url ? `<div class="am" style="margin-top:6px">from SharePoint · <a class="ref" href="${esc(f.sp_web_url)}" target="_blank">open in SharePoint ↗</a> — the source of truth</div>` : ""}
+        ${d.source === "sharepoint"
+          ? `<div class="am" style="margin-top:6px"><span class="srcpill sp">SharePoint</span> the source of truth — kept in step by the nightly scan${f.sp_web_url ? ` · <a class="ref" href="${esc(f.sp_web_url)}" target="_blank">open in SharePoint ↗</a>` : ""}</div>`
+          : `<div class="am" style="margin-top:6px"><span class="srcpill dev">device upload</span> ${esc(d.source_location || d.filename)}${(d.source_detail || {}).by ? ` · added by ${esc(d.source_detail.by)}` : ""}${(d.source_detail || {}).at ? ` · ${fmtD(d.source_detail.at)}` : ""} — <b>not</b> governed by the SharePoint scan; there is no original to re-fetch, so the vault snapshot is the only copy</div>`}
       </div>
       <button class="btn small touch" onclick="delDoc(${d.id})" title="remove from the derived layer only">✕</button>
     </div>`;
@@ -1108,13 +1119,18 @@ async function renderMap() {
   const pts = map.points || [];
   const types = [...new Set(pts.map((p) => p.type))];
   const color = (t) => MAP_COLORS[types.indexOf(t) % MAP_COLORS.length];
-  const dots = pts.map((p) => `<span class="touch" onclick="openDoc(${p.id})" title="${esc(p.name)} · ${esc(p.type)}"
-      style="position:absolute;left:${4 + p.x * 92}%;top:${4 + (1 - p.y) * 88}%;width:13px;height:13px;border-radius:50%;background:${color(p.type)};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.25);cursor:pointer;transform:translate(-50%,-50%)"></span>`).join("");
+  const dots = pts.map((p) => {
+    const dev = p.source !== "sharepoint";
+    return `<span class="touch" onclick="openDoc(${p.id})" title="${esc(p.name)} · ${esc(p.type)} · ${dev ? "device upload (not governed by the scan)" : "from SharePoint"}"
+      style="position:absolute;left:${4 + p.x * 92}%;top:${4 + (1 - p.y) * 88}%;width:13px;height:13px;border-radius:50%;background:${color(p.type)};border:2px solid ${dev ? "var(--srcdev)" : "#fff"};box-shadow:0 1px 4px rgba(0,0,0,.25);cursor:pointer;transform:translate(-50%,-50%)"></span>`;
+  }).join("");
   const legend = types.map((t) => `<span class="tagchip"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${color(t)};margin-right:5px"></span>${esc(t)}</span>`).join(" ");
   const mapCard = pts.length >= 3
     ? `<div class="wikicard reveal"><div class="rsec-lbl">The estate in meaning-space · ${pts.length} contracts ${map.model === "hash:v1" ? '· <span style="color:var(--amber)">key-free embedding — clusters sharpen with a real model</span>' : ""}</div>
         <div style="position:relative;height:min(58vh,480px);background:var(--bg2);border:1px solid var(--line);border-radius:12px;overflow:hidden">${dots}</div>
-        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${legend}</div></div>`
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${legend}
+          <span class="tagchip" style="border-color:var(--srcdev);color:var(--srcdev)">◯ dark ring = device upload</span></div>
+        <div class="am" style="margin-top:7px">Colour is the contract type; the ring is its <b>source</b>. ${pts.filter((p) => p.source !== "sharepoint").length} of ${pts.length} came from a device rather than SharePoint — those aren't kept in step by the nightly scan.</div></div>`
     : `<div class="empty">// not enough embedded contracts to map — run the embed sweep in Manage → Re-index //</div>`;
   const clusters = (lib.clusters || []);
   const cRow = (m) => `<div class="treecard touch" onclick="openDoc(${m.document_id})">${m.ref ? `<span class="ref">${esc(m.ref)}</span>` : ""} <b>${esc(m.title || "")}</b> <span class="am">${esc(m.doc)}</span><span class="am" style="flex-basis:100%;margin-top:2px">${esc((m.gist || "").slice(0, 140))}</span></div>`;

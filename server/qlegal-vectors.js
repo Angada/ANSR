@@ -423,7 +423,7 @@ export async function estateMap() {
   if (!(await vectorsReady())) return { available: false, points: [] };
   const model = await storedModelId();
   const rows = (await q(
-    `select e.document_id as id, e.embedding::text as emb, d.filename, d.title, d.doc_type
+    `select e.document_id as id, e.embedding::text as emb, d.filename, d.title, d.doc_type, d.source
        from ql_embedding e join ql_document d on d.id=e.document_id
       where e.granularity='document' and e.embedding_model=$1 and coalesce(d.status,'active')<>'inactive'
       limit 2000`, [model]
@@ -451,5 +451,8 @@ export async function estateMap() {
   const xs = project(p1), ys = project(p2);
   const span = (a) => { const mn = Math.min(...a), mx = Math.max(...a); const s = mx - mn || 1; return a.map((v) => (v - mn) / s); };
   const nx = span(xs), ny = span(ys);
-  return { available: true, model, points: rows.map((r, i) => ({ id: r.id, name: r.title || r.filename, type: r.doc_type || "unclassified", x: Math.round(nx[i] * 1000) / 1000, y: Math.round(ny[i] * 1000) / 1000 })) };
+  // source is the map's second dimension: colour still means TYPE, but a device
+  // upload is ringed dark green — so an ungoverned document is visible at a glance
+  // even when it sits inside a healthy cluster.
+  return { available: true, model, points: rows.map((r, i) => ({ id: r.id, name: r.title || r.filename, type: r.doc_type || "unclassified", source: r.source || "upload", x: Math.round(nx[i] * 1000) / 1000, y: Math.round(ny[i] * 1000) / 1000 })) };
 }

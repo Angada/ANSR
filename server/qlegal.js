@@ -242,7 +242,7 @@ async function refreshDoc(docId) {
 // ---- shared per-file ingestion (upload path + SharePoint scan) ---------------
 // Writes per step as it completes (resumable spirit): version row first, then C1,
 // then the derive chain — a crash never loses finished work.
-export async function ingestFile(f, { source = "upload", spItemId = null, spMeta = null } = {}) {
+export async function ingestFile(f, { source = "upload", spItemId = null, spMeta = null, origin = null, actor = null } = {}) {
   const buf = readFileSync(f.path);
   const sha256 = createHash("sha256").update(buf).digest("hex");
   const ext = extname(f.originalname).toLowerCase();
@@ -256,7 +256,17 @@ export async function ingestFile(f, { source = "upload", spItemId = null, spMeta
   let doc = spItemId ? (await q(`select * from ql_document where sp_item_id=$1 limit 1`, [spItemId])).rows[0] : null;
   if (!doc) doc = (await q(`select * from ql_document where lower(filename)=lower($1) limit 1`, [f.originalname])).rows[0];
   if (!doc) {
-    doc = (await q(`insert into ql_document(filename, source, sp_item_id) values($1,$2,$3) returning *`, [f.originalname, source, spItemId])).rows[0];
+    // Provenance, recorded at the moment it lands — it cannot be recovered later.
+    // A device file has no governed home to re-fetch from, so where it came from
+    // and who put it there IS the record.
+    const loc = source === "sharepoint" ? (spMeta?.sp_web_url || null) : (origin || f.originalname);
+    const detail = source === "sharepoint"
+      ? { via: "sharepoint-scan" }
+      : { via: "upload", by: actor || "you", at: new Date().toISOString(),
+          bytes: buf.length, ext, device_path: origin || null };
+    doc = (await q(`insert into ql_document(filename, source, sp_item_id, source_location, source_detail)
+                    values($1,$2,$3,$4,$5::jsonb) returning *`,
+      [f.originalname, source, spItemId, loc, JSON.stringify(detail)])).rows[0];
   } else if (spItemId && !doc.sp_item_id) {
     await q(`update ql_document set sp_item_id=$2, source=$3 where id=$1`, [doc.id, spItemId, source]).catch(() => {});
   }
@@ -419,9 +429,13 @@ export function mountQLegal(app, upload) {
   app.post("/api/qlegal/upload", upload.array("files", 20), async (req, res) => {
     const files = req.files || [];
     if (!files.length) return res.status(400).json({ error: "no files" });
+    // The browser exposes a relative path only for folder drops (webkitRelativePath);
+    // an absolute path on the user's machine is never available, by design. We send
+    // whatever exists, per file, and record exactly that — no more.
+    const paths = (() => { try { return JSON.parse(req.body?.paths || "[]"); } catch { return []; } })();
     const results = [];
-    for (const f of files) {
-      results.push(await ingestFile(f));                      // persisted per file as it completes
+    for (const [i, f] of files.entries()) {
+      results.push(await ingestFile(f, { origin: paths[i] || null, actor: req.body?.by || "you" }));
       try { rmSync(f.path); } catch { /* ignore */ }
     }
     // Tree-link + lineage proposals must finish BEFORE we respond: Cloud Run

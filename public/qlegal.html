@@ -16,7 +16,7 @@
     --bg:#F4F3EF; --bg2:#F9FAFB; --panel:#FFFFFF; --panel-solid:#FFFFFF;
     --line:#E7E3DC; --line2:#D9D3C8;
     --org:#CE4502; --org-dim:#FF5400; --tint:#FFF1E9;
-    --cyan:#005465; --amber:#C77B2B; --mag:#6b3fa0; --red:#C0392B; --grn:#2E7D4F;
+    --cyan:#005465; --amber:#C77B2B; --srcdev:#1B5E38; --mag:#6b3fa0; --red:#C0392B; --grn:#2E7D4F;
     --txt:#141414; --dim:#3D3934; --dim2:#5C564D;
     --sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
     --mono:var(--sans); --r:14px;
@@ -86,6 +86,14 @@
   /* chips carry real information (counts, §§, tags) — they must be readable, not decorative */
   .tagchip{font-family:var(--mono);font-size:11.5px;font-weight:600;color:#00404D;background:#E3EEF0;border:1px solid rgba(0,84,101,.38);border-radius:999px;padding:3px 9px;white-space:nowrap}
   .ref{font-family:var(--mono);font-size:11px;font-weight:600;color:#00404D;border:1px solid rgba(0,84,101,.45);border-radius:5px;padding:1px 6px;white-space:nowrap}
+  /* TWO SOURCES, VISIBLY DIFFERENT. A device upload is not governed by the
+     SharePoint scan — it can't be re-fetched and nothing keeps it in step — so it
+     carries a dark-green marker everywhere it appears: the registry row, the
+     contract page, and as its own dimension on the estate map. */
+  .srcdev td:first-child{box-shadow:inset 3px 0 0 var(--srcdev)}
+  .srcpill{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.04em;border-radius:999px;padding:2px 8px;white-space:nowrap}
+  .srcpill.sp{color:#00404D;background:#E3EEF0;border:1px solid rgba(0,84,101,.38)}
+  .srcpill.dev{color:var(--srcdev);background:#E6F0E9;border:1px solid var(--srcdev)}
   .empty{font-family:var(--mono);font-size:14px;color:var(--dim2);border:1px dashed var(--line2);border-radius:var(--r);padding:40px;text-align:center}
 
   /* wiki page */
