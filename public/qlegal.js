@@ -216,6 +216,27 @@ function applyFilters(docs) {
   if (FILTERS.text) { const t = FILTERS.text.toLowerCase(); out = out.filter((d) => [d.filename, d.title, d.doc_type, d.party1, d.party2, d.counterparty, (d.tags || []).join(" ")].join(" ").toLowerCase().includes(t)); }
   return out;
 }
+// ---- the estate table, under the Super Filter -------------------------------
+// Every header is the control: sort + a searchable multi-select with live counts.
+// The gem chips (expiring, scanned…) stay — they're saved questions, not column
+// filters, and they compose with whatever the headers are filtering.
+const CST = colfState({ sortKey: null });
+const REG_COLS = [
+  { key: "name", label: "Contract", get: (d) => d.title || d.filename, noFilter: true, sortLabels: ["A → Z", "Z → A"] },
+  { key: "type", label: "Legal setting", get: (d) => d.doc_type || "unclassified" },
+  { key: "party", label: "Parties", get: (d) => [d.party1, d.party2].filter(Boolean),
+    hint: "a contract with two parties appears under both" },
+  { key: "expiry", label: "Expiry", num: true, get: (d) => (d.facts || {}).expiry_date || "",
+    fmt: (v) => (v && v !== "—" ? fmtNice(v) : "no date"),
+    cmp: (a, b) => String((a.facts || {}).expiry_date || "9999").localeCompare(String((b.facts || {}).expiry_date || "9999")),
+    sortLabels: ["Soonest first", "Latest first"] },
+  { key: "tags", label: "Tags", get: (d) => (d.tags || []).length ? d.tags : ["—"] },
+  { key: "ver", label: "Ver", num: true, get: (d) => d.latest_version, sortLabels: ["Fewest versions", "Most versions"] },
+  { key: "oblig", label: "Oblig.", num: true, get: (d) => Number(d.open_obligations) || 0,
+    sortLabels: ["Fewest first", "Most first"] },
+  { key: "updated", label: "Updated", get: (d) => d.updated_at, fmt: (v) => (v && v !== "—" ? fmtD(v) : "—"),
+    cmp: (a, b) => String(a.updated_at).localeCompare(String(b.updated_at)), sortLabels: ["Oldest first", "Newest first"] },
+];
 function renderRegistry() {
   const host = $("#view-registry");
   if (OPEN) { host.innerHTML = wikiView(); sequenceReveal(host, ".reveal", 120, 50); return; }
@@ -238,7 +259,9 @@ function renderRegistry() {
       ${gem("inactive", "Inactive", DOCS.filter((d) => d.status === "inactive").length)}
       <input class="rinput" style="max-width:220px;margin-left:auto" placeholder="filter by name, party, tag…" value="${esc(FILTERS.text)}" oninput="FILTERS.text=this.value;renderRegistry()">
     </div>`;
-  const list = applyFilters(DOCS);
+  const base = applyFilters(DOCS);
+  const list = colfSort(REG_COLS, CST, colfRows(REG_COLS, CST, base),
+    (a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
   const rows = list.map((d) => {
     const f = d.facts || {};
     const conf = f.doc_type_confirmed ? "" : (f.doc_type_confidence ? ` <span class="am" title="AI classification — confirm it on the contract page">AI ${Math.round(Number(f.doc_type_confidence) * 100)}%</span>` : "");
@@ -256,9 +279,10 @@ function renderRegistry() {
   host.innerHTML = `<p class="intro"><b>CONTRACTS</b> — the estate. Filter by Legal Setting, expiry, or anything; click a contract for its page.</p>`
     + drop + `<div id="qproc"></div>` + strip
     + (list.length
-      ? `<div class="scroll-x reveal"><table class="ctable"><thead><tr><th>Contract</th><th>Legal setting</th><th>Parties</th><th>Dates</th><th>Tags</th><th>Ver</th><th>Oblig.</th><th>Updated</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      ? colfChips(REG_COLS, CST, base) + `<div class="scroll-x reveal"><table class="ctable">${colfHead(REG_COLS, CST)}<tbody>${rows}</tbody></table></div>`
       : DOCS.length ? `<div class="empty">// nothing matches these filters //</div>`
       : `<div class="empty">// the repository is empty — drop the first contracts above, or connect SharePoint in Manage //</div>`);
+  colfWire(REG_COLS, CST, base, renderRegistry);   // re-wire after every render
   sequenceReveal(host, ".reveal", 120, 60);
 }
 window.setCat = (c) => { FILTERS.cat = FILTERS.cat === c ? null : c; renderRegistry(); };
@@ -457,12 +481,25 @@ window.delDoc = (id) => rdConfirm("Remove from the repository?", "Only the deriv
 // ==========================================================================
 // Standing questions (registers)
 // ==========================================================================
+const QST = colfState();
+const REGQ_COLS = [
+  { key: "name", label: "Standing question", get: (r) => r.name, noFilter: true },
+  { key: "builtin", label: "Origin", get: (r) => (r.builtin ? "built-in" : "yours") },
+  { key: "yes", label: "Yes", num: true, get: (r) => Number(r.yes_count) || 0, sortLabels: ["Fewest yes", "Most yes"] },
+  { key: "unclear", label: "Unclear", num: true, get: (r) => Number(r.unclear_count) || 0, sortLabels: ["Fewest unclear", "Most unclear"] },
+  { key: "coverage", label: "Coverage", num: true, get: (r) => Number(r.answered) || 0, sortLabels: ["Least answered", "Most answered"] },
+];
 async function renderRegisters() {
   const host = $("#view-registers");
-  if (REG_OPEN) { host.innerHTML = registerHitsView(); sequenceReveal(host, ".reveal", 100, 40); return; }
+  if (REG_OPEN) {
+    host.innerHTML = registerHitsView();
+    colfWire(HIT_COLS, HST, REG_OPEN.hits || [], renderRegisters);
+    sequenceReveal(host, ".reveal", 100, 40); return;
+  }
   host.innerHTML = `<div class="empty">loading…</div>`;
   await loadRegisters(); renderNav();
-  const rows = REGISTERS.map((r) => {
+  const QROWS = colfSort(REGQ_COLS, QST, colfRows(REGQ_COLS, QST, REGISTERS));
+  const rows = QROWS.map((r) => {
     const answered = Number(r.answered), pending = Math.max(0, REG_TOTAL - answered);
     return `<tr class="clk touch" data-k="${esc((r.name + " " + r.question).toLowerCase())}" onclick="openRegister(${r.id})">
       <td><b>${esc(r.name)}</b>${r.builtin ? ' <span class="tagchip">built-in</span>' : ""}
@@ -482,9 +519,9 @@ async function renderRegisters() {
     </div><div id="regproc"></div>`
     + (REGISTERS.length
       ? `<div class="cfilter"><input placeholder="filter questions…" oninput="filterTable('regstable',this.value)"><span class="am" id="regstable-note"></span></div>
-         <div class="scroll-x reveal"><table class="ctable" id="regstable"><thead><tr><th>Standing question</th><th>Yes</th><th>Unclear</th><th>Coverage</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+         ${colfChips(REGQ_COLS, QST, REGISTERS)}<div class="scroll-x reveal"><table class="ctable" id="regstable">${colfHead(REGQ_COLS, QST, "", "<th></th>")}<tbody>${rows}</tbody></table></div>`
       : `<div class="empty">// no standing questions yet //</div>`);
-  if (REGISTERS.length) filterTable("regstable", "");
+  if (REGISTERS.length) colfWire(REGQ_COLS, QST, REGISTERS, renderRegisters);
   sequenceReveal(host, ".reveal", 120, 60);
 }
 window.openRegister = async (id) => {
@@ -492,8 +529,21 @@ window.openRegister = async (id) => {
   renderRegisters(); window.scrollTo({ top: 0, behavior: "smooth" });
 };
 window.closeRegister = () => { REG_OPEN = null; renderRegisters(); };
+const HST = colfState();
+const HIT_COLS = [
+  { key: "doc", label: "Contract", get: (h) => h.title || h.filename, noFilter: true },
+  { key: "type", label: "Type", get: (h) => h.doc_type || "unclassified" },
+  { key: "present", label: "Answer", get: (h) => h.present || "—",
+    opts: [{ id: "yes", label: "yes" }, { id: "no", label: "no" }, { id: "unclear", label: "unclear" }],
+    sortLabels: ["yes → unclear", "unclear → yes"] },
+  { key: "value", label: "Value", get: (h) => h.value || "—" },
+  { key: "detail", label: "Detail", get: (h) => h.answer || "", noFilter: true },
+  { key: "refs", label: "§", get: (h) => (h.refs || []).length ? h.refs : ["—"] },
+  { key: "status", label: "Source", get: (h) => (h.status === "auto" ? "AI" : "confirmed by you") },
+];
 function registerHitsView() {
-  const r = REG_OPEN.register, hits = REG_OPEN.hits || [];
+  const r = REG_OPEN.register, allHits = REG_OPEN.hits || [];
+  const hits = colfSort(HIT_COLS, HST, colfRows(HIT_COLS, HST, allHits));
   const P = { yes: "due-ok", no: "due-none", unclear: "due-soon" };
   const rows = hits.map((h) => `<tr class="clk touch" data-k="${esc(((h.title || h.filename) + " " + (h.answer || "") + " " + h.present).toLowerCase())}">
       <td onclick="openDoc(${h.document_id})"><b>${esc(h.title || h.filename)}</b>${h.doc_type ? ` <span class="typebadge">${esc(h.doc_type)}</span>` : ""}
@@ -511,7 +561,7 @@ function registerHitsView() {
     </div><div id="regproc"></div>`
     + (hits.length
       ? `<div class="cfilter"><input placeholder="filter the estate…" oninput="filterTable('hitstable',this.value)"><span class="am" id="hitstable-note"></span></div>
-         <div class="scroll-x reveal"><table class="ctable" id="hitstable"><thead><tr><th>Contract</th><th>Answer</th><th>Value</th><th>Detail</th><th>§</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+         ${colfChips(HIT_COLS, HST, allHits)}<div class="scroll-x reveal"><table class="ctable" id="hitstable">${colfHead(HIT_COLS, HST, "", "<th></th>")}<tbody>${rows}</tbody></table></div>`
       : `<div class="empty">// not answered on any contract yet — run it across the estate //</div>`);
 }
 window.addRegister = () => registerForm("Ask a standing question", {}, async (o) => {
@@ -1081,6 +1131,17 @@ async function renderMap() {
 }
 
 // ---- Browse · SharePoint files (live, read-only, with the library's own facets) --
+const FST = colfState();
+const SPF_COLS = [
+  { key: "name", label: "File", get: (f) => f.name, noFilter: true },
+  { key: "folder", label: "Folder", get: (f) => f.path || "/" },
+  { key: "by", label: "Modified by", get: (f) => f.modified_by || "—" },
+  { key: "modified", label: "Modified", get: (f) => f.modified, fmt: (v) => (v && v !== "—" ? fmtDT(v) : "—"),
+    cmp: (a, b) => String(a.modified).localeCompare(String(b.modified)), sortLabels: ["Oldest first", "Newest first"] },
+  { key: "size", label: "Size", num: true, get: (f) => f.size || 0, fmt: (v) => `${Math.max(1, Math.round(+v / 1024))} KB`,
+    sortLabels: ["Smallest first", "Largest first"] },
+  { key: "indexed", label: "In Q-Legal", get: (f) => (f.doc_id ? (f.doc_type || "indexed") : "not indexed") },
+];
 async function renderSpFiles() {
   const host = $("#view-spfiles");
   if (!SPF.data && !SPF.loading) { SPF.loading = true; host.innerHTML = `<div class="empty"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""> reading the SharePoint library…</div>`; try { SPF.data = await (await fetch(`/api/qlegal/sharepoint/files?folder=${encodeURIComponent(SPF.folder)}&q=${encodeURIComponent(SPF.q)}`)).json(); } catch (e) { SPF.data = { error: String(e.message || e) }; } SPF.loading = false; }
@@ -1090,7 +1151,8 @@ async function renderSpFiles() {
     .concat(SPF.folder.split("/").filter(Boolean).map((seg, i, arr) => `<span class="fchip touch" onclick="spfGo('${esc(arr.slice(0, i + 1).join("/"))}')">${esc(seg)}</span>`)).join(" / ");
   const folders = (d.folders || []).map((f) => `<span class="fchip touch" onclick="spfGo('${esc((SPF.folder ? SPF.folder + "/" : "") + f.name)}')">📁 ${esc(f.name)}<span class="n">${f.childCount}</span></span>`).join("");
   const kb = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
-  const rows = (d.files || []).map((f) => `<tr data-k="${esc([f.name, f.path, f.modified_by, f.doc_type].join(" ").toLowerCase())}">
+  const SPROWS = colfSort(SPF_COLS, FST, colfRows(SPF_COLS, FST, d.files || []));
+  const rows = SPROWS.map((f) => `<tr data-k="${esc([f.name, f.path, f.modified_by, f.doc_type].join(" ").toLowerCase())}">
       <td><b>${esc(f.name)}</b><div class="am">${esc(f.path || "/")}</div></td>
       <td class="am">${fmtDT(f.modified)}<div>${esc(f.modified_by)}</div></td>
       <td class="am">${kb(f.size)}</td>
@@ -1107,9 +1169,9 @@ async function renderSpFiles() {
     ${folders ? `<div class="fstrip" style="margin-bottom:12px">${folders}</div>` : ""}
     <div class="cfilter"><input placeholder="filter this list by name, path, person, type…" oninput="filterTable('spftable',this.value)"><span class="am" id="spftable-note"></span></div>
     ${(d.files || []).length
-      ? `<div class="scroll-x reveal"><table class="ctable" id="spftable"><thead><tr><th>File</th><th>Modified</th><th>Size</th><th>In Q-Legal</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      ? colfChips(SPF_COLS, FST, d.files || []) + `<div class="scroll-x reveal"><table class="ctable" id="spftable">${colfHead(SPF_COLS, FST, "", "<th></th>")}<tbody>${rows}</tbody></table></div>`
       : `<div class="empty">// ${SPF.q ? "no results in the library for that search" : "no files in this folder"} //</div>`}`;
-  filterTable("spftable", "");
+  colfWire(SPF_COLS, FST, d.files || [], renderSpFiles);
   sequenceReveal(host, ".reveal", 120, 50);
 }
 window.spfGo = (folder) => { SPF = { folder, q: "", data: null, loading: false }; renderSpFiles(); };
@@ -1126,11 +1188,24 @@ window.spfIngest = async (itemId, btn) => {
   } catch (e) { rdAlert("Ingest failed", String(e.message || e)); if (btn) { btn.disabled = false; btn.textContent = "Ingest now"; } }
 };
 
+const LST = colfState();
+const LOG_COLS = [
+  { key: "when", label: "When", get: (l) => l.created_at, fmt: (v) => (v && v !== "—" ? fmtDT(v) : "—"),
+    cmp: (a, b) => String(a.created_at).localeCompare(String(b.created_at)), sortLabels: ["Oldest first", "Newest first"] },
+  { key: "pipeline", label: "Pipeline", get: (l) => l.pipeline || "—" },
+  { key: "model", label: "Model", get: (l) => [l.provider, l.model].filter(Boolean).join(" ") || "—" },
+  { key: "mode", label: "Mode", get: (l) => l.status || "—" },
+  { key: "ref", label: "Ref", get: (l) => l.ref_type || "—" },
+  { key: "input", label: "Input", get: (l) => l.input_summary || "", noFilter: true },
+  { key: "output", label: "Output", get: (l) => l.output_summary || "", noFilter: true },
+  { key: "rules", label: "Rules applied", get: (l) => (l.rules_applied || []).length ? l.rules_applied : ["none"] },
+];
 async function renderLog() {
   const host = $("#view-log");
   host.innerHTML = `<div class="empty">loading…</div>`;
   try { LOG = ((await (await fetch("/api/qlegal/log?limit=150")).json()).log) || []; } catch { LOG = []; }
-  const rows = LOG.map((l) => `<tr data-k="${esc([l.pipeline, l.provider, l.model, l.status, l.ref_type, l.input_summary, l.output_summary].join(" ").toLowerCase())}">
+  const LROWS = colfSort(LOG_COLS, LST, colfRows(LOG_COLS, LST, LOG), (a, b) => b.id - a.id);
+  const rows = LROWS.map((l) => `<tr data-k="${esc([l.pipeline, l.provider, l.model, l.status, l.ref_type, l.input_summary, l.output_summary].join(" ").toLowerCase())}">
       <td class="am" style="white-space:nowrap">${fmtDT(l.created_at)}</td>
       <td><b>${esc(l.pipeline || "—")}</b><div class="am">${esc(l.provider || "")} ${esc(l.model || "")}</div></td>
       <td>${esc(l.status || "")}</td>
@@ -1141,8 +1216,9 @@ async function renderLog() {
     </tr>`).join("");
   host.innerHTML = `<p class="intro"><b>AI ACTIVITY</b> — every gated pipeline call, append-only: which step, which model, which business rules were injected.</p>`
     + `<div class="cfilter"><input placeholder="filter by pipeline, model, status…" oninput="filterTable('logtable',this.value)"><span class="am" id="logtable-note"></span></div>`
-    + (LOG.length ? `<div class="scroll-x"><table class="ctable" id="logtable"><thead><tr><th>When</th><th>Pipeline</th><th>Mode</th><th>Ref</th><th>Input</th><th>Output</th><th>Rules applied</th></tr></thead><tbody>${rows}</tbody></table></div>`
+    + (LOG.length ? colfChips(LOG_COLS, LST, LOG) + `<div class="scroll-x"><table class="ctable" id="logtable">${colfHead(LOG_COLS, LST)}<tbody>${rows}</tbody></table></div>`
       : `<div class="empty">// no AI activity yet //</div>`);
+  colfWire(LOG_COLS, LST, LOG, renderLog);
 }
 
 // ---- shared bits --------------------------------------------------------------

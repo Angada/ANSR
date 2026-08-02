@@ -195,6 +195,28 @@ window.uploadSample = async (file) => {
 };
 
 // ---- Archetype Library (open → add rules → save) ---------------------------
+// ---- the Super Filter specs (headers become sort + multi-select) ------------
+const LIBST = colfState(), REVST = colfState();
+const LIB_COLS = [
+  { key: "name", label: "Archetype", get: (a) => a.name, noFilter: true },
+  { key: "status", label: "Status", get: (a) => (a.status === "saved" ? `saved v${a.version || 1}` : "draft") },
+  { key: "desc", label: "Description", get: (a) => a.description || "", noFilter: true },
+  { key: "sections", label: "Sections", num: true, get: (a) => Number(a.sections) || 0, sortLabels: ["Fewest first", "Most first"] },
+  { key: "rules", label: "Rules", num: true, get: (a) => Number(a.rules) || 0, sortLabels: ["Fewest first", "Most first"] },
+  { key: "updated", label: "Updated", get: (a) => a.updated_at || a.created_at, fmt: (v) => (v && v !== "—" ? fmtD(v) : "—"),
+    cmp: (a, b) => String(a.updated_at || a.created_at).localeCompare(String(b.updated_at || b.created_at)),
+    sortLabels: ["Oldest first", "Newest first"] },
+];
+const REV_COLS = [
+  { key: "name", label: "Contract", get: (r) => r.contract_name || "", noFilter: true },
+  { key: "type", label: "Type", get: (r) => r.contract_type || "—" },
+  { key: "party", label: "Parties", get: (r) => [r.party1, r.party2].filter(Boolean).length ? [r.party1, r.party2].filter(Boolean) : ["—"] },
+  { key: "arch", label: "Archetype", get: (r) => r.archetype || "—" },
+  { key: "issues", label: "Issues", num: true, get: (r) => Number(r.issue_count) || 0,
+    fmt: (v) => (+v ? `${v} issue${+v === 1 ? "" : "s"}` : "clean"), sortLabels: ["Cleanest first", "Most issues first"] },
+  { key: "when", label: "Reviewed", get: (r) => r.created_at, fmt: (v) => (v && v !== "—" ? fmtDT(v) : "—"),
+    cmp: (a, b) => String(a.created_at).localeCompare(String(b.created_at)), sortLabels: ["Oldest first", "Newest first"] },
+];
 function renderLibrary() {
   const host = $("#view-library");
   if (ARCH && EDIT_IN === "library") {
@@ -211,10 +233,9 @@ function renderLibrary() {
     </tr>`).join("");
   host.innerHTML = `<p class="intro"><b>ARCHETYPE LIBRARY</b> — your saved contract types. The 10 most recent show here; type to search all. Open one to edit its rules, name, and versions.</p>`
     + (ARCHES.length
-      ? `<div class="cfilter"><input placeholder="filter archetypes…" oninput="filterTable('libtable',this.value)"><span class="am" id="libtable-note"></span></div>
-         <table class="ctable" id="libtable"><thead><tr><th>Archetype</th><th>Description</th><th>Sections</th><th>Rules</th><th>Updated</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      ? colfChips(LIB_COLS, LIBST, ARCHES) + `<table class="ctable" id="libtable">${colfHead(LIB_COLS, LIBST, "", "<th></th>")}<tbody>${rows}</tbody></table>`
       : `<div class="empty">// no archetypes yet — make one in the Archetype Maker //</div>`);
-  if (ARCHES.length) filterTable("libtable", "");
+  if (ARCHES.length) colfWire(LIB_COLS, LIBST, ARCHES, renderLibrary);
 }
 window.editArch = async (id) => {
   const j = await (await fetch(`/api/contra/archetype/${id}`)).json();
@@ -338,10 +359,9 @@ function renderReviewed() {
     </tr>`).join("");
   host.innerHTML = `<p class="intro"><b>REVIEWED</b> — every contract you've reviewed. The 10 most recent show here; type to search all. Click a row for its report, redlines and timeline.</p>`
     + (REVIEWS.length
-      ? `<div class="cfilter"><input placeholder="filter by contract, type, party, archetype…" oninput="filterTable('revtable',this.value)"><span class="am" id="revtable-note"></span></div>
-         <table class="ctable" id="revtable"><thead><tr><th>Contract</th><th>Type</th><th>Parties</th><th>Archetype</th><th>Issues</th><th>Reviewed</th></tr></thead><tbody>${rows}</tbody></table>`
+      ? colfChips(REV_COLS, REVST, REVIEWS) + `<table class="ctable" id="revtable">${colfHead(REV_COLS, REVST)}<tbody>${rows}</tbody></table>`
       : `<div class="empty">// no reviews yet — run one in the Review tab //</div>`);
-  if (REVIEWS.length) filterTable("revtable", "");
+  if (REVIEWS.length) colfWire(REV_COLS, REVST, REVIEWS, renderReviewed);
 }
 // nice document header shown above the Reviewed tabs
 function contractHeader(r) {
