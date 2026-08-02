@@ -18,6 +18,24 @@ const TENANT = "Q-LEGAL"; // ring-fenced storage namespace (vault + docstore)
 // business-rule scopes → which pipeline step each rule set is injected into
 const SCOPES = ["global", "ingestion", "registers", "search", "obligations", "drafting", "vectors", "sync"];
 
+// The identity of a proposal: kind + the value proposed. A rejection is remembered
+// against this, so the same suggestion is never re-made — while a DIFFERENT parent
+// or a different category stays a fair question to ask.
+const proposalKey = (kind, p = {}) =>
+  kind === "classification" ? `classification:${String(p.doc_type || "").toLowerCase()}`
+  : kind === "link" ? `link:${p.parent_id}`
+  : kind === "lineage" ? `lineage:${p.other_id}`
+  : kind === "removal" ? "removal"
+  : kind;
+// Has a human already said no to this exact proposal for this document?
+async function alreadyRejected(docId, kind, proposal) {
+  const r = await q(
+    `select 1 from ql_confirm where document_id=$1 and kind=$2 and status='rejected' and proposal_key=$3 limit 1`,
+    [docId, kind, proposalKey(kind, proposal)]
+  ).catch(() => ({ rows: [] }));
+  return !!r.rows.length;
+}
+
 // pull the first JSON object out of an LLM reply (tolerates prose / code fences)
 function jparse(text) {
   const m = String(text || "").match(/\{[\s\S]*\}/);
@@ -166,11 +184,18 @@ async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false
   const typeConf = Number(meta.doc_type_confidence);
   if (!confirmed && (out.mode !== "ai" || !meta.doc_type || (typeConf && typeConf < P.classify_confidence_min))) {
     const open = (await q(`select 1 from ql_confirm where document_id=$1 and kind='classification' and status='open' limit 1`, [docId])).rows[0];
-    if (!open) await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why) values('classification',$1,$2::jsonb,$3,$4)`,
+    // a type this human already rejected here is never proposed again
+    const said_no = await alreadyRejected(docId, "classification", { doc_type: meta.doc_type });
+    // no keyed model = the pipeline could not run. That is a SYSTEM FAILURE, not a
+    // proposal — flag it so it sits in Blocked instead of faking a 0%-confidence
+    // decision in the queue.
+    const isBlocked = out.mode !== "ai";
+    if (!open && !said_no) await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why, proposal_key, blocked) values('classification',$1,$2::jsonb,$3,$4,$5,$6)`,
       [docId, JSON.stringify({ doc_type: meta.doc_type || null }), out.mode === "ai" ? (typeConf || 0.4) : 0,
        out.mode !== "ai" ? "no keyed model — classify this document manually"
          : !meta.doc_type ? "the model could not classify this document"
-         : `low-confidence classification (${Math.round(typeConf * 100)}%) — confirm or change it`]);
+         : `low-confidence classification (${Math.round(typeConf * 100)}%) — confirm or change it`,
+       proposalKey("classification", { doc_type: meta.doc_type }), isBlocked]);
   }
 
   // obligations — gated qlegal-obligations + obligations business rules
@@ -356,9 +381,10 @@ async function proposeLinks(docId) {
   const lp = jparse(out.text);
   // NB: Postgres returns bigint ids as STRINGS — compare numerically, never strictly.
   if (!lp || !lp.parent_id || !cands.some((c) => Number(c.id) === Number(lp.parent_id))) return;
-  await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why) values('link',$1,$2::jsonb,$3,$4)`,
-    [docId, JSON.stringify({ parent_id: Number(lp.parent_id), relation_kind: clip(lp.relation_kind, 20) || "references" }),
-     Number(lp.confidence) || 0, clip(lp.why, 240)]);
+  const prop = { parent_id: Number(lp.parent_id), relation_kind: clip(lp.relation_kind, 20) || "references" };
+  if (await alreadyRejected(docId, "link", prop)) return;   // asked and answered
+  await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why, proposal_key) values('link',$1,$2::jsonb,$3,$4,$5)`,
+    [docId, JSON.stringify(prop), Number(lp.confidence) || 0, clip(lp.why, 240), proposalKey("link", prop)]);
 }
 
 // deterministic lineage sweep: near-identical text across two different documents
@@ -377,9 +403,12 @@ async function proposeLineage(docId) {
     if (!o.c1_text) continue;
     const sim = jaccard(my, wordSet(o.c1_text));
     if (sim >= FP.lineage_similarity_min) {
-      await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why) values('lineage',$1,$2::jsonb,$3,$4)`,
-        [docId, JSON.stringify({ other_id: o.id, relation_kind: "executed_of" }), Math.round(sim * 100) / 100,
-         `near-identical text (${Math.round(sim * 100)}%) to “${o.filename}” — likely the same contract (draft ↔ executed)`]);
+      const lprop = { other_id: o.id, relation_kind: "executed_of" };
+      if (await alreadyRejected(docId, "lineage", lprop)) continue;   // asked and answered
+      await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why, proposal_key) values('lineage',$1,$2::jsonb,$3,$4,$5)`,
+        [docId, JSON.stringify(lprop), Math.round(sim * 100) / 100,
+         `near-identical text (${Math.round(sim * 100)}%) to “${o.filename}” — likely the same contract (draft ↔ executed)`,
+         proposalKey("lineage", lprop)]);
       break;
     }
   }
@@ -896,8 +925,13 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
   // ---- confirm queue (one queue for every AI proposal) -------------------------
   app.get("/api/qlegal/confirms", async (_req, res) => {
     const rows = (await q(
-      `select c.*, d.filename, d.title from ql_confirm c left join ql_document d on d.id=c.document_id
-        where c.status='open' order by c.id desc limit 200`
+      `select c.*, d.filename, d.title, d.party1, d.party2, d.doc_type,
+              p.title as parent_title, p.filename as parent_filename
+         from ql_confirm c
+         left join ql_document d on d.id=c.document_id
+         left join ql_document p on p.id = nullif(c.proposal->>'parent_id','')::bigint
+        where c.status='open' and not c.blocked
+        order by (c.kind='removal') desc, c.confidence asc nulls first, c.id desc limit 200`
     )).rows;
     res.json({ confirms: rows });
   });
@@ -925,7 +959,13 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
         await q(`update ql_obligation set status='dismissed' where document_id=$1 and status in ('proposed','confirmed')`, [c.document_id]).catch(() => {});
       }
     }
-    await q(`update ql_confirm set status=$2, resolved_by=$3, resolved_at=now() where id=$1`, [id, action === "accept" ? "accepted" : "rejected", clip(by, 40) || "you"]);
+    // a rejection records WHY and pins the proposal key, so this exact suggestion
+    // is never re-made and the reason becomes a learning label
+    await q(`update ql_confirm set status=$2, resolved_by=$3, reason=$4,
+              proposal_key=coalesce(proposal_key,$5), resolved_at=now() where id=$1`,
+      [id, action === "accept" ? "accepted" : "rejected", clip(by, 40) || "you",
+       action === "reject" ? clip(req.body?.reason, 200) || null : null,
+       proposalKey(c.kind, c.proposal || {})]);
     // every confirmation is a learning label (append-only)
     await q(`insert into ql_feedback(surface, document_id, field, was, corrected, note, actor) values('confirm',$1,$2,$3,$4,$5,$6)`,
       [c.document_id, c.kind, JSON.stringify(c.proposal), action, clip(c.why, 240), clip(by, 40) || "you"]).catch(() => {});

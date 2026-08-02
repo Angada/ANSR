@@ -601,8 +601,9 @@ window.oblOwner = (id, cur) => rdForm("Assign the doer", [{ k: "owner", label: "
 
 function confCard(c, compact) {
   const p = c.proposal || {};
-  const what = c.kind === "link" ? `link to parent #${p.parent_id} as <b>${esc(p.relation_kind || "")}</b>`
-    : c.kind === "lineage" ? `same contract as #${p.other_id} (draft ↔ signed)`
+  const parent = c.parent_title || c.parent_filename || (p.parent_id ? `#${p.parent_id}` : "");
+  const what = c.kind === "link" ? `files under <b>${esc(parent)}</b> as <b>${esc(p.relation_kind || "references")}</b>`
+    : c.kind === "lineage" ? `the same contract as <b>${esc(c.other_name || ("#" + p.other_id))}</b> (draft ↔ signed)`
     : c.kind === "classification" ? `classify this document${p.doc_type ? ` as <b>${esc(p.doc_type)}</b>` : ""}`
     : c.kind === "removal" ? `mark <b>inactive</b> — the file is gone from SharePoint (record + history kept here)`
     : esc(JSON.stringify(p));
@@ -610,9 +611,38 @@ function confCard(c, compact) {
       ${compact ? "" : `<b style="cursor:pointer" onclick="openDoc(${c.document_id})">${esc(c.title || c.filename || "#" + c.document_id)}</b>`}
       ${c.confidence != null ? `<span class="am">${Math.round(Number(c.confidence) * 100)}%</span>` : ""}</div>
     <div class="why">${what}${c.why ? ` — ${esc(c.why)}` : ""}</div>
-    <div style="display:flex;gap:7px;margin-top:9px">
+    ${consequence(c)}
+    <div style="display:flex;gap:7px;margin-top:9px;align-items:center;flex-wrap:wrap">
+      ${picker(c)}
       <button class="btn small btn--org touch" onclick="confAct(${c.id},'accept','${esc(c.kind)}')">Accept</button>
-      <button class="btn small touch" onclick="confAct(${c.id},'reject','${esc(c.kind)}')">Reject</button></div></div>`;
+      <button class="btn small touch" onclick="confAct(${c.id},'reject','${esc(c.kind)}')">Not this</button></div></div>`;
+}
+// What becomes true if you accept — stated in plain words, so the button is safe
+// to press without opening anything else.
+function consequence(c) {
+  const p = c.proposal || {};
+  const t = c.kind === "classification"
+      ? "It files under this category, standing questions scoped to that type start applying, and drafting can use it as a model."
+    : c.kind === "link"
+      ? "It joins that family — the parent's terms govern it in reviews, and both pages link to each other."
+    : c.kind === "lineage"
+      ? "The two merge into one version rail; the signed copy becomes authoritative and duplicate obligations collapse."
+    : c.kind === "removal"
+      ? "It leaves the active estate and its obligations are dismissed. The record and its history are kept — nothing is deleted."
+    : "";
+  return t ? `<div class="am" style="margin-top:7px;line-height:1.5"><b>If you accept:</b> ${esc(t)}</div>` : "";
+}
+// The choice, inline. Classification is the common case: the AI's guess is
+// preselected, and picking a different one is one click — not hidden behind Accept.
+function picker(c) {
+  if (c.kind !== "classification") return "";
+  const guess = (c.proposal || {}).doc_type || "";
+  const names = CATS.map((x) => x.name);
+  if (guess && !names.some((n) => n.toLowerCase() === String(guess).toLowerCase())) names.unshift(guess);
+  return `<select id="confpick-${c.id}" style="max-width:230px;font-size:13px;border:1px solid var(--line2);border-radius:9px;padding:8px 10px">
+      ${names.map((n) => `<option ${String(n).toLowerCase() === String(guess).toLowerCase() ? "selected" : ""}>${esc(n)}</option>`).join("")}
+      ${names.length ? "" : `<option value="">— no categories yet —</option>`}
+    </select>`;
 }
 async function renderConfirm() {
   const host = $("#view-confirm");
@@ -625,16 +655,18 @@ async function renderConfirm() {
   sequenceReveal(host, ".reveal", 110, 50);
 }
 window.confAct = async (id, action, kind) => {
-  const go = async (doc_type) => {
-    await fetch(`/api/qlegal/confirm/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, doc_type }) });
-    if (OPEN) openDoc(OPEN.document.id); else renderConfirm();
-    loadRegistry(); loadCats();
-  };
-  if (action === "accept" && kind === "classification") {
-    const cats = CATS.map((c) => c.name).join(" / ");
-    return rdForm("Classify the document", [{ k: "t", label: `Category (${cats || "MSA / SOW / …"})`, ph: "pick or type a new one" }], (o) => go(o.t || undefined));
-  }
-  go();
+  if (action === "reject") return rdForm("Not this — why?", [{ k: "reason",
+    label: "One line. This is remembered: the same suggestion won't be made again, and a reason that recurs becomes a business rule.",
+    ph: "e.g. wrong parent · not that type · these aren't the same contract" }], (o) => confSend(id, "reject", kind, o.reason));
+  confSend(id, action, kind);
+};
+window.confSend = async (id, action, kind, reason) => {
+  // the dropdown IS the answer — no second modal asking what you already picked
+  const picked = document.getElementById(`confpick-${id}`)?.value;
+  await fetch(`/api/qlegal/confirm/${id}`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ action, reason, doc_type: (action === "accept" && kind === "classification") ? (picked || undefined) : undefined }) });
+  if (OPEN) openDoc(OPEN.document.id); else renderConfirm();
+  loadRegistry(); loadCats(); loadConfirmCount().then(renderNav);
 };
 
 const SCOPES = ["global", "ingestion", "registers", "search", "obligations", "drafting", "vectors", "sync"];
