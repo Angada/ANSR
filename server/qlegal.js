@@ -440,6 +440,13 @@ export async function ingestFile(f, { source = "upload", spItemId = null, spMeta
     // already computed when the cross-references were read and then discarded — a
     // contract citing a schedule nobody attached is exactly the doubt a gate exists
     // to raise, and the reader is the only party who can say whether it matters.
+    // No clause structure at all. Usually a scan: the OCR read the words but the
+    // layout that carries § numbering did not survive, so there is nothing to
+    // index. Saying so is the point — the contract IS searchable through its
+    // transcript, it simply has no clause anchors, and an answer about it cannot
+    // cite one.
+    if (derived.atom && derived.atom.structured === false && derived.mode === "ai")
+      notes.push("No clause structure could be read — the § numbering did not survive (typically a scan). The full text is stored and searchable, but there is no clause index, no § anchors and no cross-references, so answers about this contract cannot cite a clause.");
     const miss = (derived.atom && derived.atom.missing) || [];
     if (miss.length)
       notes.push(`Incomplete — this contract cites ${miss.length === 1 ? "a document" : "documents"} it does not contain: ${miss.join(", ")}. Answers about ${miss.length === 1 ? "it" : "them"} will be wrong by omission until the missing ${miss.length === 1 ? "part is" : "parts are"} uploaded.`);

@@ -143,6 +143,32 @@ export function splitClauses(text) {
   // bogus "clause" holding 60,000 characters is worse than admitting there is
   // no clause structure to map.
   if (out.length < 3) return [];
+
+  // The swallow guard, set from measurement rather than intuition.
+  //
+  // A scan taught us the failure: the Karnataka registration stamp on a lease
+  // deed reads as "26.29", was accepted as a clause because it looks like one,
+  // and then swallowed 54,819 characters — everything after a heading belongs to
+  // it until the next heading. Two such stamps held 97% of a 38-page deed, and
+  // the resulting 12-clause "index" was not incomplete but actively misleading:
+  // Ask would cite §26.29 for anything at all.
+  //
+  // Tried a running sequence check first (contracts number upward, so §26.29
+  // before §1 is rejectable). It regressed every contract tested: numbered list
+  // items inside a clause body reset the counter, legitimate sections 2, 3, 4, 12
+  // and 13 were discarded, and Insulet fell from 34 clauses to none. A rule that
+  // needs the document to be well-behaved is no use on the documents that aren't.
+  //
+  // Tried "one clause holds >40% of the text" next. That killed Insulet too — its
+  // §5.4 genuinely runs 28,143 characters, 46% of the agreement, and is correctly
+  // attributed. Size alone does not mean wrong.
+  //
+  // What does separate them is the AVERAGE. Measured across the estate: ONEDIOS
+  // 584 chars per clause, TJX 1,119, Insulet 1,813 — and the broken scan 8,333.
+  // Real clauses run one to two thousand characters. If yours average eight
+  // thousand, you have not found the clause structure, whatever the count says.
+  const total = out.reduce((n, c) => n + c.body.length, 0);
+  if (total > 20000 && total / out.length > 4000) return [];
   return out;
 }
 
