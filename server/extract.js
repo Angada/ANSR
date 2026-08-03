@@ -6,7 +6,32 @@ import { readFileSync, copyFileSync, rmSync } from "node:fs";
 import { parseOfficeAsync } from "officeparser";
 import * as XLSX from "xlsx";
 import { useOcr } from "./munshi/flag.js";
-import { ocrPdf } from "./munshi/ocr.js";
+import { ocrPdf, backfillScanned, ocrAvailable } from "./munshi/ocr.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const execFileP = promisify(execFile);
+
+// Per-page text from a PDF via poppler (already required for OCR rasterising).
+// Whole-document extraction cannot tell a 40-page contract whose schedules are
+// scans from one that is fully readable — both return "some text". Per page, the
+// difference is obvious, and we can OCR just the sparse pages.
+async function pdfPages(pdfPath) {
+  try {
+    const { stdout } = await execFileP("pdfinfo", [pdfPath], { timeout: 20000 });
+    const total = Number((stdout.match(/^Pages:\s+(\d+)/m) || [])[1] || 0);
+    if (!total) return null;
+    const pages = [];
+    for (let n = 1; n <= total; n++) {
+      let text = "";
+      try {
+        const r = await execFileP("pdftotext", ["-f", String(n), "-l", String(n), pdfPath, "-"], { timeout: 20000, maxBuffer: 12e6 });
+        text = String(r.stdout || "");
+      } catch { /* a page that won't extract is exactly what OCR is for */ }
+      pages.push({ page_no: n, text });
+    }
+    return pages;
+  } catch { return null; }   // poppler missing → caller falls back to whole-doc
+}
 
 const SHEET_EXT = new Set([".xlsx", ".xls", ".xlsm", ".csv", ".ods"]);
 const TEXT_EXT = new Set([".txt", ".md", ".markdown", ".json", ".text"]);
@@ -38,11 +63,31 @@ export async function extractFile(path, originalName) {
   if (withExt !== path) { copyFileSync(path, withExt); made = true; }
   try {
     const text = String((await parseOfficeAsync(withExt)) || "");
-    // Hybrid gate: a born-digital PDF has a real text layer — use it (free, exact).
-    // A scanned / image-only PDF returns ~nothing → fall back to vision-LLM OCR.
-    if (ext === ".pdf" && useOcr() && text.replace(/\s/g, "").length < 60) {
-      const r = await ocrPdf(withExt);
-      if (r.ocr && r.text) return { kind: "document", text: r.text, ocr: true, pages: r.pages };
+    if (ext === ".pdf" && useOcr()) {
+      // PER PAGE, not per document. The old gate only fired when the WHOLE file
+      // was near-empty, so a contract with a born-digital body and SCANNED
+      // schedules or signature pages passed on the strength of its text pages —
+      // and those scans never reached the transcript, silently. Contracts put
+      // annexures and executed signatures in exactly those pages.
+      const pages = await pdfPages(withExt);
+      if (pages && pages.length) {
+        const sparse = pages.filter((p) => p.text.replace(/\s/g, "").length < 40);
+        if (sparse.length && await ocrAvailable()) {
+          const r = await backfillScanned(withExt, pages, { minChars: 40 });
+          const merged = pages.map((p) => p.text).join("\n\n").trim();
+          if (merged) return { kind: "document", text: merged, ocr: (r.backfilled || []).length > 0,
+            pages: pages.length, ocr_pages: r.backfilled || [],
+            // an honest gap: sparse pages OCR could not recover
+            unread_pages: sparse.map((p) => p.page_no).filter((n) => !(r.backfilled || []).includes(n)) };
+        }
+        const merged = pages.map((p) => p.text).join("\n\n").trim();
+        if (merged.length >= text.replace(/\s/g, "").length) return { kind: "document", text: merged, pages: pages.length };
+      }
+      // poppler unavailable → the original whole-document fallback
+      if (text.replace(/\s/g, "").length < 60) {
+        const r = await ocrPdf(withExt);
+        if (r.ocr && r.text) return { kind: "document", text: r.text, ocr: true, pages: r.pages };
+      }
     }
     return { kind: "document", text };
   } finally {

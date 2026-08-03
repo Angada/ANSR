@@ -70,6 +70,7 @@ async function loadRegisters() { try { const j = await (await fetch("/api/qlegal
 async function loadCats() { try { CATS = ((await (await fetch("/api/qlegal/categories")).json()).categories) || []; } catch { CATS = []; } }
 async function init() {
   await loadRegistry();
+  checkReady();
   loadConfirmCount().then(renderNav); loadRegisters().then(renderNav); loadCats();
   renderNav();
   Object.values(VIEWS).forEach((v) => ($(v).hidden = true));
@@ -242,7 +243,19 @@ const REG_COLS = [
 function renderRegistry() {
   const host = $("#view-registry");
   if (OPEN) { host.innerHTML = wikiView(); sequenceReveal(host, ".reveal", 120, 50); return; }
-  const drop = `<div class="drop touch" onclick="document.getElementById('qfile').click()"
+  const notReady = READY && READY.ready === false;
+  const warn = notReady ? `<div class="wikicard reveal" style="border-left:3px solid var(--red);margin-bottom:16px">
+      <div class="rsec-lbl" style="color:var(--red)">Can't ingest contracts right now</div>
+      <p class="rsummary" style="margin:6px 0 0">${esc(READY.reason || "")}</p>
+      ${READY.fix ? `<p class="rsummary" style="margin:8px 0 0"><b>To fix:</b> ${esc(READY.fix)}</p>` : ""}
+      <div style="margin-top:11px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn small btn--org touch" onclick="setArea('settings');setSub('pipelines')">Settings → AI Pipelines ▸</button>
+        <a class="btn small touch" style="text-decoration:none" href="/admin.html">Admin → Vault ▸</a>
+        <button class="btn small touch" onclick="checkReady(true)">Check again</button>
+      </div>
+      <p class="am" style="margin:10px 0 0;line-height:1.55">Uploading is blocked on purpose. A contract read without a model would land with a transcript but no key, no contents or clause wiki, no standing-question answers and no place on the estate map — and it would look identical to a properly indexed one.</p>
+    </div>` : "";
+  const drop = notReady ? "" : `<div class="drop touch" onclick="document.getElementById('qfile').click()"
       ondragover="dzOver(event)" ondragenter="dzOver(event)" ondragleave="dzLeave(event)" ondrop="dzDrop(event)">
     <span class="ic">⇊</span>
     <div><div class="t">Drop contracts — or select files (up to 20)</div>
@@ -282,7 +295,7 @@ function renderRegistry() {
     </tr>`;
   }).join("");
   host.innerHTML = `<p class="intro"><b>CONTRACTS</b> — the estate. Filter by Legal Setting, expiry, or anything; click a contract for its page.</p>`
-    + drop + `<div id="qproc"></div>` + strip
+    + warn + drop + `<div id="qproc"></div>` + strip
     + (list.length
       ? colfChips(REG_COLS, CST, base) + `<div class="scroll-x reveal"><table class="ctable">${colfHead(REG_COLS, CST)}<tbody>${rows}</tbody></table></div>`
       : DOCS.length ? `<div class="empty">// nothing matches these filters //</div>`
@@ -328,6 +341,7 @@ window.qUpload = async (files) => {
           ? `that batch took too long and was cut off by the gateway (${r.status}). The documents before it are saved — try again with fewer files at a time.`
           : `server returned ${r.status}: ${txt.slice(0, 120)}`);
       }
+      if (r.status === 503 && j.readiness) { READY = j.readiness; renderRegistry(); throw new Error(j.error); }
       if (!r.ok) throw new Error(j.error || `server returned ${r.status}`);
       results.push(...(j.results || []));
     } catch (e) {
@@ -352,6 +366,11 @@ window.qUpload = async (files) => {
 // ==========================================================================
 // The contract page — blocks by importance
 // ==========================================================================
+let READY = null;   // can we ingest at all? (a model is required for C2/wikis/map)
+window.checkReady = async (rerender) => {
+  try { READY = await (await fetch("/api/qlegal/readiness")).json(); } catch { READY = null; }
+  if (rerender) renderRegistry();
+};
 let COVER = null;   // "what the search sees" for the open contract
 window.openDoc = async (id) => {
   try { OPEN = await (await fetch(`/api/qlegal/document/${id}`)).json(); } catch { return; }

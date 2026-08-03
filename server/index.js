@@ -813,6 +813,72 @@ app.post("/api/providers/:provider", (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- AUDIT TRAIL ----------------------------------------------------------
+// One row per state-changing request, written automatically. Hand-placed audit
+// calls only ever cover the endpoints someone remembered; this covers all of
+// them, including any added later. Reads (GET) are deliberately NOT logged —
+// they would bury the signal — except Ask/search queries, which ARE actions
+// worth tracing back to a person.
+const AUDIT_APP = [["/api/wh/", "raydar"], ["/api/qlegal/", "qlegal"], ["/api/contra/", "contra"],
+  ["/api/mint/", "mint"], ["/api/atlas/", "mint"], ["/api/roster", "mint"], ["/api/runs", "mint"],
+  ["/api/ruleset", "mint"], ["/api/customers", "mint"], ["/api/integrations", "admin"],
+  ["/api/config", "admin"], ["/api/pipelines", "admin"], ["/api/vault", "admin"], ["/api/audit", "admin"]];
+const auditAppOf = (p) => AUDIT_APP.find(([pre]) => p.startsWith(pre))?.[1] || "core";
+// a query is a GET worth recording — the user asked the system something
+const AUDIT_QUERY = /\/(ask|search|answer|qa)(\/|$|\?)/i;
+// never let a secret reach the log, even if a field is added upstream later
+const AUDIT_REDACT = /(key|token|secret|password|pw|apikey|authorization)/i;
+const auditDetail = (req) => {
+  const out = {};
+  for (const [k, v] of Object.entries(req.body || {})) {
+    if (AUDIT_REDACT.test(k)) { out[k] = "«redacted»"; continue; }
+    const s = typeof v === "string" ? v : JSON.stringify(v);
+    if (s != null) out[k] = String(s).slice(0, 300);
+  }
+  if (req.query && Object.keys(req.query).length) out._query = JSON.stringify(req.query).slice(0, 300);
+  return out;
+};
+app.use((req, res, next) => {
+  const isWrite = req.method !== "GET" && req.method !== "HEAD";
+  const isQuery = req.method === "GET" && AUDIT_QUERY.test(req.path);
+  if (!req.path.startsWith("/api/") || (!isWrite && !isQuery)) return next();
+  const t0 = Date.now();
+  res.on("finish", () => {
+    const acct = accountOf(req);
+    q(`insert into audit_log(actor, role, app, action, method, path, status, ms, ip, object_type, detail)
+       values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+      [acct?.user || "anonymous", acct?.role || null, auditAppOf(req.path),
+       isQuery ? "query" : req.path.split("/").filter(Boolean).slice(-1)[0] || req.method,
+       req.method, req.path, res.statusCode, Date.now() - t0,
+       String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.ip || null,
+       "api", JSON.stringify(auditDetail(req))]
+    ).catch(() => { /* auditing must never break the request it is recording */ });
+  });
+  next();
+});
+
+// read the trail — admin only, filterable by app, actor, action and free text
+app.get("/api/audit", async (req, res) => {
+  const acct = accountOf(req);
+  if (!acct?.admin) return res.status(403).json({ error: "admin only" });
+  const { app: a, actor, action, q: term, limit } = req.query;
+  const args = []; const w = [];
+  if (a && a !== "all") { args.push(a); w.push(`app = $${args.length}`); }
+  if (actor && actor !== "all") { args.push(actor); w.push(`actor = $${args.length}`); }
+  if (action && action !== "all") { args.push(action); w.push(`action = $${args.length}`); }
+  if (term) { args.push(`%${term}%`); w.push(`(path ilike $${args.length} or detail::text ilike $${args.length})`); }
+  args.push(Math.min(Number(limit) || 200, 1000));
+  try {
+    const rows = (await q(`select id, at, actor, role, app, action, method, path, status, ms, ip, detail
+        from audit_log ${w.length ? "where " + w.join(" and ") : ""} order by at desc limit $${args.length}`, args)).rows;
+    const facets = (await q(`select
+        (select coalesce(json_agg(distinct app), '[]') from audit_log where app is not null) as apps,
+        (select coalesce(json_agg(distinct actor), '[]') from audit_log where actor is not null) as actors,
+        (select count(*) from audit_log) as total`)).rows[0] || {};
+    res.json({ rows, facets });
+  } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 140) }); }
+});
+
 // ---- RayDar integrations (key-based: YouTube, Reddit, Perplexity, Tavily, Serper…) ----
 app.get("/api/integrations", (_req, res) => res.json({ integrations: publicIntegrations() }));
 app.post("/api/integrations/:id", (req, res) => {

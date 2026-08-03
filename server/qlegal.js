@@ -11,6 +11,7 @@ import { q } from "./db/client.js";
 import { extractFile, toMarkdown } from "./extract.js";
 import { putOriginal, putExtract, getExtract, getOriginal } from "./storage.js";
 import { runPipeline } from "./ai.js";
+import { loadConfig, getApiKey } from "./store.js";
 import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan, listSharePoint, ingestSharePointItem } from "./qlegal-sync.js";
 import { embedVersion, searchVectors, nearestDocs, embedStatus, embedSweep, clauseLibrary, estateMap, docCoverage } from "./qlegal-vectors.js";
 
@@ -424,11 +425,37 @@ async function proposeLineage(docId) {
   }
 }
 
+// Can we actually ingest? C1 is only the transcript — the KEY (C2), the contents
+// and clause wikis, the standing questions and the estate map are all model work.
+// Ingesting without a model produces documents that LOOK indexed but carry a
+// generic key: worse than refusing, because nobody can tell them apart later.
+// So we refuse, and say exactly why.
+function ingestReadiness() {
+  const cfg = loadConfig();
+  const p = cfg.pipelines["qlegal-key"];
+  if (!p) return { ready: false, reason: "The Concise Key pipeline (qlegal-key) is missing from the registry." };
+  if (!p.enabled) return { ready: false, reason: `The Concise Key pipeline is switched OFF in Settings → AI Pipelines. Without it a contract gets no key, no contents or clause wiki, and no place on the estate map.` };
+  const key = getApiKey(p.provider);
+  if (!key) return { ready: false, provider: p.provider, model: p.model,
+    reason: `No API key for ${p.provider}. C1 (the transcript) can be read without one, but the key, the contents and clause wikis, the standing questions and the estate map are all AI work — so a contract ingested now would land half-built.`,
+    fix: `Add a ${p.provider} key in Admin → Vault, or point qlegal-key at a provider that already has one in Settings → AI Pipelines.` };
+  return { ready: true, provider: p.provider, model: p.model };
+}
+
 export function mountQLegal(app, upload) {
+  // the dropzone asks this before it will accept files
+  app.get("/api/qlegal/readiness", (_req, res) => res.json(ingestReadiness()));
   // ---- ingestion: manual sync (SharePoint Graph delta sync lands here later) --
   app.post("/api/qlegal/upload", upload.array("files", 50), async (req, res) => {
     const files = req.files || [];
     if (!files.length) return res.status(400).json({ error: "no files" });
+    // refuse BEFORE storing anything — a half-built contract in the repository is
+    // worse than no contract, because it looks the same as a real one
+    const ready = ingestReadiness();
+    if (!ready.ready) {
+      for (const f of files) { try { rmSync(f.path); } catch { /* ignore */ } }
+      return res.status(503).json({ error: `Can't ingest — ${ready.reason}${ready.fix ? " " + ready.fix : ""}`, readiness: ready });
+    }
     // The browser exposes a relative path only for folder drops (webkitRelativePath);
     // an absolute path on the user's machine is never available, by design. We send
     // whatever exists, per file, and record exactly that — no more.

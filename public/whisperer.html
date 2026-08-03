@@ -651,6 +651,13 @@
   .jtl{margin-top:9px;border-left:2px solid var(--line2);padding-left:12px}
   .jtl-e{font-size:11.5px;color:var(--dim);padding:4px 0;line-height:1.5}
   .jtl-e b{color:var(--txt)} .jtl-e .t{color:var(--dim2);font-size:10.5px}
+  /* rail = navigation: clickable steps, current one clearly marked */
+  .stn.go{cursor:pointer;transition:border-color .15s,background .15s}
+  .stn.go:hover{border-color:var(--grn-dim)}
+  .stn.locked{cursor:not-allowed;opacity:.5}
+  .stn.on{border-color:var(--grn-dim);background:linear-gradient(180deg,rgba(206,69,2,.07),transparent);
+    box-shadow:0 0 0 2px rgba(206,69,2,.13)}
+  .stn.on .t{color:var(--grn)}
   </style>
 </head>
 <body>
@@ -676,6 +683,7 @@
       <div class="viewport">
         <div class="track" id="track">
           <section class="stage" id="stageHunger"></section>
+          <section class="stage" id="stageSweep" hidden></section>
           <section class="stage" id="stageIdeas"></section>
         </div>
       </div>

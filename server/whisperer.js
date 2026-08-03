@@ -37,6 +37,7 @@ const RULE_DEFAULTS = {
   youtube:    { app: "RayDar", pipeline: "trend-detect", collection: { regionCode: "IN", relevanceLanguage: "en", publishedDays: 30, maxResults: 20, commentsTopVideos: 5, commentsPerVideo: 20,
       // the YouTube FILTER — enforced deterministically at collection (drops shown with reasons, quota never spent on their comments)
       excludeShorts: true, minDurationSec: 20,   // anything shorter is a Short/meme — editable in Settings
+      minViews: 500, minComments: 0, blockChannels: [],   // quality floors + a permanent channel block list
       memeMarkers: ["meme", "memes", "funny", "comedy", "roast", "troll", "prank", "shitpost", "pov:", "wait for it", "😂", "🤣"],
       hinglishGuard: true },
     prompt: "Classify each YouTube item → demand topic (1–6 / Emerging), 1Up franchise, 4-register distribution, and the underlying question. Comments carry the real feeling — weight them." },
@@ -90,7 +91,7 @@ async function fetchYouTube(topic) {
   const publishedAfter = new Date(Date.now() - (c.publishedDays || 30) * 864e5).toISOString();
   const s = await timeout(fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=${Math.min(c.maxResults || 20, 25)}&regionCode=${c.regionCode || "IN"}&relevanceLanguage=${c.relevanceLanguage || "en"}&order=${c.order || "viewCount"}&publishedAfter=${encodeURIComponent(publishedAfter)}&q=${encodeURIComponent(topic)}&key=${encodeURIComponent(key)}`));
   const sj = await s.json();
-  const vids = (sj.items || []).map((i) => ({ id: i.id?.videoId, title: i.snippet?.title, body: i.snippet?.description, publishedAt: i.snippet?.publishedAt })).filter((v) => v.id);
+  const vids = (sj.items || []).map((i) => ({ id: i.id?.videoId, title: i.snippet?.title, body: i.snippet?.description, publishedAt: i.snippet?.publishedAt, channel: i.snippet?.channelTitle || "" })).filter((v) => v.id);
   if (!vids.length) return [];
   const stats = {};
   try {
@@ -113,6 +114,14 @@ async function fetchYouTube(topic) {
     const tl = title.toLowerCase();
     const meme = markers.find((m) => tl.includes(m));
     if (meme) return `meme/entertainment ("${meme}")`;
+    // quality floors — a six-view video is noise however long it is
+    if (c.minViews && st.views != null && st.views < c.minViews) return `too few views (${st.views})`;
+    if (c.minComments && st.comments != null && st.comments < c.minComments) return `no discussion (${st.comments} comments)`;
+    // channel block list — kill a spam channel permanently, in one line
+    const ch = String(v.channel || "").toLowerCase();
+    const blocked = (Array.isArray(c.blockChannels) ? c.blockChannels : []).map((x) => String(x).toLowerCase()).filter(Boolean)
+      .find((b) => ch && ch.includes(b));
+    if (blocked) return `blocked channel ("${blocked}")`;
     return null;
   };
   for (const v of vids) v.drop_reason = dropReason(v);

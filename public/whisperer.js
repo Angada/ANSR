@@ -32,25 +32,52 @@ let JOURNEY = null;     // the Journey board (stations · stories · dumps) for 
 const JOURNEY_ON = false;
 
 // ---- journey rail (horizontal) ---------------------------------------------
+// The rail is NAVIGATION, not decoration: three named steps you can click
+// between at any time, with the one you're standing on clearly marked.
 const STATIONS = [
-  { t: "Hunger", s: "demand in" },
+  { t: "Demand Setting", s: "what to look for" },
   { t: "Sweep", s: "collect · classify · rank" },
-  { t: "Ideas", s: "routed to 1Up" },
+  { t: "Content Ideas", s: "titles + justification" },
 ];
 function rail() {
   $("#rail").innerHTML = STATIONS.map((n, i) => {
     const idx = i + 1;
-    const cls = "stn" + (idx === STAGE ? " on" : "") + (idx < STAGE ? " done" : "");
-    const goto = idx === 1 ? `onclick="toHunger()"` : idx === 3 && BATCH ? `onclick="toIdeas()"` : "";
-    const node = `<div class="${cls}" ${goto}>
+    // step 3 is only reachable once a sweep has produced something
+    const reachable = idx === 1 || idx === 2 || (idx === 3 && !!BATCH);
+    const cls = "stn" + (idx === STAGE ? " on" : "") + (idx < STAGE ? " done" : "") + (reachable ? " go" : " locked");
+    const goto = reachable ? `onclick="goStage(${idx})"` : "";
+    const title = reachable ? "" : ` title="Run a sweep first"`;
+    const node = `<div class="${cls}" ${goto}${title}>
       <div class="no">${idx < STAGE ? "✓" : String(idx).padStart(2, "0")}</div>
       <div class="meta"><span class="t">${n.t}</span><span class="s">${n.s}</span></div></div>`;
     const link = i < STATIONS.length - 1 ? `<div class="link ${idx < STAGE ? "lit" : ""}"></div>` : "";
     return node + link;
   }).join("");
 }
-window.toHunger = () => { STAGE = 1; $("#track").classList.remove("at-ideas"); rail(); };
-window.toIdeas = () => { STAGE = 3; $("#track").classList.add("at-ideas"); rail(); };
+// one mover for all three steps — 1 and 2 live on the input screen (2 is the
+// run itself), 3 slides across to the results.
+window.goStage = (n) => {
+  if (n === 3 && !BATCH) return;
+  STAGE = n;
+  $("#track").classList.toggle("at-ideas", n === 3);
+  rail();
+  // scroll to the part of the page that step actually refers to: 1 = the feeds,
+  // 2 = the run button / progress, 3 = the results. The rail itself is sticky-ish
+  // at the top, so land just below it rather than flush against the viewport.
+  // three real sections, one visible at a time — the step you click IS the page
+  $("#stageHunger").hidden = n !== 1;
+  $("#stageSweep").hidden = n !== 2;
+  $("#stageIdeas").hidden = n !== 3;
+  if (n === 2) renderSweepReport();
+  const target = n === 1 ? $("#stageHunger") : n === 2 ? $("#stageSweep") : $("#stageIdeas");
+  if (!target) return;
+  requestAnimationFrame(() => {
+    const y = target.getBoundingClientRect().top + window.scrollY - 84;
+    window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
+  });
+};
+window.toHunger = () => goStage(1);
+window.toIdeas = () => goStage(3);
 
 // ---- sub-nav: New Sweep / Batches / Library / Settings ----------------------
 function renderSubnav() {
@@ -66,6 +93,7 @@ window.setView = (v) => {
   $("#view-batches").hidden = v !== "batches";
   $("#view-library").hidden = v !== "library";
   $("#view-rules").hidden = v !== "settings";
+  window.scrollTo({ top: 0, behavior: "smooth" });   // every tab opens at its top
   if (v === "journey") renderJourney();
   if (v === "batches") renderBatches();
   if (v === "library") loadLibrary();
@@ -110,7 +138,10 @@ const BR_EXPLAIN = {
 // the labelled quick-fields per rule (k = key in collection). type: n(umber) | t(ext) | b(ool) | l(ist, comma-joined)
 const BR_FIELDS = {
   youtube: [["publishedDays", "Look-back (days)", "n"], ["maxResults", "Videos per term", "n"], ["regionCode", "Region", "t"], ["commentsTopVideos", "Read comments from top-N", "n"], ["commentsPerVideo", "Comments per video", "n"],
-    ["excludeShorts", "Drop Shorts", "b"], ["minDurationSec", "Min duration (sec)", "n"], ["memeMarkers", "Meme markers — drop if title contains", "l"], ["hinglishGuard", "Drop romanised-Hindi titles", "b"]],
+    ["excludeShorts", "Drop Shorts", "b"], ["minDurationSec", "Min duration (sec)", "n"],
+    ["minViews", "Min views (drop below)", "n"], ["minComments", "Min comments (drop below)", "n"],
+    ["blockChannels", "Blocked channels — drop if name contains", "l"],
+    ["memeMarkers", "Meme markers — drop if title contains", "l"], ["hinglishGuard", "Drop romanised-Hindi titles", "b"]],
   reddit: [["subreddits", "Subreddits searched", "l"], ["topPosts", "Posts per term", "n"], ["timeframe", "Timeframe", "t"], ["commentTrees", "Comment trees to walk", "n"], ["commentsPerPost", "Comments per post", "n"]],
   newsapi: [["language", "Language", "t"], ["pageSize", "Articles", "n"]],
   serpapi: [["gl", "Region", "t"], ["hl", "Language", "t"], ["num", "Headlines", "n"]],
@@ -225,7 +256,7 @@ async function renderHunger() {
     : `<span class="chip" style="border-style:dashed">no research pasted</span>`;
 
   $("#stageHunger").innerHTML = `
-    <p class="intro"><b>HUNGER</b> — where does demand come from? Arm one or more feeds, then run the sweep. Demand can come from what's <b>trending</b>, from your <b>SEO</b> research, or from the <b>talent</b> themselves.</p>
+    <p class="intro"><b>DEMAND SETTING</b> — tell RayDar what to look for. Arm one or more feeds, then run the sweep. Demand can come from what's <b>trending</b>, from your <b>SEO</b> research, or from the <b>talent</b> themselves.</p>
     <div class="routes">
 
       <div class="mod ${ROUTES.trend ? "sel" : ""}">
@@ -514,7 +545,7 @@ window.onProcess = async () => {
   const gen = fetch(`/api/wh/feedstories/${BATCH.id}`, { method: "POST" });   // kick off the real AI work
   await meter(steps, "procMeter", "◎ Signal locked", gen);
   await loadIdeas();
-  STAGE = 3; toIdeas(); renderBatchPick();
+  goStage(3); renderBatchPick();      // land on Content Ideas when the sweep finishes
 };
 
 // ---- STAGE 03 · Ideas (ranked, franchise-routed, review CRUD) --------------
@@ -1039,7 +1070,7 @@ function renderIdeas(stories, franchises) {
   const emptyMsg = pending.length === 0 && done.length
     ? `<div class="empty">// all judged — nothing left in this batch //</div>`
     : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`;
-  host.innerHTML = `<p class="intro"><b>IDEAS</b> — grouped into <b>story boards</b> by concept. Mark each one <b>Used</b>, <b>Save</b> or <b>Reject</b> and it drops out of this list into the done drawer below, so the list shrinks as you go. Everything stays findable in the <b>Library</b>.</p>` +
+  host.innerHTML = `<p class="intro"><b>CONTENT IDEAS</b> — each concept becomes a story board: a title, the angle, and the justification behind it. Mark each one <b>Used</b>, <b>Save</b> or <b>Reject</b> and it drops out of this list into the done drawer below, so the list shrinks as you go. Everything stays findable in the <b>Library</b>.</p>` +
     // journeyCTA() returns "" while the Journey lane is off
     recapBlock(stories) + trendReport(stories) + feedSignalBlock() + journeyCTA(stories) + filter +
     (boards.length ? `<div class="boards">${boards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>` : emptyMsg) + doneDrawer;

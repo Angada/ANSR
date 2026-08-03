@@ -314,9 +314,98 @@ function wireTabs() {
     tab.classList.add("active"); tab.setAttribute("aria-selected", "true");
     document.querySelectorAll(".pane").forEach((p) => (p.hidden = true));
     const pane = $(`#pane-${tab.dataset.tab}`); pane.hidden = false;
+    if (tab.dataset.tab === "audit") loadAudit();
     // re-fire fade-in for any image revealed in this pane
     pane.querySelectorAll(".fade-in").forEach((el) => { el.classList.remove("fade-in"); void el.offsetWidth; el.classList.add("fade-in"); });
   }));
 }
 
 load();
+
+// ==========================================================================
+// AUDIT — every state-changing action across every app: who, what, when,
+// from where, how long it took, and what came back. Written automatically by
+// the server for EVERY api write plus every Ask/search query, so coverage does
+// not depend on anyone remembering to log. Append-only; nothing here is
+// editable from the UI by design.
+// ==========================================================================
+
+// Plain English — an endpoint like "POST /api/wh/journey/12/promote" tells an
+// engineer everything and a reader nothing. This turns each row into a sentence
+// a non-technical person can audit without asking what it means.
+const AU_SAY = [
+  [/\/api\/login/i,                 (r) => `Signed in`],
+  [/\/api\/logout/i,                () => `Signed out`],
+  [/\/api\/wh\/batch\b/i,           () => `Started a new sweep (a fresh batch of content ideas)`],
+  [/\/api\/wh\/feedstories/i,       () => `Generated content ideas for a sweep`],
+  [/\/api\/wh\/feedstory\/\d+\/action/i, (r) => { const a=(r.detail||{}).action; return a==='used'?`Marked an idea as USED`:a==='saved'?`Saved an idea for later`:a==='rejected'?`Rejected an idea${(r.detail||{}).reason?` — "${(r.detail).reason}"`:''}`:a==='edit'?`Edited an idea's heading`:a==='delete'?`Deleted an idea`:`Updated an idea (${a||'action'})`; }],
+  [/\/api\/wh\/seo\/upload/i,      () => `Uploaded SEO research (Excel/CSV)`],
+  [/\/api\/wh\/seo\b/i,            (r) => r.method==='POST'?`Pasted SEO research into the sweep`:`Removed an SEO research input`],
+  [/\/api\/wh\/theme\/compile/i,   () => `Asked RayDar to work out the search logic for a theme`],
+  [/\/api\/wh\/theme\/save/i,      (r) => `Saved a content theme${(r.detail||{}).name?` — "${(r.detail).name}"`:''}`],
+  [/\/api\/wh\/topic\b/i,          () => `Edited a demand concept`],
+  [/\/api\/wh\/rules\//i,          (r) => `Changed a business rule (${(r.path||'').split('/').pop()})`],
+  [/\/api\/wh\/journey/i,           () => `Moved a topic through the journey`],
+  [/\/api\/integrations\/[^/]+\/test/i, () => `Tested an integration key`],
+  [/\/api\/integrations/i,           (r) => `Updated an integration${(r.path||'').split('/').pop()?` — ${(r.path).split('/').pop()}`:''}`],
+  [/\/api\/pipelines\/default/i,    () => `Applied one AI model across every pipeline`],
+  [/\/api\/pipelines/i,              () => `Changed an AI pipeline (model, prompt or gate)`],
+  [/\/api\/config/i,                 () => `Changed platform configuration`],
+  [/\/api\/qlegal\/ask/i,           (r) => `Asked the legal repository a question${(r.detail||{}).question?`: "${(r.detail).question}"`:''}`],
+  [/\/api\/qlegal\/sync/i,          () => `Ran a SharePoint sync`],
+  [/\/api\/qlegal/i,                 () => `Worked in the legal repository`],
+  [/\/api\/contra/i,                 () => `Worked in contract review`],
+  [/\/api\/mint|\/api\/roster|\/api\/runs/i, () => `Worked in Mint (AR reconciliation)`],
+  [/\/api\/upload/i,                 () => `Uploaded a document`],
+];
+function auSay(r) {
+  if (r.action === 'query') return `Searched / asked a question`;
+  for (const [re, fn] of AU_SAY) if (re.test(r.path || '')) { try { return fn(r); } catch { /* fall through */ } }
+  const verb = r.method === 'DELETE' ? 'Deleted' : r.method === 'PUT' || r.method === 'PATCH' ? 'Updated' : 'Changed';
+  return `${verb} ${(r.path || '').replace('/api/', '').replace(/\//g, ' › ')}`;
+}
+
+let AU = { app: "all", actor: "all", q: "", limit: 200 };
+const auEsc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+const auDT = (ts) => { if (!ts) return ""; const p = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(new Date(ts)).reduce((a, x) => ((a[x.type] = x.value), a), {}); return `${p.day}-${p.month}-${p.year} ${p.hour}:${p.minute}:${p.second}`; };
+
+async function loadAudit() {
+  const host = document.getElementById("audit"); if (!host) return;
+  host.innerHTML = `<p class="muted">Loading the activity record…</p>`;
+  const qs = new URLSearchParams();
+  if (AU.app !== "all") qs.set("app", AU.app);
+  if (AU.actor !== "all") qs.set("actor", AU.actor);
+  if (AU.q) qs.set("q", AU.q);
+  qs.set("limit", AU.limit);
+  let d; try { d = await (await fetch(`/api/audit?${qs}`)).json(); } catch { d = null; }
+  if (!d || d.error) { host.innerHTML = `<p class="muted">Could not load the audit trail${d?.error ? ` — ${auEsc(d.error)}` : ""}.</p>`; return; }
+  const apps = ["all", ...(d.facets?.apps || [])], actors = ["all", ...(d.facets?.actors || [])];
+  const sel = (label, cur, opts, fn) => `<label class="au-f"><span>${label}</span>
+    <select onchange="${fn}(this.value)">${opts.map((o) => `<option ${cur === o ? "selected" : ""}>${auEsc(o)}</option>`).join("")}</select></label>`;
+  host.innerHTML = `
+    <p class="muted">Every state-changing action across every app — who did it, when, from where, and what came back. Written automatically by the server; append-only and not editable here. Times are IST.</p>
+    <div class="au-bar">
+      ${sel("App", AU.app, apps, "auSetApp")}
+      ${sel("User", AU.actor, actors, "auSetActor")}
+      <label class="au-f"><span>Search</span><input value="${auEsc(AU.q)}" placeholder="path or detail…" onchange="auSetQ(this.value)"></label>
+      ${sel("Rows", String(AU.limit), ["100", "200", "500", "1000"], "auSetLimit")}
+      <span class="au-n">${(d.rows || []).length} shown${d.facets?.total ? ` of ${d.facets.total} recorded` : ""}</span>
+      <button class="btn btn--ghost" onclick="loadAudit()">Refresh</button>
+    </div>
+    <div class="au-wrap"><table class="au">
+      <thead><tr><th>When (IST)</th><th>Who</th><th>App</th><th>Action</th><th>What happened</th><th>Endpoint</th><th>Result</th></tr></thead>
+      <tbody>${(d.rows || []).map((r) => `<tr class="${r.status >= 400 ? "au-bad" : ""}">
+        <td class="au-t">${auDT(r.at)}</td>
+        <td><b>${auEsc(r.actor)}</b>${r.role ? `<span class="au-r">${auEsc(r.role)}</span>` : ""}</td>
+        <td><span class="au-app">${auEsc(r.app || "—")}</span></td>
+        <td>${auEsc(r.action || "")}</td>
+        <td class="au-say">${auEsc(auSay(r))}${r.detail && Object.keys(r.detail).length ? `<span class="au-d">${auEsc(JSON.stringify(r.detail)).slice(0, 160)}</span>` : ""}</td>
+        <td class="au-p"><span class="au-m">${auEsc(r.method)}</span> ${auEsc(r.path)}</td>
+        <td>${r.status}${r.ms != null ? ` <span class="au-ms">${r.ms}ms</span>` : ""}</td>
+      </tr>`).join("") || `<tr><td colspan="7" class="muted">No activity matches these filters.</td></tr>`}</tbody>
+    </table></div>`;
+}
+window.auSetApp = (v) => { AU.app = v; loadAudit(); };
+window.auSetActor = (v) => { AU.actor = v; loadAudit(); };
+window.auSetQ = (v) => { AU.q = v.trim(); loadAudit(); };
+window.auSetLimit = (v) => { AU.limit = Number(v) || 200; loadAudit(); };
