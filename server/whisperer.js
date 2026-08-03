@@ -80,7 +80,7 @@ Object.assign(RULE_DEFAULTS, {
   factcheck: { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { languageCode: "en" }, prompt: "Check claims against published fact-checks; flag anything contradicted — never assert independently." },
   wikidata:  { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { limit: 3 }, prompt: "Ground entities and definitions against Wikipedia / Wikidata." },
   // ---- journey steps (the Hunger routes) ----
-  trend_spotting: { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { topics: 6, include_emerging: true, max_topics_per_sweep: 2, max_terms_per_topic: 3, cache_hours: 24 }, prompt: "From the chosen demand topics, frame the cohort's hunger — what they search, watch and complain about — and return the demand topics to sweep." },
+  trend_spotting: { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { topics: 6, include_emerging: true, max_topics_per_sweep: 25, max_terms_per_topic: 4, cache_hours: 24 }, prompt: "From the chosen demand topics, frame the cohort's hunger — what they search, watch and complain about — and return the demand topics to sweep." },
   seo_inputs:     { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { max_inputs: 50 }, prompt: "Parse pasted SEO research (keywords / GSC / competitor gaps) → demand signals mapped to the 6 topics; extract the highest-intent queries." },
   talentmind:     { app: "RayDar", category: "journey", pipeline: "cohort-nl-query", collection: { tenure_max_years: 2, job_seekers_only: true }, prompt: "Job seekers only, under 2 years tenure per company. Parse each corpus into TalentMind chips, cohort them, read their hunger." },
   // ---- scoring (composite rank weights + gap map) ----
@@ -230,14 +230,14 @@ async function fetchSerpNews(topic) {
 // topics may be strings or {name, terms[]}. Each concept's terms are the actual
 // search queries fired at YouTube/Reddit/News; items are tagged with the concept.
 // How much of a sweep we are willing to spend. YouTube search costs 100 quota
-// units a call against a 10,000/day default — roughly four full sweeps a day —
-// so this cap is the difference between a team that can sweep and one that
-// cannot. Editable in Settings; never silently ignored.
-let COLLECT_CAP = { topics: 2, terms: 3 };
+// units a call against a 10,000/day default. The cap is effectively OFF (25
+// themes) because the team runs about one sweep a day, which fits the budget
+// comfortably. Lower it in Settings if you start sweeping several times a day.
+let COLLECT_CAP = { topics: 25, terms: 4 };
 async function collectFeed(topics) {
   feedReset();
   const ts = (await getRule("trend_spotting")).collection || {};
-  COLLECT_CAP = { topics: Number(ts.max_topics_per_sweep) || 2, terms: Number(ts.max_terms_per_topic) || 3 };
+  COLLECT_CAP = { topics: Number(ts.max_topics_per_sweep) || 25, terms: Number(ts.max_terms_per_topic) || 4 };
   if ((topics || []).length > COLLECT_CAP.topics)
     feedNote("youtube", "sweep capped", `${topics.length} themes picked but only the first ${COLLECT_CAP.topics} were swept — YouTube search costs 100 quota units a call. Raise the cap in Settings, or run the rest as a second sweep.`);
   const out = [];

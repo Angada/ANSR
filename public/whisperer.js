@@ -23,6 +23,7 @@ let GUARD = null;       // guardrails (audience · language · region) from busi
 let SWEEP_PROMPT = "";  // the user's free-text "anything more to add?" brief
 let RECAP = null;       // "what went into this sweep" — persisted inputs, per batch
 let SHOW_DONE = false;
+let SERIES_ON = null;   // only one content series may be armed at a time
 let IDEA_TH = "all", IDEA_RG = "all", IDEA_GP = "all", IDEA_SORT = "score";  // judged ideas leave the working list (drawer, not deleted)
 let JOURNEY = null;     // the Journey board (stations · stories · dumps) for BATCH
 // ---- Journey lane: OFF ------------------------------------------------------
@@ -290,9 +291,9 @@ async function renderHunger() {
         <span class="chip pick" onclick="toggleConcepts()" title="add or edit themes">&#9881; edit concepts</span></div></div>`;
 
   const trendChips = `
-    <div class="lvl"><span class="lvl-n">Step 1</span> Pick a content series <span class="lvl-s">— selecting a family takes every theme under it</span></div>
+    <div class="lvl"><span class="lvl-n">Step 1</span> Pick <b>one</b> content series <span class="lvl-s">— one at a time; picking another switches to it</span></div>
     <div class="fams">${seriesPicker || `<span class="chip" style="border-style:dashed">no series configured</span>`}</div>
-    <div class="lvl" style="margin-top:14px"><span class="lvl-n">Step 2</span> Fine-tune the themes <span class="lvl-s">— grouped by the series they belong to</span></div>
+    <div class="lvl" style="margin-top:14px"><span class="lvl-n">Step 2</span> Fine-tune the themes <span class="lvl-s">— ${SERIES_ON ? `within ${esc(SERIES_ON)}; one theme gives the sharpest sweep` : "pick a series above first"}</span></div>
     ${themeGroups}`;
   const seoChips = seo.length
     ? seo.map((s) => `<span class="chip">${esc(s.kind)} · ${esc((s.content || "").slice(0, 20))}…<a class="x" onclick="delSeo(${s.id});return false" href="#">✕</a></span>`).join("")
@@ -336,11 +337,11 @@ async function renderHunger() {
       <span class="idx">Your brief</span>
       <textarea id="sweepPrompt" rows="2" placeholder="anything more to add in your sweep?" oninput="setSweepPrompt(this.value)">${esc(SWEEP_PROMPT)}</textarea>
     </div>
-    ${TOPICS.length > 2 ? `<div class="quota">
-      <b>${TOPICS.length} themes picked — only the first 2 will be swept.</b>
-      A YouTube search costs 100 quota units, and the daily allowance is 10,000 — about four full sweeps a day.
-      Run <b>one series or one theme at a time</b> and you get far more sweeps out of the same key.
-      Repeat a term within 24 hours and it is served from cache for free. The cap is editable in <b>Settings → Trend Spotting</b>.
+    ${TOPICS.length ? `<div class="quota">
+      <b>One content series at a time.</b> ${esc(SERIES_ON || "")}${SERIES_ON ? " is armed" : ""} — ${TOPICS.length} theme${TOPICS.length === 1 ? "" : "s"} selected.
+      <b>For the sharpest results, run one theme at a time.</b> A sweep spread across many themes returns a broader, weaker feed;
+      one theme gets the full search budget and the comments that actually answer it.
+      Re-running a theme within 24 hours is served from cache and costs no quota.
     </div>` : ""}
     <div class="process"><button class="sweep-btn" onclick="onProcess()">◎ Run the sweep</button></div>
     <div id="procMeter"></div></div>
@@ -358,16 +359,28 @@ function conceptModal() {
 }
 window.setSweepPrompt = (v) => { SWEEP_PROMPT = v; };
 window.route = (k) => { ROUTES[k] = !ROUTES[k]; renderHunger(); };
-// pick/drop a whole content series — takes every theme mapped under it
+// ONE content series at a time. Picking a series REPLACES the selection rather
+// than adding to it: a sweep aimed at a single family returns a far sharper
+// feed than one spread across four, and it keeps the quota cost predictable.
 window.toggleSeries = (fname) => {
   ROUTES.trend = true;
   const mine = ALL_TOPICS.filter((t) => t.franchise === fname && t.name !== "Emerging" && t.active !== false).map((t) => t.name);
   if (!mine.length) return rdAlert("No themes yet", `Nothing is mapped to "${fname}" yet. Add themes to it in \u2699 edit concepts.`);
-  const all = mine.every((n) => TOPICS.includes(n));
-  TOPICS = all ? TOPICS.filter((n) => !mine.includes(n)) : [...new Set([...TOPICS, ...mine])];
+  const alreadyThis = mine.every((n) => TOPICS.includes(n)) && TOPICS.length === mine.length;
+  TOPICS = alreadyThis ? [] : mine;      // click again to clear
+  SERIES_ON = alreadyThis ? null : fname;
   renderHunger();
 };
-window.toggleTopic = (name) => { ROUTES.trend = true; TOPICS = TOPICS.includes(name) ? TOPICS.filter((t) => t !== name) : [...TOPICS, name]; renderHunger(); };
+window.toggleTopic = (name) => {
+  ROUTES.trend = true;
+  const t = ALL_TOPICS.find((x) => x.name === name);
+  // picking a theme from a different series switches series rather than mixing
+  if (SERIES_ON && t && t.franchise !== SERIES_ON) { SERIES_ON = t.franchise; TOPICS = [name]; return renderHunger(); }
+  if (!SERIES_ON && t) SERIES_ON = t.franchise;
+  TOPICS = TOPICS.includes(name) ? TOPICS.filter((x) => x !== name) : [...TOPICS, name];
+  if (!TOPICS.length) SERIES_ON = null;
+  renderHunger();
+};
 window.addSeo = async () => { const content = $("#seoText")?.value.trim(); if (!content) return; ROUTES.seo = true; await fetch("/api/wh/seo", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "keywords", content }) }); renderHunger(); };
 window.uploadSeo = async (file) => {
   if (!file) return;
