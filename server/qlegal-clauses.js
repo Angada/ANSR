@@ -281,6 +281,63 @@ export async function clauseIndex(documentId, { gistChars = 90 } = {}) {
     + (dangling.length ? `\n(cites but does not contain: ${[...new Set(dangling.map((e) => e.to_ref))].join(", ")})` : "");
 }
 
+// ---- the parent routing map: the estate meta-wiki ---------------------------
+//
+// The clause index tells the model where to go INSIDE a contract. This tells it
+// which contract to open at all — the rung above. Without it, "which agreements
+// auto-renew this quarter" is answered from whichever five documents happened to
+// rank, which is a sample presented as an answer.
+//
+// Derived live from ql_document + ql_clause rather than cached: an estate map is
+// only useful if it is true, and a cache of 1000 contracts is a staleness bug
+// waiting for the ingest that forgets to refresh it. Every ingestion updates the
+// underlying rows, so the map grows by itself.
+const ANCHORS = [
+  ["term", /\bterm\b|duration/i], ["termination", /terminat/i],
+  ["liability", /liabilit/i], ["indemnity", /indemn/i],
+  ["confidentiality", /confidential|non-disclos/i], ["payment", /payment|fees|invoic/i],
+  ["governing law", /governing law|jurisdiction|dispute/i], ["renewal", /renew/i],
+];
+
+export async function estateWiki({ limit = 1000 } = {}) {
+  const docs = (await q(
+    `select d.id, d.title, d.filename, d.doc_type, d.party1, d.party2, d.counterparty,
+            d.tags, d.facts, d.latest_version, d.updated_at
+       from ql_document d order by d.updated_at desc limit $1`, [limit])).rows;
+  if (!docs.length) return { lines: [], count: 0 };
+
+  const ids = docs.map((d) => Number(d.id));
+  const counts = new Map();
+  for (const r of (await q(`select document_id, count(*)::int n from ql_clause where document_id = any($1) group by 1`, [ids])).rows)
+    counts.set(Number(r.document_id), r.n);
+
+  // the § a lawyer jumps to first, per contract — routing, not content
+  const anchorRows = (await q(
+    `select document_id, ref, coalesce(nullif(label,''), title, '') t from ql_clause
+      where document_id = any($1) and coalesce(nullif(label,''), title, '') <> '' order by ord`, [ids])).rows;
+  const anchors = new Map();
+  for (const r of anchorRows) {
+    const id = Number(r.document_id);
+    if (!anchors.has(id)) anchors.set(id, new Map());
+    const m = anchors.get(id);
+    for (const [name, re] of ANCHORS) if (!m.has(name) && re.test(r.t)) m.set(name, r.ref);
+  }
+
+  const lines = docs.map((d) => {
+    const f = d.facts || {};
+    const parties = [d.party1, d.party2 || d.counterparty].filter(Boolean).join(" ↔ ") || "parties not stated";
+    const dates = [f.start_date, f.end_date].filter(Boolean).join(" → ") || "dates not stated";
+    const a = anchors.get(Number(d.id));
+    const jump = a && a.size ? ` · jump: ${[...a].map(([k, v]) => `${k} ${v}`).join(", ")}` : "";
+    const n = counts.get(Number(d.id));
+    const tags = Array.isArray(d.tags) ? d.tags.slice(0, 6).join(",") : "";
+    return `[${d.id}] ${d.title || d.filename} · ${d.doc_type || "unclassified"} · ${parties} · ${dates}`
+      + `${f.governing_law ? ` · ${f.governing_law}` : ""}${f.value ? ` · ${f.value}` : ""}`
+      + ` · v${d.latest_version || 1}${n ? ` · ${n} clauses` : " · NOT ATOMIZED"}${tags ? ` · ${tags}` : ""}${jump}`;
+  });
+  return { lines, count: docs.length, atomized: [...counts.keys()].length };
+}
+
 export async function clauseEdges(documentId) {
   const r = await q(
     `select from_ref, to_ref, phrase, resolved

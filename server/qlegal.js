@@ -14,7 +14,7 @@ import { runPipeline } from "./ai.js";
 import { loadConfig, getApiKey } from "./store.js";
 import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan, listSharePoint, ingestSharePointItem } from "./qlegal-sync.js";
 import { embedVersion, searchVectors, nearestDocs, embedStatus, embedSweep, clauseLibrary, estateMap, docCoverage } from "./qlegal-vectors.js";
-import { atomize, clauseWiki, clauseEdges, clausesWithRefs, clauseIndex } from "./qlegal-clauses.js";
+import { atomize, clauseWiki, clauseEdges, clausesWithRefs, clauseIndex, estateWiki } from "./qlegal-clauses.js";
 
 const TENANT = "Q-LEGAL"; // ring-fenced storage namespace (vault + docstore)
 // business-rule scopes → which pipeline step each rule set is injected into
@@ -825,8 +825,23 @@ export function mountQLegal(app, upload) {
         ? "SEMANTICALLY CLOSEST CLAUSES (found by meaning, not words — each is a real § in the named contract):\n"
           + semClauses.map((s) => `- [${s.document_id}] ${s.doc_title || s.filename} ${s.ref || ""} — ${s.content}`).join("\n")
         : "";
+      // RUNG 0 · the parent routing map. Every contract in the estate on one
+      // line — parties, dates, law, version, and the § to jump to for the usual
+      // questions. The model picks the RIGHT contracts from the whole estate
+      // instead of answering from whichever five happened to rank.
+      let estateBlock = "";
+      try {
+        const ew = await estateWiki({ limit: AP.estate_map_docs || 1000 });
+        if (ew.lines.length) {
+          estateBlock = `ESTATE META-WIKI — every contract held, one line each. Use this to decide WHICH contracts answer the question; open them below for the words. "NOT ATOMIZED" means that contract has no clause index yet, so do not claim its clauses were checked:\n`
+            + ew.lines.join("\n");
+          rungs.unshift("ESTATE META-WIKI");
+        }
+      } catch { /* the map is an enrichment; the register answers still cover the estate */ }
+
       const ctx = [
         `REPOSITORY SHAPE: ${estate.map((e) => `${e.t}: ${e.c}`).join(" · ") || "empty"}`,
+        estateBlock,
         regBlock,
         soon.length ? `UPCOMING OBLIGATIONS (120 days): ${soon.map((s) => `${s.filename} — ${s.what} (${s.due_date ? String(s.due_date).slice(0, 10) : "?"})`).join(" | ")}` : "",
         semBlock, wikiBlock, linkBlock, deepBlock,
@@ -1425,6 +1440,12 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
           edges: edges.length, unresolved: edges.filter((e) => !e.resolved).length },
       });
     } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+  });
+
+  // the parent routing map — the estate meta-wiki
+  app.get("/api/qlegal/estate-wiki", async (_req, res) => {
+    try { res.json(await estateWiki({})); }
+    catch (e) { res.status(500).json({ error: String(e.message || e) }); }
   });
 
   app.get("/api/qlegal/coverage/:id", async (req, res) => {
