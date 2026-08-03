@@ -1144,6 +1144,39 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
     res.json({ log: (await q(`select * from ql_log order by id desc limit $1`, [limit])).rows });
   });
 
+  // ---- purge: empty the repository and start again --------------------------
+  // Deliberately explicit: requires {confirm:"PURGE"} in the body, reports exactly
+  // what it removed, and never touches the SOURCE. SharePoint documents are not
+  // deleted anywhere but here — the next scan will simply re-ingest them, which is
+  // the point: the derived layer is rebuildable, so emptying it is safe.
+  // Device uploads are the exception worth knowing: their vault snapshot is the
+  // ONLY copy, so purging one is permanent. That count is reported before the fact.
+  app.get("/api/qlegal/purge", async (_req, res) => {
+    const one = async (sql) => Number((await q(sql)).rows[0]?.c || 0);
+    const [docs, sp, dev, versions, vectors] = await Promise.all([
+      one(`select count(*) c from ql_document`),
+      one(`select count(*) c from ql_document where source='sharepoint'`),
+      one(`select count(*) c from ql_document where source<>'sharepoint'`),
+      one(`select count(*) c from ql_version`),
+      one(`select count(*) c from ql_embedding`).catch(() => 0),
+    ]);
+    res.json({ documents: docs, from_sharepoint: sp, from_device: dev, versions, vectors,
+      note: dev ? `${dev} device upload${dev === 1 ? "" : "s"} would be lost permanently — there is no source to re-fetch them from.` : null });
+  });
+  app.post("/api/qlegal/purge", async (req, res) => {
+    if (req.body?.confirm !== "PURGE") return res.status(400).json({ error: 'send {"confirm":"PURGE"} to proceed' });
+    const before = Number((await q(`select count(*) c from ql_document`)).rows[0]?.c || 0);
+    // ql_document cascades to version, obligation, confirm, register_hit, embedding
+    await q(`delete from ql_document`);
+    // the derived layer only — learning labels and the AI log are append-only history
+    await q(`delete from ql_confirm`).catch(() => {});
+    // reset the SharePoint delta cursor, or the next scan sees "no changes" and
+    // re-ingests nothing — the single most confusing way to purge (looks broken)
+    await q(`update ql_sync set delta_link=null where id=1`).catch(() => {});
+    res.json({ ok: true, purged: before,
+      note: "Derived layer emptied and the SharePoint delta cursor reset, so the next scan re-ingests the whole library from scratch. Business rules, standing questions, categories, tags and the AI activity log were kept." });
+  });
+
   // ---- Re-index & sweep: the repo's maintenance console -------------------------
   // Everything here is capped + resumable (call again to continue) and reuses the
   // ingestion pipeline itself — a sweep can never diverge from ingestion.
