@@ -33,6 +33,31 @@ async function pdfPages(pdfPath) {
   } catch { return null; }   // poppler missing → caller falls back to whole-doc
 }
 
+// Images per page. A page carrying 120 characters is not "read" if those
+// characters are a heading and the substance is a picture — measured on the
+// sample estate, ONEDIOS page 28 is literally "ANNEXURE-I / SCOPE OF WORK"
+// above an image of the SOW. Text-length alone calls that page fine; it isn't.
+async function pdfImages(pdfPath) {
+  try {
+    const { stdout } = await execFileP("pdfimages", ["-list", pdfPath], { timeout: 30000, maxBuffer: 12e6 });
+    const counts = new Map();
+    for (const line of String(stdout).split("\n").slice(2)) {
+      const n = Number((line.trim().split(/\s+/)[0]) || 0);
+      if (n) counts.set(n, (counts.get(n) || 0) + 1);
+    }
+    return counts;
+  } catch { return new Map(); }
+}
+
+// Pages whose substance is a figure: little text, at least one image. We do NOT
+// OCR these in this phase — we declare them, so the gate can say so out loud
+// rather than letting a contract look complete when a clause is a picture.
+function figuresFrom(pages, imgCounts) {
+  return pages
+    .filter((p) => p.text.replace(/\s/g, "").length < 200 && (imgCounts.get(p.page_no) || 0) > 0)
+    .map((p) => p.page_no);
+}
+
 const SHEET_EXT = new Set([".xlsx", ".xls", ".xlsm", ".csv", ".ods"]);
 const TEXT_EXT = new Set([".txt", ".md", ".markdown", ".json", ".text"]);
 
@@ -63,28 +88,37 @@ export async function extractFile(path, originalName) {
   if (withExt !== path) { copyFileSync(path, withExt); made = true; }
   try {
     const text = String((await parseOfficeAsync(withExt)) || "");
-    if (ext === ".pdf" && useOcr()) {
+    if (ext === ".pdf") {
       // PER PAGE, not per document. The old gate only fired when the WHOLE file
       // was near-empty, so a contract with a born-digital body and SCANNED
       // schedules or signature pages passed on the strength of its text pages —
       // and those scans never reached the transcript, silently. Contracts put
       // annexures and executed signatures in exactly those pages.
+      //
+      // Completeness is measured for EVERY pdf, not only when OCR is on: knowing
+      // which pages are unread is a poppler text question, and a deployment with
+      // OCR switched off is exactly where a silent gap does the most damage.
       const pages = await pdfPages(withExt);
       if (pages && pages.length) {
+        const imgCounts = await pdfImages(withExt);
         const sparse = pages.filter((p) => p.text.replace(/\s/g, "").length < 40);
-        if (sparse.length && await ocrAvailable()) {
+        if (sparse.length && useOcr() && await ocrAvailable()) {
           const r = await backfillScanned(withExt, pages, { minChars: 40 });
           const merged = pages.map((p) => p.text).join("\n\n").trim();
+          // figures measured AFTER backfill, so a page OCR recovered isn't blamed
           if (merged) return { kind: "document", text: merged, ocr: (r.backfilled || []).length > 0,
             pages: pages.length, ocr_pages: r.backfilled || [],
+            figure_pages: figuresFrom(pages, imgCounts),
             // an honest gap: sparse pages OCR could not recover
             unread_pages: sparse.map((p) => p.page_no).filter((n) => !(r.backfilled || []).includes(n)) };
         }
         const merged = pages.map((p) => p.text).join("\n\n").trim();
-        if (merged.length >= text.replace(/\s/g, "").length) return { kind: "document", text: merged, pages: pages.length };
+        if (merged.length >= text.replace(/\s/g, "").length) return { kind: "document", text: merged,
+          pages: pages.length, figure_pages: figuresFrom(pages, imgCounts),
+          unread_pages: sparse.map((p) => p.page_no) };
       }
       // poppler unavailable → the original whole-document fallback
-      if (text.replace(/\s/g, "").length < 60) {
+      if (useOcr() && text.replace(/\s/g, "").length < 60) {
         const r = await ocrPdf(withExt);
         if (r.ocr && r.text) return { kind: "document", text: r.text, ocr: true, pages: r.pages };
       }

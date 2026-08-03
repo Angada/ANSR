@@ -392,13 +392,27 @@ export async function ingestFile(f, { source = "upload", spItemId = null, spMeta
     // THE GATE, reported per file at upload — not discovered later on the page.
     // POC scope is explicit: non-English and hard scans are not wired up yet, so
     // say so at the door rather than filing a document that looks indexed.
-    const gate = derived.mode === "unsupported-language"
-      ? { blocked: true, why: `Not read — this contract is in ${derived.language}. Non-English contracts are not wired up yet in this POC. The transcript and the original are stored, but there is no key, no wikis, no dates and no standing-question answers.` }
-      : (extract.ocr && (derived.mode !== "ai"))
-        ? { blocked: true, why: "Not read — this is a hard scan and the key could not be extracted. Scanned contracts are not fully wired up yet in this POC. The transcript and the original are stored." }
-        : (extract.ocr ? { blocked: false, why: "Read by vision-OCR — spot-check the key before relying on it." } : null);
+    const pg = (a) => (a || []).length ? `page${a.length === 1 ? "" : "s"} ${a.join(", ")}` : "";
+    let gate = null;
+    if (derived.mode === "unsupported-language") {
+      gate = { blocked: true, why: `Not read — this contract is in ${derived.language}. Non-English contracts are not wired up yet in this POC. The transcript and the original are stored, but there is no key, no wikis, no dates and no standing-question answers.` };
+    } else if (extract.ocr && derived.mode !== "ai") {
+      gate = { blocked: true, why: "Not read — this is a hard scan and the key could not be extracted. Scanned contracts are not fully wired up yet in this POC. The transcript and the original are stored." };
+    }
+    // Notes fire even on a document that passed. A contract can be perfectly
+    // readable and still have a clause that is a picture — that page reads as
+    // complete to every downstream layer, which is the quiet way to be wrong.
+    const notes = [];
+    if ((extract.unread_pages || []).length)
+      notes.push(`${extract.unread_pages.length} of ${extract.pages} pages could not be read (${pg(extract.unread_pages)}) — scanned, and OCR did not recover them.`);
+    if ((extract.figure_pages || []).length)
+      notes.push(`Image OCR — skipped in this phase. ${extract.figure_pages.length} page${extract.figure_pages.length === 1 ? " carries" : "s carry"} their substance as an image (${pg(extract.figure_pages)}); the heading is indexed, the figure is not. Tables, flowcharts and scoped annexures on these pages are NOT searchable and will not appear in answers.`);
+    if (extract.ocr && !gate) notes.push("Read by vision-OCR — spot-check the key before relying on it.");
+    if (notes.length) gate = gate || { blocked: false, why: notes[0] };
+    if (gate) gate.notes = notes;
     return { filename: f.originalname, document_id: doc.id, version_no: versionNo, ocr: !!extract.ocr,
-      mode: derived.mode, doc_type: derived.docType, language: derived.language || null, gate };
+      mode: derived.mode, doc_type: derived.docType, language: derived.language || null,
+      pages: extract.pages || null, figure_pages: extract.figure_pages || [], unread_pages: extract.unread_pages || [], gate };
   } catch (e) {
     await q(`update ql_version set status='error', error=$2 where id=$1`, [ver.id, clip(e.message, 300)]).catch(() => {});
     return { filename: f.originalname, error: clip(e.message, 200) };

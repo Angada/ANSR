@@ -373,9 +373,17 @@ window.qUpload = async (files) => {
   const dups = results.filter((r) => r.skipped).length;
   const errs = results.filter((r) => r.error);
   await loadRegistry(); loadConfirmCount().then(renderNav); loadCats(); renderNav(); renderRegistry();
-  let msg = `${ok} of ${all.length} indexed and classified.`;
+  // The gate speaks at the door. A document that could not be read must not be
+  // counted among the ones that were, and a document that WAS read can still
+  // have a clause sitting in a picture — say so here, not on a page later.
+  const blocked = results.filter((r) => r.gate && r.gate.blocked);
+  const flagged = results.filter((r) => r.gate && !r.gate.blocked && (r.gate.notes || []).length);
+  const lines = (r) => (r.gate.notes && r.gate.notes.length ? r.gate.notes : [r.gate.why]).map((n) => `    ${n}`).join("\n");
+  let msg = `${ok - blocked.length} of ${all.length} indexed and classified.`;
   if (dups) msg += ` ${dups} skipped (already in the repository).`;
   if (errs.length) msg += ` ${errs.length} failed: ${errs.slice(0, 3).map((e) => `${e.filename} — ${e.error}`).join("; ")}${errs.length > 3 ? "…" : ""}`;
+  if (blocked.length) msg += `\n\n⚠ ${blocked.length} could NOT be read\n` + blocked.map((r) => `  • ${r.filename}\n${lines(r)}`).join("\n");
+  if (flagged.length) msg += `\n\nRead, with gaps\n` + flagged.map((r) => `  • ${r.filename}\n${lines(r)}`).join("\n");
   rdAlert("Ingestion complete", msg);
   const stub = results.find((r) => r.mode && r.mode !== "ai");
   if (stub) rdAlert("No keyed model", "Documents landed with a generic key. Point the Q-Legal pipelines at a keyed model in Settings → AI Pipelines for real extraction.");
@@ -1389,7 +1397,10 @@ async function runWithMeter(hostId, steps, promise) {
   finally { clearInterval(timer); }
 }
 function _ov(inner) { const ov = document.createElement("div"); ov.className = "ov"; ov.innerHTML = `<div class="box">${inner}</div>`; document.body.appendChild(ov); const close = () => ov.remove(); ov.onclick = (e) => { if (e.target === ov) close(); }; return { ov, close }; }
-function rdAlert(title, msg) { const { ov, close } = _ov(`<h3>${esc(title)}</h3>${msg ? `<p>${esc(msg)}</p>` : ""}<div class="row"><button class="btn btn--primary" data-ok>OK</button></div>`); ov.querySelector("[data-ok]").onclick = close; }
+// pre-wrap: the ingestion gate reports per file, one gap per line. Collapsed to
+// a paragraph those lines become an unreadable run-on, and a gap you can't read
+// is a gap you don't act on.
+function rdAlert(title, msg) { const { ov, close } = _ov(`<h3>${esc(title)}</h3>${msg ? `<p style="white-space:pre-wrap;max-height:52vh;overflow:auto">${esc(msg)}</p>` : ""}<div class="row"><button class="btn btn--primary" data-ok>OK</button></div>`); ov.querySelector("[data-ok]").onclick = close; }
 function rdConfirm(title, msg, onOk) { const { ov, close } = _ov(`<h3>${esc(title)}</h3><p>${esc(msg)}</p><div class="row"><button class="btn" data-x>Cancel</button><button class="btn btn--org" data-ok>Confirm</button></div>`); ov.querySelector("[data-x]").onclick = close; ov.querySelector("[data-ok]").onclick = () => { close(); onOk && onOk(); }; }
 function rdForm(title, fields, onOk) {
   const body = fields.map((f) => `<label style="font-size:12.5px;color:var(--dim)">${esc(f.label)}</label><input data-k="${f.k}" placeholder="${esc(f.ph || "")}" value="${esc(f.v || "")}">`).join("");
