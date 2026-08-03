@@ -644,7 +644,10 @@ window.onProcess = async () => {
     return;
   }
   await loadIdeas();
-  goStage(3); renderBatchPick();      // land on Content Ideas when the sweep finishes
+  // Land on SWEEP, not on the ideas. The evidence — what went in, what the feed
+  // returned, how each theme scored — is what makes the ideas readable. Jumping
+  // straight to the output skips the reason it looks the way it does.
+  goStage(2); renderBatchPick();
 };
 
 // ---- STAGE 03 · Ideas (ranked, franchise-routed, review CRUD) --------------
