@@ -173,11 +173,45 @@ const LINK_CONTRACT = `Return STRICT JSON only, no prose:
  "relation_kind": "amends|governed_by|supersedes|references|null", "confidence": 0-1, "why": "one line citing the tell-tale (e.g. 'pursuant to the MSA dated…')"}
 Only propose a parent when the document itself references it (by name/date/parties) — never guess from topic similarity alone.`;
 
+// Is this transcript in a script we can actually extract contract facts from?
+// A Kannada lease deed came back with an EMPTY C2 and no explanation — the
+// extractor silently produced blanks, which reads exactly like "this contract
+// says nothing". Say so instead. Detects by script, not by guessing a language:
+// if most letters are outside the Latin range, English extraction will not work.
+const NON_LATIN = /[\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0600-\u06FF\u4E00-\u9FFF\u0400-\u04FF]/g;
+const SCRIPTS = [[/[\u0C80-\u0CFF]/, "Kannada"], [/[\u0900-\u097F]/, "Hindi/Devanagari"], [/[\u0B80-\u0BFF]/, "Tamil"],
+  [/[\u0C00-\u0C7F]/, "Telugu"], [/[\u0D00-\u0D7F]/, "Malayalam"], [/[\u0980-\u09FF]/, "Bengali"],
+  [/[\u0A80-\u0AFF]/, "Gujarati"], [/[\u0A00-\u0A7F]/, "Punjabi"], [/[\u0600-\u06FF]/, "Arabic/Urdu"],
+  [/[\u4E00-\u9FFF]/, "Chinese"], [/[\u0400-\u04FF]/, "Cyrillic"]];
+function scriptCheck(c1) {
+  const t = String(c1 || "");
+  const latin = (t.match(/[A-Za-z]/g) || []).length;
+  const other = (t.match(NON_LATIN) || []).length;
+  if (other < 200 || other < latin) return null;      // English-dominant → fine
+  const name = (SCRIPTS.find(([re]) => re.test(t)) || [null, "a non-Latin script"])[1];
+  return { language: name, latin, other };
+}
+
 // ---- derive: everything downstream of C1 --------------------------------------
 // C2 key (facts · tags · contents & clause wikis · notice) → classification vs the
 // LIVE Legal Setting taxonomy → obligations → registers. Called by ingestFile on
 // every new version AND by the re-index sweep on stored C1 — one pipeline, two doors.
 async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false }) {
+  // Refuse honestly rather than returning blanks that look like "says nothing".
+  // Also saves a pointless model call on a document it cannot read.
+  const script = scriptCheck(c1);
+  if (script) {
+    const note = `This contract is in ${script.language}. The transcript (C1) is stored and searchable, but the key, wikis, dates and standing-question answers could not be extracted — the extractor reads English. Nothing here is missing from the contract; it simply has not been read.`;
+    await q(`update ql_version set c2=$2::jsonb, status='done', error=$3 where id=$1`,
+      [verId, JSON.stringify({ meta: {}, summary: "", tags: ["not-english", `lang:${script.language.toLowerCase()}`],
+        contents: [], clauses: [], exhibits: [], notice: {}, mode: "unsupported-language", unsupported_language: script.language, note }), clip(note, 300)]);
+    await q(`update ql_document set summary=$2, tags=$3::jsonb,
+              facts = coalesce(facts,'{}'::jsonb) || $4::jsonb, updated_at=now() where id=$1`,
+      [docId, note, JSON.stringify(["not-english"]), JSON.stringify({ unsupported_language: script.language })]);
+    await logRun({ pipeline: "qlegal-key", mode: "unsupported-language" },
+      { ref_type: "version", ref_id: verId, input: filename, output: `not read — ${script.language}` });
+    return { mode: "unsupported-language", docType: null, language: script.language };
+  }
   const cats = (await q(`select name from ql_category where status='active' order by name`)).rows.map((r) => r.name);
   const P = await ruleParams("c2-key");                    // the C2 dials (Settings → Business Rules)
   const rules = await rulesFor("ingestion");

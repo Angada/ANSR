@@ -247,6 +247,8 @@ const REG_COLS = [
     fmt: (v) => (v && v !== "—" ? fmtNice(v) : "no date"),
     cmp: (a, b) => String((a.facts || {}).expiry_date || "9999").localeCompare(String((b.facts || {}).expiry_date || "9999")),
     sortLabels: ["Soonest first", "Latest first"] },
+  { key: "read", label: "Read?", get: (d) => ((d.facts || {}).unsupported_language ? `not read · ${(d.facts || {}).unsupported_language}` : "read"),
+    hint: "documents we could not extract — a blank fact means NOT READ, not 'not stated'" },
   { key: "source", label: "Source", get: (d) => (d.source === "sharepoint" ? "SharePoint" : "Device upload"),
     hint: "SharePoint documents are governed by the nightly scan; device uploads are not" },
   { key: "tags", label: "Tags", get: (d) => (d.tags || []).length ? d.tags : ["—"] },
@@ -451,6 +453,12 @@ function wikiView() {
         <span class="fchip touch" style="border-style:dashed" onclick="addCategory(${d.id})">+ new category</span></div>
     </div>`;
 
+  const lang = (d.facts || {}).unsupported_language;
+  const langWarn = lang ? `<div class="wikicard reveal" style="border-left:3px solid var(--amber)">
+      <div class="rsec-lbl" style="color:var(--amber)">Not read — this contract is in ${esc(lang)}</div>
+      <p class="rsummary" style="margin:6px 0 0">The transcript (C1) is stored and searchable, and the original is safe in the vault. But the key, the contents and clause wikis, the dates and the standing-question answers <b>could not be extracted</b> — the extractor reads English.</p>
+      <p class="am" style="margin:9px 0 0">The blanks below mean <b>not read</b>, not "the contract doesn't say". Treat this document as un-indexed until it is translated or ${esc(lang)} extraction is added.</p>
+    </div>` : "";
   const summary = d.summary ? `<div class="wikicard reveal"><div class="rsec-lbl">What this contract is</div><p class="rsummary">${esc(d.summary)}</p></div>` : "";
   const confs = (OPEN.confirms || []).length ? `<div class="wikicard reveal" style="border-left:3px solid var(--amber)"><div class="rsec-lbl">Awaiting your confirmation</div>${OPEN.confirms.map((c) => confCard(c, true)).join("")}</div>` : "";
 
@@ -541,7 +549,7 @@ function wikiView() {
             <div class="am" style="margin-top:2px;line-height:1.5">${esc(k.preview)}${k.chars > 300 ? "…" : ""}</div></div>`).join("")}
         </div></details></div>`;
   })() : "";
-  return head + askDocBox(d) + parties + highlight + setting + summary + confs + regCard + noticeCard + oblCard + treeCard + nearCard + coverCard + contentsCard + clauseCard;
+  return head + langWarn + askDocBox(d) + parties + highlight + setting + summary + confs + regCard + noticeCard + oblCard + treeCard + nearCard + coverCard + contentsCard + clauseCard;
 }
 // re-embed just this contract (the sweep is estate-wide; this is the one-doc door)
 window.reindexDoc = async (id) => {
