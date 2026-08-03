@@ -622,6 +622,45 @@ function scoreExplainer(stories) {
     ${row("Strategic", st, w.strategic, "How much this theme matters to the business, set by you in the theme's weight. Not measured from the feed — this is your priority, not the internet's.")}
     ${row("Historical", h, w.historical, "How often you have accepted ideas in this sub-series before. Every Used, Saved and Rejected you mark feeds this, so the ranking tracks your taste over time.")}
     <div class="tsr-note" style="margin-top:8px">Final score = ${w.gap} × gap + ${w.velocity} × velocity + ${w.strategic} × strategic + ${w.historical} × historical. All four weights are editable in <b>Settings</b>.</div>
+    ${gapAnalysis(stories)}
+  </div>`;
+}
+
+// GAP ANALYSIS — the heart of it: what people are ASKING (comments) measured
+// against what already ANSWERS them (content). Demand vs supply, per theme,
+// with the read-out in plain words and what to do about it.
+function gapAnalysis(stories) {
+  const byTopic = {};
+  for (const s of stories || []) {
+    const b = s.score_breakdown || {}, k = s.demand_topic || "—";
+    if (!byTopic[k]) byTopic[k] = { demand: 0, supply: 0, gap: 0, type: s.gap_type, n: 0 };
+    const t = byTopic[k];
+    t.demand = Math.max(t.demand, Number(b.demand) || 0);
+    t.supply = Math.max(t.supply, Number(b.supply) || 0);
+    t.gap += Number(b.gap) || 0; t.n++; t.type = s.gap_type || t.type;
+  }
+  const rows = Object.entries(byTopic);
+  if (!rows.length) return "";
+  const READ = {
+    unanswered: ["Unanswered", "Far more is being asked than answered. Publish here — the questions are sitting there unclaimed."],
+    stale: ["Stale", "Content exists but it is old. A fresh, current take will outrank it without needing a new angle."],
+    thin: ["Thin", "Almost nothing exists on this. Either it is genuinely open ground, or the search terms are too narrow — check the terms before committing."],
+    wrong: ["Being answered badly", "The existing answers are poor or misleading. Correction is the angle."],
+    emerging: ["Emerging", "Small but moving fast. Early — get in before the field fills."],
+  };
+  return `<div class="ga">
+    <div class="tsr-k" style="margin-top:4px">${ic("target", 12)} Gap analysis — what they ask vs what already answers</div>
+    <div class="tsr-note" style="margin-bottom:8px">Demand is counted from real questions in YouTube and Reddit <b>comments</b>. Supply is the content already covering that theme. The gap is the ratio — a high gap means people are asking and nobody is answering.</div>
+    ${rows.map(([topic, t]) => {
+      const g = t.gap / Math.max(1, t.n);
+      const [label, tip] = READ[t.type] || ["Measured", "Demand and supply are close — a strong angle matters more than the topic itself."];
+      return `<div class="ga-r">
+        <div class="ga-t">${esc(topic)}<span class="ga-b ${esc(t.type || "")}">${esc(label)}</span></div>
+        <div class="ga-m"><b>${t.demand}</b> question${t.demand === 1 ? "" : "s"} asked · <b>${t.supply}</b> piece${t.supply === 1 ? "" : "s"} of content already there · gap <b>${g.toFixed(2)}</b></div>
+        <div class="ga-w">${esc(tip)}</div>
+      </div>`;
+    }).join("")}
+    ${(RECAP?.feed?.comments_read) ? `<div class="tsr-note">Read from <b>${RECAP.feed.comments_read}</b> comments across <b>${RECAP.feed.collected || 0}</b> collected items this sweep.</div>` : ""}
   </div>`;
 }
 

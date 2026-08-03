@@ -426,7 +426,7 @@ async function proposeLineage(docId) {
 
 export function mountQLegal(app, upload) {
   // ---- ingestion: manual sync (SharePoint Graph delta sync lands here later) --
-  app.post("/api/qlegal/upload", upload.array("files", 20), async (req, res) => {
+  app.post("/api/qlegal/upload", upload.array("files", 50), async (req, res) => {
     const files = req.files || [];
     if (!files.length) return res.status(400).json({ error: "no files" });
     // The browser exposes a relative path only for folder drops (webkitRelativePath);

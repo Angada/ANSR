@@ -298,27 +298,55 @@ window.dzLeave = (e) => { e.currentTarget.classList.remove("over"); };
 window.dzDrop = (e) => { e.preventDefault(); e.currentTarget.classList.remove("over"); const fs = e.dataTransfer?.files; if (fs && fs.length) qUpload(fs); };
 window.qUpload = async (files) => {
   if (!files || !files.length) return;
-  const fd = new FormData();
-  // webkitRelativePath is populated for folder drops; browsers never expose an
-  // absolute device path, so this is the most specific origin available.
-  fd.append("paths", JSON.stringify([...files].map((f) => f.webkitRelativePath || "")));
-  [...files].forEach((f) => fd.append("files", f));
-  const req = (async () => { const r = await fetch("/api/qlegal/upload", { method: "POST", body: fd }); return { ok: r.ok, j: await r.json() }; })();
-  try {
-    const { ok, j } = await runWithMeter("qproc", ["Reading file(s) · vision-OCR for scans", "Vault snapshot + C1 transcript", "Concise key · Legal Setting · contents & clause wikis", "Standing questions & obligations", "Family links & lineage"], req);
-    const p = $("#qproc"); if (p) p.innerHTML = "";
-    if (!ok) return rdAlert("Upload failed", j.error || "");
-    const done = (j.results || []).filter((r) => r.document_id).length;
-    const dups = (j.results || []).filter((r) => r.skipped).length;
-    const errs = (j.results || []).filter((r) => r.error);
-    await loadRegistry(); loadConfirmCount().then(renderNav); loadCats(); renderNav(); renderRegistry();
-    let msg = `${done} document${done === 1 ? "" : "s"} indexed and classified.`;
-    if (dups) msg += ` ${dups} skipped (already in the repository).`;
-    if (errs.length) msg += ` ${errs.length} failed: ${errs.map((e) => `${e.filename} — ${e.error}`).join("; ")}`;
-    rdAlert("Ingestion complete", msg);
-    const stub = (j.results || []).find((r) => r.mode && r.mode !== "ai");
-    if (stub) rdAlert("No keyed model", "Documents landed with a generic key. Point the Q-Legal pipelines at a keyed model in Settings → AI Pipelines for real extraction.");
-  } catch (e) { const p = $("#qproc"); if (p) p.innerHTML = ""; rdAlert("Upload failed", String(e.message || e)); }
+  // BATCHED, because one request cannot hold forty contracts. Each document runs
+  // the full chain (transcript → key → standing questions → obligations → family
+  // → vectors), which takes real model time; the load balancer's timeout is fixed
+  // for serverless backends and cannot be raised. So the browser sends a few files
+  // per request and keeps going — every batch that completes is already saved, so
+  // a failure late in a long upload never costs you the documents that landed.
+  const all = [...files];
+  const SIZE = 3;
+  const results = [];
+  const host = $("#qproc");
+  let done = 0;
+  for (let i = 0; i < all.length; i += SIZE) {
+    const chunk = all.slice(i, i + SIZE);
+    if (host) host.innerHTML = `<div class="meter"><div class="cmstep now">
+        <span class="cmi"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""></span>
+        <span>Reading ${done + 1}–${Math.min(done + chunk.length, all.length)} of ${all.length} · transcript, key, standing questions, obligations, family, vectors…</span></div>
+      <div class="track"><div class="fill" style="width:${Math.round((done / all.length) * 100)}%"></div></div></div>`;
+    const fd = new FormData();
+    fd.append("paths", JSON.stringify(chunk.map((f) => f.webkitRelativePath || "")));
+    chunk.forEach((f) => fd.append("files", f));
+    try {
+      const r = await fetch("/api/qlegal/upload", { method: "POST", body: fd });
+      const txt = await r.text();
+      let j; try { j = JSON.parse(txt); } catch {
+        // a gateway timeout returns plaintext, not JSON — say so plainly instead
+        // of leaking "Unexpected token 'u'" at the user
+        throw new Error(r.status === 504 || /timeout/i.test(txt)
+          ? `that batch took too long and was cut off by the gateway (${r.status}). The documents before it are saved — try again with fewer files at a time.`
+          : `server returned ${r.status}: ${txt.slice(0, 120)}`);
+      }
+      if (!r.ok) throw new Error(j.error || `server returned ${r.status}`);
+      results.push(...(j.results || []));
+    } catch (e) {
+      results.push(...chunk.map((f) => ({ filename: f.name, error: String(e.message || e) })));
+    }
+    done += chunk.length;
+    await loadRegistry(); renderRegistry();     // show each batch as it lands
+  }
+  if (host) host.innerHTML = "";
+  const ok = results.filter((r) => r.document_id).length;
+  const dups = results.filter((r) => r.skipped).length;
+  const errs = results.filter((r) => r.error);
+  await loadRegistry(); loadConfirmCount().then(renderNav); loadCats(); renderNav(); renderRegistry();
+  let msg = `${ok} of ${all.length} indexed and classified.`;
+  if (dups) msg += ` ${dups} skipped (already in the repository).`;
+  if (errs.length) msg += ` ${errs.length} failed: ${errs.slice(0, 3).map((e) => `${e.filename} — ${e.error}`).join("; ")}${errs.length > 3 ? "…" : ""}`;
+  rdAlert("Ingestion complete", msg);
+  const stub = results.find((r) => r.mode && r.mode !== "ai");
+  if (stub) rdAlert("No keyed model", "Documents landed with a generic key. Point the Q-Legal pipelines at a keyed model in Settings → AI Pipelines for real extraction.");
 };
 
 // ==========================================================================

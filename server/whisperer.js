@@ -36,7 +36,7 @@ const istStamp = () => { const p = new Intl.DateTimeFormat("en-GB", { timeZone: 
 const RULE_DEFAULTS = {
   youtube:    { app: "RayDar", pipeline: "trend-detect", collection: { regionCode: "IN", relevanceLanguage: "en", publishedDays: 30, maxResults: 20, commentsTopVideos: 5, commentsPerVideo: 20,
       // the YouTube FILTER — enforced deterministically at collection (drops shown with reasons, quota never spent on their comments)
-      excludeShorts: true, minDurationSec: 90,
+      excludeShorts: true, minDurationSec: 20,   // anything shorter is a Short/meme — editable in Settings
       memeMarkers: ["meme", "memes", "funny", "comedy", "roast", "troll", "prank", "shitpost", "pov:", "wait for it", "😂", "🤣"],
       hinglishGuard: true },
     prompt: "Classify each YouTube item → demand topic (1–6 / Emerging), 1Up franchise, 4-register distribution, and the underlying question. Comments carry the real feeling — weight them." },
@@ -225,7 +225,24 @@ function relevanceMatch(row) {
 // with a regional-language name. Returns the detected language, or null if English.
 const INDIC_RE = /[ऀ-ॿঀ-৿਀-੿઀-૿଀-୿஀-௿ఀ-౿ಀ-೿ഀ-ൿ]/;
 const LANG_TAG_RE = /\b(tamil|kannada|telugu|malayalam|hindi|marathi|bengali|punjabi|gujarati|urdu|odia|assamese)\b/i;
-const SCRIPT_LANG = [[/[஀-௿]/, "Tamil"], [/[ಀ-೿]/, "Kannada"], [/[ఀ-౿]/, "Telugu"], [/[ഀ-ൿ]/, "Malayalam"], [/[ऀ-ॿ]/, "Hindi/Devanagari"], [/[ঀ-৿]/, "Bengali"], [/[਀-੿]/, "Punjabi"], [/[઀-૿]/, "Gujarati"], [/[଀-୿]/, "Odia"]];
+// Script → language. English only: every regional Indian script PLUS the wider
+// Asian scripts (Thai, CJK, Korean, Arabic/Urdu, Cyrillic, Hebrew, Greek and the
+// South-East Asian family). A title in any of these is dropped at collection.
+const SCRIPT_LANG = [
+  // Indian regional
+  [/[஀-௿]/, "Tamil"], [/[ಀ-೿]/, "Kannada"], [/[ఀ-౿]/, "Telugu"], [/[ഀ-ൿ]/, "Malayalam"],
+  [/[ऀ-ॿ]/, "Hindi/Devanagari"], [/[ঀ-৿]/, "Bengali"], [/[਀-੿]/, "Punjabi"],
+  [/[઀-૿]/, "Gujarati"], [/[଀-୿]/, "Odia"], [/[඀-෿]/, "Sinhala"],
+  // South-East Asian
+  [/[฀-๿]/, "Thai"], [/[຀-໿]/, "Lao"], [/[ក-៿]/, "Khmer"],
+  [/[က-႟]/, "Burmese"],
+  // East Asian
+  [/[぀-ヿ]/, "Japanese"], [/[가-힯ᄀ-ᇿ]/, "Korean"],
+  [/[一-鿿㐀-䶿]/, "Chinese"],
+  // Other non-Latin
+  [/[؀-ۿݐ-ݿ]/, "Arabic/Urdu"], [/[Ѐ-ӿ]/, "Cyrillic"],
+  [/[֐-׿]/, "Hebrew"], [/[Ͱ-Ͽ]/, "Greek"],
+];
 // Romanised-Hindi (Hinglish) heuristic: vernacular videos often carry an
 // English-script title ("Job kaise paye", "Interview me kya bole") that the
 // Indic-script check can't see. Two or more Hinglish function-words → vernacular.
@@ -246,7 +263,8 @@ function regionalLang(title, { audioLang = null, hinglishGuard = true } = {}) {
   if (hinglishGuard && hinglishScore(t) >= 2) return "Hindi (romanised)";
   return null;
 }
-const LANG_CODE = { Tamil: "ta", Kannada: "kn", Telugu: "te", Malayalam: "ml", "Hindi/Devanagari": "hi", Bengali: "bn", Punjabi: "pa", Gujarati: "gu", Odia: "or", Hindi: "hi", Marathi: "mr", Urdu: "ur", Assamese: "as" };
+const LANG_CODE = { Tamil: "ta", Kannada: "kn", Telugu: "te", Malayalam: "ml", "Hindi/Devanagari": "hi", Bengali: "bn", Punjabi: "pa", Gujarati: "gu", Odia: "or", Hindi: "hi", Marathi: "mr", Urdu: "ur", Assamese: "as", Sinhala: "si",
+  Thai: "th", Lao: "lo", Khmer: "km", Burmese: "my", Japanese: "ja", Korean: "ko", Chinese: "zh", "Arabic/Urdu": "ar", Cyrillic: "ru", Hebrew: "he", Greek: "el" };
 // Deterministic guardrail enforcement (RULE-DRIVEN, not prompt-only): given the
 // allowed-language codes from the business rule, return a drop-reason if this item
 // violates it, else null. English/undetected always passes; ["all"] disables it.
