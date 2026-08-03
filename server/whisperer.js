@@ -653,7 +653,16 @@ export function mountWhisperer(app, slug, upload) {
     if (preview) return res.json({ preview: true, would_delete: doomed.length, remaining: kept - doomed.length, batches: doomed });
     if (!doomed.length) return res.json({ ok: true, deleted: 0, remaining: kept });
     await wq(`delete from wh_batch where id = any($1::int[])`, [doomed.map((d) => d.id)]);
-    res.json({ ok: true, deleted: doomed.length, remaining: kept - doomed.length, batches: doomed });
+    // Repeat detection lives in wh_feed_item, NOT in wh_batch — it is the memory
+    // of every URL ever collected. Deleting the sweeps left that memory intact,
+    // so a "fresh start" immediately reported everything as "already surfaced in
+    // an earlier sweep". If nothing is left, the memory must go too.
+    let forgot = 0;
+    const left = (await wq(`select count(*)::int n from wh_batch`)).rows[0]?.n ?? 0;
+    if (left === 0) {
+      forgot = (await wq(`delete from wh_feed_item returning 1`)).rows.length;
+    }
+    res.json({ ok: true, deleted: doomed.length, remaining: kept - doomed.length, forgot, batches: doomed });
   });
 
   // rename / re-describe a batch by hand

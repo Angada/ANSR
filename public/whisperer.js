@@ -1068,13 +1068,13 @@ function feedSignalBlock() {
     ${st.dropped ? `<span class="fst off"><b>${st.dropped}</b> filtered</span>` : ""}
     ${st.repeats ? `<span class="fst off"><b>${st.repeats}</b> repeats hidden</span>` : ""}
   </div>` : "";
-  const droppedBlock = dropped.length ? `<details class="fsig-dropped"><summary>▸ ${dropped.length} filtered out — see what &amp; why (Shorts · memes · language · off-topic)</summary>${dropped.map(dropRow).join("")}</details>` : "";
+  const droppedBlock = dropped.length ? `<details class="fsig-dropped" open><summary>▸ ${dropped.length} filtered out — see what &amp; why (Shorts · memes · language · off-topic)</summary>${dropped.map(dropRow).join("")}</details>` : "";
   // items seen in an EARLIER sweep — hidden by default, never removed (first sighting stays the record)
   const repeatRow = (v) => `<a class="fsig-row drop" href="${esc(v.url)}" target="_blank" rel="noopener" title="open ↗">
     <span class="fsig-src">${_srcIcon(v.source)}</span>
     <span class="fsig-main"><span class="fsig-title">${esc(v.title || "(untitled)")}</span><span class="fsig-why">${_nfmt(v.views)} views · already surfaced in an earlier sweep</span></span>
     <span class="fsig-ext">↗</span></a>`;
-  const repeatsBlock = repeats.length ? `<details class="fsig-dropped"><summary>▸ ${repeats.length} repeat${repeats.length === 1 ? "" : "s"} from earlier sweeps — hidden, not removed</summary>${repeats.map(repeatRow).join("")}</details>` : "";
+  const repeatsBlock = repeats.length ? `<details class="fsig-dropped" open><summary>▸ ${repeats.length} repeat${repeats.length === 1 ? "" : "s"} from earlier sweeps — hidden, not removed</summary>${repeats.map(repeatRow).join("")}</details>` : "";
   // tabs by source (YouTube · Reddit · SEO), only when more than one group is present
   const TAB_META = { youtube: { i: "▶️", l: "YouTube" }, reddit: { i: "👽", l: "Reddit" }, seo: { i: "✨", l: "SEO" }, other: { i: "🌐", l: "Other" } };
   const counts = kept.reduce((m, v) => { const g = grp(v); m[g] = (m[g] || 0) + 1; return m; }, {});
@@ -1210,7 +1210,7 @@ window.purgeBatches = async () => {
         if (String(typed || "").trim().toUpperCase() !== "DELETE") return rdAlert("Cancelled", "Nothing was deleted.");
       }
       const r = await (await fetch("/api/wh/batches/purge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: false }) })).json();
-      rdAlert("Purged", `${r.deleted} batch${r.deleted === 1 ? "" : "es"} deleted · ${r.remaining} remaining.`);
+      rdAlert("Purged", `${r.deleted} batch${r.deleted === 1 ? "" : "es"} deleted · ${r.remaining} remaining.${r.forgot ? ` Also cleared ${r.forgot} remembered item${r.forgot === 1 ? "" : "s"}, so the next sweep starts genuinely fresh — nothing will be marked as a repeat.` : ""}`);
       if (BATCH && (r.batches || []).some((b) => b.id === BATCH.id)) { BATCH = null; RECAP = null; renderIdeas(null); }
       BATCHES_CACHE = []; renderBatches(); renderBatchPick();
     });
