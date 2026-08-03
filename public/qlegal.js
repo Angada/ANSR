@@ -430,11 +430,27 @@ function wikiView() {
         <button class="btn small touch" onclick="fixHit(${r.id},'${esc(r.present)}','${esc(r.answer || "").replace(/'/g, "&#39;")}','${esc(r.value || "").replace(/'/g, "&#39;")}')">Correct</button>
       </div>`).join("")}</div>` : "";
   const notice = c2.notice || {};
-  const nrows = [
-    ...(notice.notice_clauses || []).map((n) => `<div class="rsummary" style="margin-bottom:6px">• notify — ${esc(n.what || "")} ${n.method ? `· ${esc(n.method)}` : ""} ${n.days ? `· ${esc(String(n.days))} days` : ""} <span class="ref">${esc(n.ref || "")}</span></div>`),
-    ...(notice.change_of_control || []).map((n) => `<div class="rsummary" style="margin-bottom:6px">• change of control — requires <b>${esc(n.requires || "notice")}</b> <span class="ref">${esc(n.ref || "")}</span></div>`),
-  ].join("");
-  const noticeCard = nrows ? `<div class="wikicard reveal"><div class="rsec-lbl">Notice machinery · the change-of-guard register</div>${nrows}${(notice.notice_contacts || []).filter(Boolean).length ? `<div class="am" style="margin-top:6px">contacts: ${esc((notice.notice_contacts || []).filter(Boolean).join(" · "))}</div>` : ""}</div>` : "";
+  // Obligations & notifications — grouped by WHAT YOU MUST DO, with the deadline
+  // as the first thing you read. A flat bullet list buried the number that matters.
+  const nItems = [
+    ...(notice.notice_clauses || []).map((n) => ({ what: n.what, days: n.days, method: n.method, ref: n.ref, kind: "notify" })),
+    ...(notice.change_of_control || []).map((n) => ({ what: "Change of control or assignment", requires: n.requires || "notice", ref: n.ref, kind: "control" })),
+  ].filter((x) => x.what);
+  const nRow = (n) => `<div style="display:flex;gap:11px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)">
+      <span class="duechip ${n.days ? (Number(n.days) <= 30 ? "due-soon" : "due-ok") : "due-none"}" style="min-width:76px;text-align:center">
+        ${n.days ? `${esc(String(n.days))} days` : n.requires ? esc(n.requires) : "—"}</span>
+      <span style="flex:1;min-width:180px;font-size:13.5px;line-height:1.55">${esc(n.what)}
+        ${n.method ? `<div class="am" style="margin-top:2px">by ${esc(n.method)}</div>` : ""}</span>
+      ${n.ref ? `<span class="ref">${esc(n.ref)}</span>` : ""}
+    </div>`;
+  const contacts = (notice.notice_contacts || []).filter(Boolean);
+  const noticeCard = nItems.length ? `<div class="wikicard reveal">
+      <div class="rsec-lbl">Obligations &amp; notifications</div>
+      <p class="am" style="margin:0 0 8px;line-height:1.55">What this contract requires you to tell the other side, and how long you have to do it.</p>
+      ${nItems.map(nRow).join("")}
+      ${contacts.length ? `<div style="margin-top:11px"><div class="rsec-lbl">Serve notice on</div>
+        ${contacts.map((c) => `<div class="am" style="padding:2px 0">${esc(c)}</div>`).join("")}</div>` : ""}
+    </div>` : "";
   const obls = (OPEN.obligations || []).map((o) => obligationRow(o, true)).join("");
   const oblCard = `<div class="wikicard reveal"><div class="rsec-lbl">Deliverables, SLAs &amp; deadlines</div>${obls || '<span class="am">none extracted</span>'}</div>`;
   const parent = OPEN.parent ? `<div class="treecard touch" onclick="openDoc(${OPEN.parent.id})">↑ <b>${esc(OPEN.parent.title || OPEN.parent.filename)}</b> <span class="relk">${esc(d.relation_kind || "parent")}${d.relation_status === "confirmed" ? " ✓" : " · proposed"}</span> <span class="am" style="margin-left:auto">open ›</span></div>` : "";

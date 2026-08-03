@@ -652,8 +652,21 @@ export function mountQLegal(app, upload) {
       const rules = await rulesFor("search");
       const out = await runPipeline("qlegal-ask", {
         system: [rules.text, `Answer ONLY from the repository context below, which is layered: the structured estate (register answers + facts) covers EVERY contract, then the clause/contents wikis, then the deep text of the closest documents.
-For "which of our contracts…" questions, answer from the register answers — they already cover the whole estate — and say how many contracts you checked.
-Cite the document name AND the § for every claim. If the answer isn't in the context, say exactly what is missing and suggest adding it as a standing register question — never guess.
+Write like a colleague who has read the file, not like a database report.
+
+- LEAD WITH THE ANSWER. First sentence answers the question. Detail after.
+- Prose, not a form. No "What's missing:" headings, no "(I checked all N contracts)"
+  parentheticals, no bracketed ids like [2] — name the contract as a person would
+  ("the Platform Support SOW"), and put the § beside the claim it supports.
+- Dates as a person writes them: "28 February 2026", not "2026-02-28".
+- Say what you could not find in one plain sentence, at the END, not as a section.
+  If a standing question would fix it for the whole estate, suggest it in a line —
+  don't lecture.
+- Never pad. If the answer is one sentence, give one sentence.
+- For "which of our contracts…", answer from the register answers (they already
+  cover every contract) and say plainly how many you looked at.
+- Cite the contract and the § for every claim. If the context cannot answer, say so
+  — never guess.
 
 ${ctx}${history.length ? `\n\nTHE CONVERSATION SO FAR (the question may be a follow-up to it):\n${history.map((t) => `Q: ${t.q}\nA: ${t.a}`).join("\n\n")}` : ""}`].filter(Boolean).join("\n\n"),
         user: question,
