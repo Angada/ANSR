@@ -215,13 +215,20 @@ async function fetchSerpNews(topic) {
 async function collectFeed(topics) {
   feedReset();
   const out = [];
+  // Collection used to run strictly sequentially — up to 6 topics x 4 terms, each
+  // round waiting on 4 APIs with a 9s timeout. Worst case that is ~24 serial
+  // rounds, which outran the request timeout and left the sweep spinning. The
+  // terms within a topic now run together, so a topic costs one round, not four.
   for (const t of (topics || []).slice(0, 6)) {
     const name = typeof t === "string" ? t : t.name;
     const terms = (typeof t === "object" && Array.isArray(t.terms) && t.terms.length) ? t.terms : [name];
-    for (const term of terms.slice(0, 4)) {
+    const rounds = await Promise.allSettled(terms.slice(0, 4).map(async (term) => {
       const batches = await Promise.allSettled([fetchYouTube(term), fetchReddit(term), fetchNews(term), fetchSerpNews(term)]);
-      for (const b of batches) if (b.status === "fulfilled") for (const it of (b.value || [])) out.push({ ...it, topic: name, term });
-    }
+      const got = [];
+      for (const b of batches) if (b.status === "fulfilled") for (const it of (b.value || [])) got.push({ ...it, topic: name, term });
+      return got;
+    }));
+    for (const r of rounds) if (r.status === "fulfilled") out.push(...r.value);
   }
   // dedupe by url within the sweep, then mark CROSS-SWEEP repeats: anything
   // already in wh_feed_item was surfaced by an earlier sweep — it stays in the

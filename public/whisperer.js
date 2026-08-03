@@ -598,8 +598,32 @@ window.onProcess = async () => {
   const b = await (await fetch("/api/wh/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
   BATCH = { id: b.id, name: b.name };
   const steps = await sweepSteps();                                          // honest: reflects live keys
-  const gen = fetch(`/api/wh/feedstories/${BATCH.id}`, { method: "POST" });   // kick off the real AI work
-  await meter(steps, "procMeter", "◎ Signal locked", gen);
+  // The generation request is long-running. It used to be awaited with the error
+  // swallowed ("surfaced by caller" — the caller never did), so a timeout or a
+  // 500 left the spinner turning for ever with no way to tell what happened.
+  // Now: a hard client-side deadline, and every failure says what it was.
+  const DEADLINE = 8 * 60 * 1000;
+  const gen = fetch(`/api/wh/feedstories/${BATCH.id}`, { method: "POST" })
+    .then(async (r) => {
+      if (!r.ok) throw new Error(`the server returned ${r.status} while writing ideas`);
+      const j = await r.json().catch(() => ({}));
+      if (j.error) throw new Error(j.error);
+      return j;
+    });
+  const guard = new Promise((_, rej) => setTimeout(() => rej(new Error("timed out")), DEADLINE));
+  let failed = null;
+  const settled = Promise.race([gen, guard]).catch((e) => { failed = e; });
+  await meter(steps, "procMeter", "◎ Signal locked", settled);
+  if (failed) {
+    const host = $("#procMeter");
+    if (host) host.innerHTML = `<div class="ferr"><div class="ferr-r"><b>The sweep did not finish</b> — ${esc(failed.message)}.
+      <span class="ferr-a">Nothing was lost: the batch is saved and any ideas already written are on Content Ideas.</span></div></div>
+      <div class="process" style="margin-top:10px">
+        <button class="btn small" onclick="loadIdeas().then(()=>goStage(3))">See what was written</button>
+        <button class="btn small" onclick="onProcess()">Try again</button></div>`;
+    renderBatchPick();
+    return;
+  }
   await loadIdeas();
   goStage(3); renderBatchPick();      // land on Content Ideas when the sweep finishes
 };
