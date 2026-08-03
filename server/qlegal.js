@@ -14,7 +14,7 @@ import { runPipeline } from "./ai.js";
 import { loadConfig, getApiKey } from "./store.js";
 import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan, listSharePoint, ingestSharePointItem } from "./qlegal-sync.js";
 import { embedVersion, searchVectors, nearestDocs, embedStatus, embedSweep, clauseLibrary, estateMap, docCoverage } from "./qlegal-vectors.js";
-import { atomize, clauseWiki, clauseEdges, clausesWithRefs, clauseIndex, estateWiki } from "./qlegal-clauses.js";
+import { atomize, clauseWiki, clauseEdges, clausesWithRefs, clauseIndex, estateWiki, verifyCitations } from "./qlegal-clauses.js";
 
 const TENANT = "Q-LEGAL"; // ring-fenced storage namespace (vault + docstore)
 // business-rule scopes → which pipeline step each rule set is injected into
@@ -908,8 +908,19 @@ ${ctx}${history.length ? `\n\nTHE CONVERSATION SO FAR (the question may be a fol
         maxTokens: 1500,
       });
       await logRun(out, { ref_type: "ask", rules: rules.codes, input: question, output: clip(out.text, 400) });
+      // Every § the answer cites is checked against the stored clause — does that
+      // reference exist, and does that clause actually discuss what the sentence
+      // claims? Measured on the live estate this catches real errors: an answer
+      // about governing law cited Insulet §4.5, which is "Disputed Amount". The
+      // clause exists, so existence alone would have passed it — the check has to
+      // be about content, and it can be, because every body is stored verbatim.
+      let citations = null;
+      try { citations = await verifyCitations(out.text, hits.map((h) => Number(h.id))); }
+      catch { /* verification is a safety net, never a reason to withhold an answer */ }
+
       res.json({
         answer: out.mode === "ai" ? out.text : "(no answer — point the Q-Legal pipelines at a keyed model in AI Skills & Pipelines)",
+        citations,
         mode: out.mode, rungs, sources: hits.map((h) => ({ id: h.id, name: h.title || h.filename })),
       });
     } catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }

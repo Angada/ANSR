@@ -370,3 +370,61 @@ export async function clausesWithRefs(documentId, refs, { hops = 1 } = {}) {
     [documentId, [...want]]);
   return r.rows;
 }
+
+// ---- citation verification --------------------------------------------------
+//
+// Measured on the live estate: of four § citations in two answers, three were
+// right and one was not — an answer about governing law cited Insulet §4.5,
+// which is "Disputed Amount", about withholding payment on a disputed invoice.
+//
+// Note what that means for the design. The clause EXISTS, so checking existence
+// alone would have waved it through. The check has to be about CONTENT: does the
+// clause the model pointed at actually discuss what the sentence claims? We can
+// ask that cheaply and deterministically, because every clause body is stored
+// verbatim — no second model call, no judgement, just words on the page.
+const STOP = new Set(["that", "this", "with", "from", "have", "which", "their", "there", "under", "shall",
+  "will", "been", "into", "than", "then", "them", "these", "those", "your", "about", "would", "could",
+  "agreement", "contract", "clause", "section", "party", "parties", "states", "stated"]);
+
+const contentWords = (s) => [...new Set(String(s || "").toLowerCase().match(/[a-z]{5,}/g) || [])]
+  .filter((w) => !STOP.has(w));
+
+// Pull each § the answer cites, together with the sentence it sits in — the
+// sentence is the claim being made, and the claim is what must be supported.
+function citedRefs(answer) {
+  const out = [];
+  for (const sentence of String(answer || "").split(/(?<=[.!?])\s+/)) {
+    for (const m of sentence.matchAll(/§\s*(\d+(?:\.\d+)*)/g))
+      out.push({ ref: `§${m[1]}`, sentence: sentence.trim() });
+  }
+  return out;
+}
+
+export async function verifyCitations(answer, documentIds = []) {
+  const refs = citedRefs(answer);
+  if (!refs.length || !documentIds.length) return { checked: 0, ok: 0, suspect: [] };
+  const rows = (await q(
+    `select document_id, ref, coalesce(nullif(label,''), title, '') label, body
+       from ql_clause where document_id = any($1)`, [documentIds])).rows;
+  const byRef = new Map();
+  for (const r of rows) {
+    if (!byRef.has(r.ref)) byRef.set(r.ref, []);
+    byRef.get(r.ref).push(r);
+  }
+
+  const suspect = [];
+  let ok = 0;
+  for (const { ref, sentence } of refs) {
+    const cands = byRef.get(ref) || [];
+    if (!cands.length) { suspect.push({ ref, why: "no clause with that reference exists in the documents read", sentence }); continue; }
+    // supported if ANY candidate clause shares real vocabulary with the claim
+    const want = contentWords(sentence);
+    const supported = cands.some((c) => {
+      const hay = `${c.label} ${c.body}`.toLowerCase();
+      return want.filter((w) => hay.includes(w)).length >= 2;
+    });
+    if (supported) ok++;
+    else suspect.push({ ref, why: `${ref} exists but reads as "${(cands[0].label || cands[0].body.slice(0, 60)).trim()}" — it does not discuss what this sentence claims`, sentence });
+  }
+  return { checked: refs.length, ok, suspect };
+}
