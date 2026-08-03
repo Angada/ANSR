@@ -1,0 +1,812 @@
+[
+  {
+    "id": 21,
+    "batch_id": 3,
+    "demand_topic": "Using AI to get better jobs",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Using AI to get better jobs: the numbers no one tells you",
+    "summary": "A Optimism take on using ai to get better jobs — TrAIbe × Accelor.",
+    "emotional_register": "Optimism",
+    "gap_type": null,
+    "score": "0.587",
+    "score_breakdown": {
+      "gap": 0.82,
+      "velocity": 0.4,
+      "strategic": 1,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 19,
+    "batch_id": 3,
+    "demand_topic": "Using AI to get better jobs",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Using AI to get better jobs: the truth no one tells you",
+    "summary": "A FOMO take on using ai to get better jobs — TrAIbe × Accelor.",
+    "emotional_register": "FOMO",
+    "gap_type": null,
+    "score": "0.587",
+    "score_breakdown": {
+      "gap": 0.82,
+      "velocity": 0.4,
+      "strategic": 1,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 20,
+    "batch_id": 3,
+    "demand_topic": "Using AI to get better jobs",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Using AI to get better jobs: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on using ai to get better jobs — TrAIbe × Accelor.",
+    "emotional_register": "Anxiety",
+    "gap_type": null,
+    "score": "0.587",
+    "score_breakdown": {
+      "gap": 0.82,
+      "velocity": 0.4,
+      "strategic": 1,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 11,
+    "batch_id": 3,
+    "demand_topic": "Keywords and resume",
+    "franchise": "Stack Up",
+    "heading": "Keywords and resume: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on keywords and resume — Stack Up.",
+    "emotional_register": "Anxiety",
+    "gap_type": null,
+    "score": "0.562",
+    "score_breakdown": {
+      "gap": 0.9,
+      "velocity": 0.4,
+      "strategic": 0.7333333333333334,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 12,
+    "batch_id": 3,
+    "demand_topic": "Keywords and resume",
+    "franchise": "Stack Up",
+    "heading": "Keywords and resume: the numbers no one tells you",
+    "summary": "A Optimism take on keywords and resume — Stack Up.",
+    "emotional_register": "Optimism",
+    "gap_type": null,
+    "score": "0.562",
+    "score_breakdown": {
+      "gap": 0.9,
+      "velocity": 0.4,
+      "strategic": 0.7333333333333334,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 10,
+    "batch_id": 3,
+    "demand_topic": "Keywords and resume",
+    "franchise": "Stack Up",
+    "heading": "Keywords and resume: the truth no one tells you",
+    "summary": "A FOMO take on keywords and resume — Stack Up.",
+    "emotional_register": "FOMO",
+    "gap_type": null,
+    "score": "0.562",
+    "score_breakdown": {
+      "gap": 0.9,
+      "velocity": 0.4,
+      "strategic": 0.7333333333333334,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 14,
+    "batch_id": 3,
+    "demand_topic": "Salary negotiation",
+    "franchise": "Pay Up",
+    "heading": "Salary negotiation: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on salary negotiation — Pay Up.",
+    "emotional_register": "Anxiety",
+    "gap_type": null,
+    "score": "0.531",
+    "score_breakdown": {
+      "gap": 0.85,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 15,
+    "batch_id": 3,
+    "demand_topic": "Salary negotiation",
+    "franchise": "Pay Up",
+    "heading": "Salary negotiation: the numbers no one tells you",
+    "summary": "A Optimism take on salary negotiation — Pay Up.",
+    "emotional_register": "Optimism",
+    "gap_type": null,
+    "score": "0.531",
+    "score_breakdown": {
+      "gap": 0.85,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 13,
+    "batch_id": 3,
+    "demand_topic": "Salary negotiation",
+    "franchise": "Pay Up",
+    "heading": "Salary negotiation: the truth no one tells you",
+    "summary": "A FOMO take on salary negotiation — Pay Up.",
+    "emotional_register": "FOMO",
+    "gap_type": null,
+    "score": "0.531",
+    "score_breakdown": {
+      "gap": 0.85,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 24,
+    "batch_id": 3,
+    "demand_topic": "Landing your dream job",
+    "franchise": "The Hot Seat",
+    "heading": "Landing your dream job: the numbers no one tells you",
+    "summary": "A Optimism take on landing your dream job — The Hot Seat.",
+    "emotional_register": "Optimism",
+    "gap_type": null,
+    "score": "0.478",
+    "score_breakdown": {
+      "gap": 0.7,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 23,
+    "batch_id": 3,
+    "demand_topic": "Landing your dream job",
+    "franchise": "The Hot Seat",
+    "heading": "Landing your dream job: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on landing your dream job — The Hot Seat.",
+    "emotional_register": "Anxiety",
+    "gap_type": null,
+    "score": "0.478",
+    "score_breakdown": {
+      "gap": 0.7,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 22,
+    "batch_id": 3,
+    "demand_topic": "Landing your dream job",
+    "franchise": "The Hot Seat",
+    "heading": "Landing your dream job: the truth no one tells you",
+    "summary": "A FOMO take on landing your dream job — The Hot Seat.",
+    "emotional_register": "FOMO",
+    "gap_type": null,
+    "score": "0.478",
+    "score_breakdown": {
+      "gap": 0.7,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 9,
+    "batch_id": 3,
+    "demand_topic": "Skills to get a new job",
+    "franchise": "Skill Up",
+    "heading": "Skills to get a new job: the numbers no one tells you",
+    "summary": "A Optimism take on skills to get a new job — Skill Up.",
+    "emotional_register": "Optimism",
+    "gap_type": null,
+    "score": "0.443",
+    "score_breakdown": {
+      "gap": 0.6,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 18,
+    "batch_id": 3,
+    "demand_topic": "Which coding tool to use",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Which coding tool to use: the numbers no one tells you",
+    "summary": "A Optimism take on which coding tool to use — TrAIbe × Accelor.",
+    "emotional_register": "Optimism",
+    "gap_type": null,
+    "score": "0.443",
+    "score_breakdown": {
+      "gap": 0.6,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 17,
+    "batch_id": 3,
+    "demand_topic": "Which coding tool to use",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Which coding tool to use: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on which coding tool to use — TrAIbe × Accelor.",
+    "emotional_register": "Anxiety",
+    "gap_type": null,
+    "score": "0.443",
+    "score_breakdown": {
+      "gap": 0.6,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 16,
+    "batch_id": 3,
+    "demand_topic": "Which coding tool to use",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Which coding tool to use: the truth no one tells you",
+    "summary": "A FOMO take on which coding tool to use — TrAIbe × Accelor.",
+    "emotional_register": "FOMO",
+    "gap_type": null,
+    "score": "0.443",
+    "score_breakdown": {
+      "gap": 0.6,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 8,
+    "batch_id": 3,
+    "demand_topic": "Skills to get a new job",
+    "franchise": "Skill Up",
+    "heading": "Skills to get a new job: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on skills to get a new job — Skill Up.",
+    "emotional_register": "Anxiety",
+    "gap_type": null,
+    "score": "0.443",
+    "score_breakdown": {
+      "gap": 0.6,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 7,
+    "batch_id": 3,
+    "demand_topic": "Skills to get a new job",
+    "franchise": "Skill Up",
+    "heading": "Skills to get a new job: the truth no one tells you",
+    "summary": "A FOMO take on skills to get a new job — Skill Up.",
+    "emotional_register": "FOMO",
+    "gap_type": null,
+    "score": "0.443",
+    "score_breakdown": {
+      "gap": 0.6,
+      "velocity": 0.4,
+      "strategic": 0.6666666666666666,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 170,
+    "batch_id": 19,
+    "demand_topic": "Using AI to get better jobs",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Using AI to get better jobs: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on using ai to get better jobs — TrAIbe × Accelor.",
+    "emotional_register": "Anxiety",
+    "gap_type": "wrong",
+    "score": "0.787",
+    "score_breakdown": {
+      "gap": 0.82,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 1,
+      "historical": 1
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 169,
+    "batch_id": 19,
+    "demand_topic": "Using AI to get better jobs",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Using AI to get better jobs: the truth no one tells you",
+    "summary": "A FOMO take on using ai to get better jobs — TrAIbe × Accelor.",
+    "emotional_register": "FOMO",
+    "gap_type": "unanswered",
+    "score": "0.787",
+    "score_breakdown": {
+      "gap": 0.82,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 1,
+      "historical": 1
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 171,
+    "batch_id": 19,
+    "demand_topic": "Using AI to get better jobs",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Using AI to get better jobs: the numbers no one tells you",
+    "summary": "A Optimism take on using ai to get better jobs — TrAIbe × Accelor.",
+    "emotional_register": "Optimism",
+    "gap_type": "unanswered",
+    "score": "0.787",
+    "score_breakdown": {
+      "gap": 0.82,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 1,
+      "historical": 1
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 166,
+    "batch_id": 19,
+    "demand_topic": "Which coding tool to use",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Which coding tool to use: the truth no one tells you",
+    "summary": "A FOMO take on which coding tool to use — TrAIbe × Accelor.",
+    "emotional_register": "FOMO",
+    "gap_type": "thin",
+    "score": "0.643",
+    "score_breakdown": {
+      "gap": 0.6,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 1
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 167,
+    "batch_id": 19,
+    "demand_topic": "Which coding tool to use",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Which coding tool to use: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on which coding tool to use — TrAIbe × Accelor.",
+    "emotional_register": "Anxiety",
+    "gap_type": "wrong",
+    "score": "0.643",
+    "score_breakdown": {
+      "gap": 0.6,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 1
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 168,
+    "batch_id": 19,
+    "demand_topic": "Which coding tool to use",
+    "franchise": "TrAIbe × Accelor",
+    "heading": "Which coding tool to use: the numbers no one tells you",
+    "summary": "A Optimism take on which coding tool to use — TrAIbe × Accelor.",
+    "emotional_register": "Optimism",
+    "gap_type": "thin",
+    "score": "0.643",
+    "score_breakdown": {
+      "gap": 0.6,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 1
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 162,
+    "batch_id": 19,
+    "demand_topic": "Keywords and resume",
+    "franchise": "Stack Up",
+    "heading": "Keywords and resume: the numbers no one tells you",
+    "summary": "A Optimism take on keywords and resume — Stack Up.",
+    "emotional_register": "Optimism",
+    "gap_type": "wrong",
+    "score": "0.562",
+    "score_breakdown": {
+      "gap": 0.9,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.73,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 161,
+    "batch_id": 19,
+    "demand_topic": "Keywords and resume",
+    "franchise": "Stack Up",
+    "heading": "Keywords and resume: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on keywords and resume — Stack Up.",
+    "emotional_register": "Anxiety",
+    "gap_type": "wrong",
+    "score": "0.562",
+    "score_breakdown": {
+      "gap": 0.9,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.73,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 160,
+    "batch_id": 19,
+    "demand_topic": "Keywords and resume",
+    "franchise": "Stack Up",
+    "heading": "Keywords and resume: the truth no one tells you",
+    "summary": "A FOMO take on keywords and resume — Stack Up.",
+    "emotional_register": "FOMO",
+    "gap_type": "wrong",
+    "score": "0.562",
+    "score_breakdown": {
+      "gap": 0.9,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.73,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 163,
+    "batch_id": 19,
+    "demand_topic": "Salary negotiation",
+    "franchise": "Pay Up",
+    "heading": "Salary negotiation: the truth no one tells you",
+    "summary": "A FOMO take on salary negotiation — Pay Up.",
+    "emotional_register": "FOMO",
+    "gap_type": "unanswered",
+    "score": "0.531",
+    "score_breakdown": {
+      "gap": 0.85,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 164,
+    "batch_id": 19,
+    "demand_topic": "Salary negotiation",
+    "franchise": "Pay Up",
+    "heading": "Salary negotiation: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on salary negotiation — Pay Up.",
+    "emotional_register": "Anxiety",
+    "gap_type": "wrong",
+    "score": "0.531",
+    "score_breakdown": {
+      "gap": 0.85,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 165,
+    "batch_id": 19,
+    "demand_topic": "Salary negotiation",
+    "franchise": "Pay Up",
+    "heading": "Salary negotiation: the numbers no one tells you",
+    "summary": "A Optimism take on salary negotiation — Pay Up.",
+    "emotional_register": "Optimism",
+    "gap_type": "unanswered",
+    "score": "0.531",
+    "score_breakdown": {
+      "gap": 0.85,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 172,
+    "batch_id": 19,
+    "demand_topic": "Landing your dream job",
+    "franchise": "The Hot Seat",
+    "heading": "Landing your dream job: the truth no one tells you",
+    "summary": "A FOMO take on landing your dream job — The Hot Seat.",
+    "emotional_register": "FOMO",
+    "gap_type": "thin",
+    "score": "0.478",
+    "score_breakdown": {
+      "gap": 0.7,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 173,
+    "batch_id": 19,
+    "demand_topic": "Landing your dream job",
+    "franchise": "The Hot Seat",
+    "heading": "Landing your dream job: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on landing your dream job — The Hot Seat.",
+    "emotional_register": "Anxiety",
+    "gap_type": "wrong",
+    "score": "0.478",
+    "score_breakdown": {
+      "gap": 0.7,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 174,
+    "batch_id": 19,
+    "demand_topic": "Landing your dream job",
+    "franchise": "The Hot Seat",
+    "heading": "Landing your dream job: the numbers no one tells you",
+    "summary": "A Optimism take on landing your dream job — The Hot Seat.",
+    "emotional_register": "Optimism",
+    "gap_type": "thin",
+    "score": "0.478",
+    "score_breakdown": {
+      "gap": 0.7,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 157,
+    "batch_id": 19,
+    "demand_topic": "Skills to get a new job",
+    "franchise": "Skill Up",
+    "heading": "Skills to get a new job: the truth no one tells you",
+    "summary": "A FOMO take on skills to get a new job — Skill Up.",
+    "emotional_register": "FOMO",
+    "gap_type": "thin",
+    "score": "0.443",
+    "score_breakdown": {
+      "gap": 0.6,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 158,
+    "batch_id": 19,
+    "demand_topic": "Skills to get a new job",
+    "franchise": "Skill Up",
+    "heading": "Skills to get a new job: the myth everyone repeats no one tells you",
+    "summary": "A Anxiety take on skills to get a new job — Skill Up.",
+    "emotional_register": "Anxiety",
+    "gap_type": "wrong",
+    "score": "0.443",
+    "score_breakdown": {
+      "gap": 0.6,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  },
+  {
+    "id": 159,
+    "batch_id": 19,
+    "demand_topic": "Skills to get a new job",
+    "franchise": "Skill Up",
+    "heading": "Skills to get a new job: the numbers no one tells you",
+    "summary": "A Optimism take on skills to get a new job — Skill Up.",
+    "emotional_register": "Optimism",
+    "gap_type": "thin",
+    "score": "0.443",
+    "score_breakdown": {
+      "gap": 0.6,
+      "live": false,
+      "demand": 0,
+      "supply": 0,
+      "weights": {
+        "gap": 0.35,
+        "velocity": 0.25,
+        "strategic": 0.2,
+        "historical": 0.2
+      },
+      "velocity": 0.4,
+      "strategic": 0.67,
+      "historical": 0
+    },
+    "why_now": "Recurring demand across India GCC talent this month."
+  }
+]

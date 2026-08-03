@@ -1,0 +1,44 @@
+{
+  "feedstory-generate": {
+    "provider": "anthropic",
+    "model": "claude-opus-4-8",
+    "enabled": true,
+    "prompt": "Produce a content idea as STRICT JSON {\"title\":\"a short, punchy, SEO-optimized title, <=60 chars, no clickbait\",\"heading\":\"the full headline / hook for the piece\",\"summary\":\"...\",\"topic_guide\":{\"take\":\"...\",\"beats\":[\"...\"],\"proof\":[\"...\"]},\"why_now\":\"...\",\"why_relevant\":\"...\",\"why_cohort\":\"...\",\"one_up\":\"...\",\"emotional_framework\":\"...\",\"emotional_register\":\"a SHORT label only, e.g. Anxiety / FOMO / Optimism / Ambition — never a sentence\"}. 'title' and 'heading' are the key deliverables: title is the tight optimized title, heading is the fuller headline. The output is a title + headline + brief for a writer — do NOT write the finished piece. Be scientific AND creative in the justifications."
+  },
+  "raydar-classify": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "enabled": true,
+    "prompt": "Classify one feed item. Return STRICT JSON {\"topic\":\"1..6|Emerging\",\"franchise\":\"...\",\"registers\":{\"FOMO\":0-1,\"Anxiety\":0-1,\"Optimism\":0-1,\"Ambition\":0-1},\"question\":\"the underlying question in the talent's head\"}. Comments/comment-trees carry the real feeling — weight them."
+  },
+  "raydar-contradiction": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "enabled": true,
+    "prompt": "Given an idea and research results, return STRICT JSON {\"evidence\":[{\"claim\":\"...\",\"source\":\"url\"}],\"contradictions\":[{\"claim\":\"...\",\"conflict\":\"...\"}]}. Only cite what the sources support."
+  },
+  "raydar-theme-compile": {
+    "provider": "anthropic",
+    "model": "claude-opus-4-8",
+    "enabled": true,
+    "prompt": "You compile a content theme description into operational search logic for an Indian job-seeker / GCC-talent audience. Return STRICT JSON {\"terms\":[\"6-10 short, high-intent phrases a job seeker would actually TYPE into YouTube or Reddit — not marketing phrasing\"],\"franchise\":\"the sub-series this routes to\",\"question\":\"the one question in the candidate's head, in their voice\",\"registers\":[\"which of FOMO / Anxiety / Optimism / Ambition this theme usually carries\"],\"on_theme\":[\"signals that an item genuinely belongs to this theme\"],\"off_theme\":[\"look-alike subjects that must NOT be collected under it\"],\"why\":\"one plain sentence on how you read the description\"}. Derive everything from the description given — do not import assumptions from other themes. Keep terms in India-English, lower case, 2-6 words."
+  },
+  "hunger-generate": {
+    "provider": "anthropic",
+    "model": "claude-opus-4-8",
+    "enabled": true,
+    "prompt": "From the batch's routes (trend chips + SEO text + cohort chips), write a warm, specific Hunt Outcome. Return STRICT JSON {\"who\":\"...\",\"cares_about\":[\"...\"],\"likely_searches\":[\"...\"],\"motivations\":[\"...\"],\"emotional_drivers\":[\"...\"],\"demand_topics\":[\"...\"]}."
+  },
+  "raydar-terms": {
+    "provider": "anthropic",
+    "model": "claude-opus-4-8",
+    "enabled": true,
+    "prompt": "Propose short, high-intent search terms a job seeker would actually type, for the given demand concept, in the audience's language. Return STRICT JSON {\"terms\":[\"...\"]}."
+  },
+  "trend-detect": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "enabled": true,
+    "prompt": "Given feed items, surface the strongest emerging trends relevant to the demand topics. Return STRICT JSON {\"trends\":[{\"title\":\"...\",\"signal\":\"...\",\"why_trending\":\"...\"}]}."
+  }
+}

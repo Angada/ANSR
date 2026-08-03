@@ -685,6 +685,83 @@
   .tgrp-h{display:flex;align-items:center;gap:10px;margin-bottom:6px;
     font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--dim2)}
   .tgrp-h i{flex:1;height:1px;background:var(--line2)}
+  /* ---- Theme editor readability -------------------------------------------
+     Problem: instructions, labels and inputs all looked the same weight, so it
+     was unclear what you were meant to type into. Now: instructions sit on a
+     tinted rule, labels are small caps, and every input has a white field on a
+     tinted card so the typing area is obvious. */
+  .tcard{background:var(--bg2);border:1px solid var(--line2);box-shadow:0 1px 0 rgba(0,0,0,.02)}
+  .tcard textarea,.tcard-h input,.tcard-h select,.tcomp-r .tv input{background:#fff !important;border:1px solid var(--line2)}
+  .tcard textarea:focus,.tcard-h input:focus,.tcomp-r .tv input:focus{border-color:var(--grn-dim);box-shadow:0 0 0 3px rgba(206,69,2,.10)}
+  .tcard .fld{color:var(--grn);font-size:10.5px;letter-spacing:.08em}
+  .tcard-h{padding-bottom:10px;border-bottom:1px dashed var(--line2);margin-bottom:2px}
+  .tcard-h input:first-child{background:#fff !important;font-size:14px}
+  /* an instruction is never a field — tinted, italic, with a left rule */
+  .tset-i{background:rgba(0,84,101,.05);border-left:3px solid var(--cyan);border-radius:0 10px 10px 0;
+    padding:11px 14px;color:var(--txt)}
+  .tcomp{background:#fff}
+  .tcomp-empty{background:#fff;color:var(--dim)}
+  .tcomp-why{background:rgba(0,84,101,.05);border-radius:8px;padding:7px 10px;font-style:normal;color:var(--cyan)}
+  .tcomp-n{color:var(--dim2)}
+  .cmodal-b{background:var(--bg)}
+  /* ---- Series hierarchy: the parent must LOOK like a parent ---------------
+     1Up and its sub-series were rendering as identical chips at the same
+     visual level, so the family structure was invisible. The parent is now a
+     header band across the card; the children are indented off a left rail. */
+  .fam{padding:0;overflow:hidden;background:var(--panel);min-width:min(100%,300px)}
+  .chip.series.top{display:flex;width:100%;border:0;border-radius:0;background:rgba(206,69,2,.07);
+    padding:11px 14px;font-size:14.5px;font-weight:800;letter-spacing:-.01em;justify-content:flex-start}
+  .chip.series.top.on,.chip.series.top.part{background:rgba(206,69,2,.15);color:var(--grn)}
+  .chip.series.top .n{margin-left:auto;font-size:11px;opacity:.8}
+  .fam-k{display:block;margin:0;padding:10px 14px 12px 22px;border-top:1px solid var(--line);position:relative}
+  /* the rail that ties children to their parent */
+  .fam-k::before{content:"";position:absolute;left:13px;top:12px;bottom:14px;width:2px;
+    background:var(--line2);border-radius:2px}
+  .fam-k .chip.series.sub{display:inline-flex;margin:0 6px 6px 0;font-size:12.5px;background:var(--bg2)}
+  .fam-k .chip.series.sub.on{background:rgba(206,69,2,.10)}
+  .fams{align-items:flex-start}
+  /* ---- Demand Setting: one container, Feed 01 full-width ------------------ */
+  .panel1{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);padding:16px}
+  .panel1 .routes{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0}
+  .panel1 .mod{margin:0}
+  .panel1 .mod:first-child{grid-column:1 / -1}          /* Feed 01 end-to-end */
+  .panel1 .sweepbox{margin:12px 0 0}
+  .panel1 .process{margin:12px 0 0}
+  @media(max-width:720px){.panel1 .routes{grid-template-columns:1fr}}
+
+  /* ---- Series vs sub-series: unmistakably different ---------------------- */
+  .fams{display:block}
+  .fam{display:block;width:100%;margin-bottom:10px;padding:0;background:var(--panel);
+    border:1px solid var(--line2);border-radius:12px;overflow:hidden}
+  .chip.series.top{display:flex;align-items:center;width:100%;border:0;border-radius:0;
+    background:var(--cyan);color:#fff;padding:12px 15px;font-size:15px;font-weight:800;letter-spacing:-.01em}
+  .chip.series.top.on,.chip.series.top.part{background:var(--grn);color:#fff}
+  .chip.series.top::before{content:"SERIES";font-size:9.5px;font-weight:800;letter-spacing:.12em;
+    opacity:.75;margin-right:10px;border:1px solid rgba(255,255,255,.5);border-radius:999px;padding:2px 7px}
+  .chip.series.top .n{margin-left:auto;font-size:12px;opacity:.9}
+  .fam-k{display:block;padding:10px 15px 12px 15px;background:var(--bg2);border-top:0}
+  .fam-k::before{content:"Sub-series";display:block;font-size:9.5px;font-weight:800;
+    letter-spacing:.12em;text-transform:uppercase;color:var(--dim2);margin-bottom:7px;position:static;
+    width:auto;height:auto;background:none}
+  .fam-k .chip.series.sub{display:inline-flex;margin:0 6px 6px 0;font-size:12.5px;
+    background:#fff;border:1px solid var(--line2);border-radius:999px;font-weight:600}
+  .fam-k .chip.series.sub.on{background:rgba(206,69,2,.10);border-color:var(--grn-dim);color:var(--grn)}
+  /* all content series are peers — equal chips, no parent band, no nesting */
+  .fams{display:flex;flex-wrap:wrap;gap:9px;align-items:stretch}
+  .fam{display:contents}
+  .chip.series.top{display:inline-flex;align-items:center;gap:9px;width:auto;
+    border:1px solid var(--line2);border-radius:999px;background:#fff;color:var(--txt);
+    padding:9px 15px;font-size:13.5px;font-weight:700;letter-spacing:0}
+  .chip.series.top::before{content:none}
+  .chip.series.top.on{background:rgba(206,69,2,.10);border-color:var(--grn-dim);color:var(--grn)}
+  .chip.series.top.part{background:rgba(199,123,43,.10);border-color:var(--amber);color:var(--amber)}
+  .chip.series.top .n{margin-left:0;font-size:11px;opacity:.65}
+  .fam-k{display:none}
+  /* a source that refused us says so — never a silent empty result */
+  .ferr{margin-top:9px;border:1px solid var(--red);border-left:3px solid var(--red);
+    border-radius:8px;background:rgba(192,57,43,.06);padding:9px 11px}
+  .ferr-r{font-size:12.5px;line-height:1.6;color:var(--red)}
+  .ferr-a{font-weight:600}
   </style>
 </head>
 <body>

@@ -259,7 +259,9 @@ async function renderHunger() {
   // to, so you can see the mapping and deselect individual ones.
   const live = ALL_TOPICS.filter((t) => t.name !== "Emerging" && t.active !== false);
   const themesOf = (fname) => live.filter((t) => t.franchise === fname);
-  const parents = FRANCHISES.filter((f) => f.active !== false && !f.parent);
+  // All content series are PEERS — 1Up, Skill Up, Interview Lab, Resume Lab sit
+  // at the same level. No parent/child nesting: the team treats them equally.
+  const parents = FRANCHISES.filter((f) => f.active !== false);
   const kidsOf = (p) => FRANCHISES.filter((f) => f.active !== false && f.parent === p);
 
   const seriesChip = (f, sub) => {
@@ -271,17 +273,10 @@ async function renderHunger() {
       title="${esc(f.blurb || "")}${mine.length ? ` · ${mine.length} theme${mine.length === 1 ? "" : "s"}` : " · no themes yet"}">
       ${all ? "✓ " : some ? "– " : ""}${esc(f.name)}${mine.length ? `<b class="n">${mine.length}</b>` : ""}</span>`;
   };
-  const seriesPicker = parents.map((p) => {
-    const kids = kidsOf(p.name);
-    return `<div class="fam">
-      ${seriesChip(p, false)}
-      ${kids.length ? `<div class="fam-k">${kids.map((k) => seriesChip(k, true)).join("")}</div>` : ""}
-    </div>`;
-  }).join("");
+  const seriesPicker = parents.map((p) => seriesChip(p, false)).join("");
 
   // themes grouped by the series they sit under, divider between each group
-  const groups = [...parents, ...parents.flatMap((p) => kidsOf(p.name))]
-    .map((f) => [f, themesOf(f.name)]).filter(([, t]) => t.length);
+  const groups = parents.map((f) => [f, themesOf(f.name)]).filter(([, t]) => t.length);
   const orphans = live.filter((t) => !FRANCHISES.some((f) => f.name === t.franchise && f.active !== false));
   const themeChip = (t) => `<span class="chip pick ${TOPICS.includes(t.name) ? "on" : ""}"
       onclick="toggleTopic('${esc(t.name).replace(/'/g, "\\'")}')"
@@ -289,8 +284,10 @@ async function renderHunger() {
   const themeGroups = groups.map(([f, ts]) => `<div class="tgrp">
       <div class="tgrp-h"><span>${esc(f.name)}</span><i></i></div>
       <div class="chips">${ts.map(themeChip).join("")}</div></div>`).join("")
-    + (orphans.length ? `<div class="tgrp"><div class="tgrp-h"><span>Unmapped</span><i></i></div>
-      <div class="chips">${orphans.map(themeChip).join("")}</div></div>` : "");
+    + `<div class="tgrp"><div class="tgrp-h"><span>Others</span><i></i></div>
+      <div class="chips">${orphans.length ? orphans.map(themeChip).join("")
+        : `<span class="chip" style="border-style:dashed;color:var(--dim2)">nothing here yet — themes you add in &#9881; edit concepts appear here until you give them a series</span>`}
+        <span class="chip pick" onclick="toggleConcepts()" title="add or edit themes">&#9881; edit concepts</span></div></div>`;
 
   const trendChips = `
     <div class="lvl"><span class="lvl-n">Step 1</span> Pick a content series <span class="lvl-s">— selecting a family takes every theme under it</span></div>
@@ -303,7 +300,7 @@ async function renderHunger() {
 
   $("#stageHunger").innerHTML = `
     <p class="intro"><b>DEMAND SETTING</b> — tell RayDar what to look for. Arm one or more feeds, then run the sweep. Demand can come from what's <b>trending</b>, from your <b>SEO</b> research, or from the <b>talent</b> themselves.</p>
-    <div class="routes">
+    <div class="panel1"><div class="routes">
 
       <div class="mod ${ROUTES.trend ? "sel" : ""}">
         <span class="idx">Feed 01</span>
@@ -340,7 +337,7 @@ async function renderHunger() {
       <textarea id="sweepPrompt" rows="2" placeholder="anything more to add in your sweep?" oninput="setSweepPrompt(this.value)">${esc(SWEEP_PROMPT)}</textarea>
     </div>
     <div class="process"><button class="sweep-btn" onclick="onProcess()">◎ Run the sweep</button></div>
-    <div id="procMeter"></div>
+    <div id="procMeter"></div></div>
     ${EDIT_CONCEPTS ? conceptModal() : ""}`;
   rail();
 }
@@ -705,7 +702,7 @@ function scoreExplainer(stories) {
       "<b>Slow.</b> The conversation is steady rather than spiking — evergreen, not urgent.",
       "<b>Building.</b> Views are accumulating at a healthy rate. There is momentum without a stampede.",
       "<b>Hot.</b> The top item is moving very fast — publish soon or miss the wave."))}
-    ${row("Strategic", st, w.strategic, "How much this theme matters to the business, set by you in the theme's weight. Not measured from the feed — this is your priority, not the internet's.")}
+    ${row("Strategic", st, w.strategic, `How much this theme matters to the business, set by you in the theme's weight. Not measured from the feed — this is your priority, not the internet's.${(stories[0]?.score_breakdown?.season || []).length ? ` <b>Lifted this month by ${(stories[0].score_breakdown.season).map(esc).join(", ")}.</b>` : ""}${(stories[0]?.score_breakdown?.push || []).length ? ` <b>Business push: ${(stories[0].score_breakdown.push).map(esc).join(", ")}.</b>` : ""}`)}
     ${row("Historical", h, w.historical, "How often you have accepted ideas in this sub-series before. Every Used, Saved and Rejected you mark feeds this, so the ranking tracks your taste over time.")}
     <div class="tsr-note" style="margin-top:8px">Final score = ${w.gap} × gap + ${w.velocity} × velocity + ${w.strategic} × strategic + ${w.historical} × historical. All four weights are editable in <b>Settings</b>.</div>
     ${gapAnalysis(stories)}
@@ -785,6 +782,7 @@ function recapBlock(stories) {
   const srcEntries = Object.entries(f.sources || {});
   const feedBlock = `<div class="tsr-block span2"><div class="tsr-k">${ic("monitor", 12)} What the feed returned</div>
     <div class="tsr-chips">${srcEntries.length ? srcEntries.map(([s, c]) => chip(s, c)).join("") : mut("no live feed — LLM-only run")}</div>
+    ${(f.errors || []).length ? `<div class="ferr">${(f.errors || []).map((e) => `<div class="ferr-r"><b>${esc(e.source)}</b> — ${esc(e.reason)}${e.reason === "out of quota" || e.reason === "key rejected" ? ` · <span class="ferr-a">check the key in Admin → Integrations</span>` : ""}</div>`).join("")}</div>` : ""}
     <div class="tsr-tiles" style="margin-top:9px">
       ${tile(f.collected ?? "—", "collected")}${tile(f.kept ?? "—", "kept")}${tile(f.dropped ?? "—", "filtered")}${tile(f.repeats ?? "—", "repeats")}
       ${tile(f.terms_fired ?? "—", "terms fired")}${tile(f.comments_read ?? "—", "comments read")}${tile(f.questions_found ?? "—", "questions")}</div>
@@ -1195,10 +1193,59 @@ window.idea = async (id, action) => { await fetch(`/api/wh/feedstory/${id}/actio
 window.rejectIdea = (id) => rdPrompt("Reject idea", "Reason — off-brand · not interesting · already covered · wrong timing", "not interesting", async (reason) => { await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "rejected", reason }) }); refreshCurrent(); });
 window.editIdea = (id, heading) => rdPrompt("Edit heading", "", heading, async (h) => { if (!h) return; await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "edit", heading: h }) }); refreshCurrent(); });
 
+
+// Purge old sweeps. Two-step by design: it always PREVIEWS first and names what
+// would go, and it can never remove a batch holding an idea you accepted.
+window.purgeBatches = async () => {
+  const m = $("#purgeMode")?.value || "30";
+  const body = m === "nuke" ? { force: true } : m === "all" ? {} : m.startsWith("keep") ? { keep_last: Number(m.slice(4)) } : { keep_days: Number(m) };
+  const p = await (await fetch("/api/wh/batches/purge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: true }) })).json();
+  if (!p.would_delete) return rdAlert("Nothing to purge", m === "nuke" ? "There are no batches to delete." : "No batch matches that rule — or the ones that do all hold ideas you marked Used or Saved, which are never deleted.");
+  const names = (p.batches || []).slice(0, 8).map((b) => `· ${b.name} (${b.ideas} ideas)`).join("\n");
+  rdConfirm(`Delete ${p.would_delete} batch${p.would_delete === 1 ? "" : "es"}?`,
+    `${names}${p.batches.length > 8 ? `\n· …and ${p.batches.length - 8} more` : ""}\n\n${p.remaining} batch${p.remaining === 1 ? "" : "es"} will remain. ${m === "nuke" ? "NOTHING is protected — this includes every idea you marked Used or Saved, and every sweep in the Library." : "Sweeps holding a Used or Saved idea are protected and not in this list."} This cannot be undone.`,
+    async () => {
+      if (m === "nuke") {
+        const typed = await new Promise((ok) => rdPrompt("Type DELETE to confirm", `This erases all ${p.would_delete} sweeps and every idea in them, including accepted work. There is no undo.`, "", ok));
+        if (String(typed || "").trim().toUpperCase() !== "DELETE") return rdAlert("Cancelled", "Nothing was deleted.");
+      }
+      const r = await (await fetch("/api/wh/batches/purge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: false }) })).json();
+      rdAlert("Purged", `${r.deleted} batch${r.deleted === 1 ? "" : "es"} deleted · ${r.remaining} remaining.`);
+      if (BATCH && (r.batches || []).some((b) => b.id === BATCH.id)) { BATCH = null; RECAP = null; renderIdeas(null); }
+      BATCHES_CACHE = []; renderBatches(); renderBatchPick();
+    });
+};
+// a confirm dialog that states the consequence before it happens
+function rdConfirm(title, msg, onYes) {
+  const ov = document.createElement("div"); ov.className = "ov";
+  ov.innerHTML = `<div class="box" style="width:min(520px,100%)"><h3>${esc(title)}</h3>
+    <p style="white-space:pre-wrap;font-size:12.5px;line-height:1.6;color:var(--dim)">${esc(msg)}</p>
+    <div class="row" style="justify-content:flex-end;margin-top:14px;gap:8px">
+      <button class="btn" data-x>Cancel</button>
+      <button class="btn" data-ok style="border-color:var(--red);color:var(--red)">Delete</button></div></div>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.querySelector("[data-x]").onclick = close; ov.onclick = (e) => { if (e.target === ov) close(); };
+  ov.querySelector("[data-ok]").onclick = () => { close(); onYes(); };
+}
 // ---- Batches view ----------------------------------------------------------
 async function renderBatches() {
   const { batches } = await (await fetch("/api/wh/batches")).json();
-  $("#view-batches").innerHTML = `<p class="intro"><b>BATCHES</b> — every sweep you've run, newest first. Open one to revisit its ranked ideas.</p>` +
+  $("#view-batches").innerHTML = `<p class="intro"><b>BATCHES</b> — every sweep you've run, newest first. Open one to revisit its ranked ideas.</p>
+    <div class="lib-filters" style="margin-bottom:14px">
+      <label class="lf"><span class="lf-k">Tidy up</span>
+        <select id="purgeMode">
+          <option value="30">older than 30 days</option>
+          <option value="14">older than 14 days</option>
+          <option value="7">older than 7 days</option>
+          <option value="keep20">keep only the newest 20</option>
+          <option value="keep10">keep only the newest 10</option>
+          <option value="all">every batch (keeps accepted work)</option>
+          <option value="nuke">EVERYTHING — including accepted work</option>
+        </select></label>
+      <button class="btn small" onclick="purgeBatches()">Purge old batches…</button>
+      <span class="lf-n">${batches.length} batch${batches.length === 1 ? "" : "es"} · sweeps holding a <b>Used</b> or <b>Saved</b> idea are never deleted</span>
+    </div>` +
     (batches.length ? batches.map((b) => `<div class="batch-row" onclick="openBatch(${b.id},'${esc(b.name).replace(/'/g, "\\'")}')">
       <span class="bn">${esc(b.name)}${b.description ? `<span class="bd">${esc(b.description)}</span>` : ""}</span>
       <span class="bm">${esc(b.source)}</span>

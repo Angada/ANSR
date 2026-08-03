@@ -280,9 +280,14 @@ export function mountJourney(app, upload) {
       const words = String(description).toLowerCase().match(/[a-z][a-z-]{2,}/g) || [];
       const stop = new Set("the a an and or for with that this what how why you your they them their are is be of to in on at it its as from into over about very more most just only than then when which who whom whose there here".split(" "));
       const keys = [...new Set(words.filter((w) => !stop.has(w) && w.length > 3))].slice(0, 8);
+      // NEVER invent queries here. The old fallback emitted "<word> india" for
+      // every distinctive word, which produced terms like "number india" and
+      // "asking india" — and those pulled viral Indian cricket and comedy into
+      // the feed. A bad search term is worse than none: say so and stop.
       return res.json({
         ok: true, mode: out.mode,
-        compiled: { terms: keys.map((k) => `${k} india`), franchise: franchise || null, question: null, registers: [], on_theme: keys, off_theme: [], why: "No AI model is enabled, so these are the distinctive words from your description turned into starter queries. Edit them — they are only a starting point." },
+        compiled: { terms: [], franchise: franchise || null, question: null, registers: [], on_theme: keys, off_theme: [],
+          why: "No AI model is enabled, so RayDar cannot work out the search terms from your description. Type them yourself below — short phrases a job seeker would actually search, e.g. \"salary negotiation india\", \"ats resume format\". Guessed terms do more harm than none." },
       });
     }
     res.json({ ok: true, mode: out.mode, compiled: { ...j, terms: (j.terms || []).map((t) => String(t).toLowerCase().trim()).filter(Boolean).slice(0, 12) } });
@@ -605,6 +610,7 @@ export function mountJourney(app, upload) {
       views_analysed: stats.views_analysed ?? null,
       comments_read: stats.comments ?? null,
       questions_found: stats.questions ?? null,
+      errors: stats.errors || [],
       dropped_reasons: (fs.dropped || []).reduce((a, d) => { const k = d.reason || "other"; a[k] = (a[k] || 0) + 1; return a; }, {}),
       top_terms: [...new Set((fs.kept || []).map((k) => k.term).filter(Boolean))].slice(0, 12),
     };

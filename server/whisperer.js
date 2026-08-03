@@ -25,6 +25,30 @@ function extractSeoTerms(text) {
 }
 
 const jsonFrom = (text) => { const m = String(text || "").match(/\{[\s\S]*\}/); if (!m) return null; try { return JSON.parse(m[0]); } catch { return null; } };
+// ---- FEED HEALTH -----------------------------------------------------------
+// A dead or out-of-quota key used to fail silently: the source returned nothing
+// and the sweep looked identical to "nothing matched your search". Every source
+// now records WHY it returned nothing, and that reason travels to the results.
+let FEED_ERRORS = [];
+const feedReset = () => { FEED_ERRORS = []; };
+const feedNote = (source, reason, detail) => {
+  if (FEED_ERRORS.some((e) => e.source === source && e.reason === reason)) return;
+  FEED_ERRORS.push({ source, reason, detail: String(detail || "").slice(0, 160) });
+};
+// Read an HTTP response and, if the API is refusing us, say so in plain words.
+// Returns true when the call is healthy.
+async function feedOk(source, r) {
+  if (!r) { feedNote(source, "no response", "the request timed out or failed"); return false; }
+  if (r.ok) return true;
+  const body = await r.text().catch(() => "");
+  const reason = r.status === 401 || r.status === 403
+      ? (/quota|exceeded|limit/i.test(body) ? "out of quota" : "key rejected")
+    : r.status === 429 ? "rate limited"
+    : `HTTP ${r.status}`;
+  feedNote(source, reason, body.replace(/\s+/g, " ").slice(0, 160));
+  return false;
+}
+
 const enabled = (id) => { try { return !!publicIntegrations()[id]?.enabled && !!getIntegrationKey(id); } catch { return false; } };
 const timeout = (p, ms = 9000) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error("timeout")), ms))]);
 // India time (IST) stamp — "31-07-2026 14:30" in Asia/Kolkata (server runs UTC on Cloud Run)
@@ -90,6 +114,7 @@ async function fetchYouTube(topic) {
   const c = (await getRule("youtube")).collection || {};
   const publishedAfter = new Date(Date.now() - (c.publishedDays || 30) * 864e5).toISOString();
   const s = await timeout(fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=${Math.min(c.maxResults || 20, 25)}&regionCode=${c.regionCode || "IN"}&relevanceLanguage=${c.relevanceLanguage || "en"}&order=${c.order || "viewCount"}&publishedAfter=${encodeURIComponent(publishedAfter)}&q=${encodeURIComponent(topic)}&key=${encodeURIComponent(key)}`));
+  if (!(await feedOk("youtube", s))) return [];
   const sj = await s.json();
   const vids = (sj.items || []).map((i) => ({ id: i.id?.videoId, title: i.snippet?.title, body: i.snippet?.description, publishedAt: i.snippet?.publishedAt, channel: i.snippet?.channelTitle || "" })).filter((v) => v.id);
   if (!vids.length) return [];
@@ -188,6 +213,7 @@ async function fetchSerpNews(topic) {
 // topics may be strings or {name, terms[]}. Each concept's terms are the actual
 // search queries fired at YouTube/Reddit/News; items are tagged with the concept.
 async function collectFeed(topics) {
+  feedReset();
   const out = [];
   for (const t of (topics || []).slice(0, 6)) {
     const name = typeof t === "string" ? t : t.name;
@@ -219,7 +245,14 @@ const isQuestion = (t) => /\?|\bhow\b|\bwhy\b|\bwhat\b|\bwhich\b|\bwhen\b|\bcan 
 // On-topic relevance: does the item title share a meaningful keyword with the
 // topic/term it was collected under? Drops viral-but-off-topic hits (a K-drama,
 // a game) that YouTube's viewCount sort surfaces for a loose query match.
-const FEED_STOP = new Set("the a an of to for in on at and or your you my how why what which when get got new best top vs is are be do this that with into make made using use need needs guide tips 2024 2025 2026".split(" "));
+// Words that must NEVER be the reason an item is considered on-topic. "india"
+// belongs here: a term like "negotiate india" made every viral Indian video —
+// cricket, comedy, protests — count as a keyword match, because they all say
+// "India". Geography and generic filler cannot carry relevance on their own.
+const FEED_STOP = new Set(("the a an of to for in on at and or your you my how why what which when get got new best top vs "
+  + "is are be do this that with into make made using use need needs guide tips 2024 2025 2026 2027 "
+  + "india indian bharat desi hindi english video videos latest full part episode ep shorts viral "
+  + "number asking right thing things way ways life world people news today").split(" "));
 const kwOf = (s) => (String(s || "").toLowerCase().match(/[a-z0-9]{3,}/g) || []).filter((w) => !FEED_STOP.has(w));
 // returns the matched keyword (kept), "" (kept — nothing to match on), or null (off-topic → drop)
 function relevanceMatch(row) {
@@ -325,6 +358,7 @@ function rankFeedSignal(items, allowedLangs = ["en"]) {
   }
   const sources = {}; for (const r of rows) sources[r.source] = (sources[r.source] || 0) + 1;
   const stats = {
+    errors: FEED_ERRORS.slice(),
     collected: rows.length, kept: keptF.length, dropped: dropF.length, repeats: repeats.length,
     terms: new Set(rows.map((r) => r.term).filter(Boolean)).size, sources,
     views_analysed: rows.reduce((s, r) => s + (r.views || 0), 0),
@@ -595,6 +629,33 @@ export function mountWhisperer(app, slug, upload) {
   app.get("/api/wh/batches", async (_req, res) => res.json({ batches: (await wq(`select b.id,b.name,b.description,b.source,b.routes,b.demand_topics,b.status,
       (select count(*) from wh_feed_story s where s.batch_id=b.id and s.status<>'deleted')::int as story_count,
       b.created_at,b.swept_at from wh_batch b order by b.id desc`)).rows }));
+  // ---- PURGE old batches -------------------------------------------------
+  // Destructive, so it is deliberately cautious: it NEVER removes a batch that
+  // holds an idea you marked Used or Saved — that is accepted work. Call with
+  // preview=true first to see exactly what would go before anything is deleted.
+  app.post("/api/wh/batches/purge", async (req, res) => {
+    const keepDays = Number(req.body?.keep_days) || 0;      // 0 = no age limit
+    const keepLast = Number(req.body?.keep_last) || 0;       // 0 = no count limit
+    const preview = req.body?.preview !== false;             // default: dry run
+    // force = purge EVERYTHING, including sweeps holding accepted ideas. Off by
+    // default: it has to be asked for explicitly, twice, from the UI.
+    const force = req.body?.force === true;
+    const w = force ? ["true"]
+      : ["not exists (select 1 from wh_feed_story s where s.batch_id=b.id and s.feedback in ('used','saved'))"];
+    const args = [];
+    if (keepDays > 0) { args.push(keepDays); w.push(`b.created_at < now() - ($${args.length} || ' days')::interval`); }
+    if (keepLast > 0) { args.push(keepLast); w.push(`b.id not in (select id from wh_batch order by id desc limit $${args.length})`); }
+    const sel = `select b.id, b.name, b.created_at,
+        (select count(*) from wh_feed_story s where s.batch_id=b.id)::int ideas
+      from wh_batch b where ${w.join(" and ")} order by b.id`;
+    const doomed = (await wq(sel, args)).rows;
+    const kept = (await wq(`select count(*)::int n from wh_batch`)).rows[0]?.n || 0;
+    if (preview) return res.json({ preview: true, would_delete: doomed.length, remaining: kept - doomed.length, batches: doomed });
+    if (!doomed.length) return res.json({ ok: true, deleted: 0, remaining: kept });
+    await wq(`delete from wh_batch where id = any($1::int[])`, [doomed.map((d) => d.id)]);
+    res.json({ ok: true, deleted: doomed.length, remaining: kept - doomed.length, batches: doomed });
+  });
+
   // rename / re-describe a batch by hand
   app.post("/api/wh/batch/:id/describe", async (req, res) => {
     await wq(`update wh_batch set name=coalesce($2,name), description=coalesce($3,description) where id=$1`,
@@ -637,6 +698,14 @@ export function mountWhisperer(app, slug, upload) {
     const guardPrompt = guard.prompt || "";
     const allowedLangs = (guard.collection && guard.collection.languages) || ["en"]; // rule-driven, code-enforced (not prompt-only)
     const W = sc.weights || { gap: 0.35, velocity: 0.25, strategic: 0.20, historical: 0.20 };
+    // seasonal + business-push lifts that apply RIGHT NOW (IST month)
+    const nowMonth = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", month: "numeric" }).format(new Date()));
+    const chips = (await wq(`select kind, value, meta from wh_journey_chip where active and kind in ('season','push')`)).rows;
+    const LIFTS = {
+      season: chips.filter((c) => c.kind === "season" && (c.meta?.months || []).includes(nowMonth))
+                   .map((c) => ({ value: c.value, lift: Number(c.meta?.lift) || 0 })),
+      push:   chips.filter((c) => c.kind === "push").map((c) => ({ value: c.value, lift: Number(c.meta?.lift) || 0 })),
+    };
     const GAPMAP = sc.gap_map || {};
     // the approved 6 demand topics + franchise routing (skip Emerging for generation)
     let topicRows = (await wq(`select name, franchise, format_home, strategic_weight, question, terms from wh_demand_topic where active and name<>'Emerging' order by id`)).rows;
@@ -676,7 +745,13 @@ export function mountWhisperer(app, slug, upload) {
       const items = [...pool.filter((f) => !f.repeat), ...pool.filter((f) => f.repeat)].slice(0, 5);
       const sig = topicSignals(items, GAPMAP[t.name]);          // Stage 3 — real demand/supply/velocity when live
       const velocity = sig.velocity != null ? sig.velocity : Math.min(1, 0.4 + items.length * 0.1);
-      const strategic = Math.min(1, (Number(t.strategic_weight) || 1) / 1.5);
+      // Strategic weight now also carries SEASON and BUSINESS PUSH. Both were
+      // seeded in wh_journey_chip and read by nothing — so a topic that matters
+      // this month scored identically to one that doesn't. A season lifts every
+      // topic while its months are current; a push lifts the series it names.
+      const seasonLift = LIFTS.season.reduce((a, x) => a + x.lift, 0);
+      const pushLift = LIFTS.push.filter((x) => x.value === t.franchise || x.value === t.series).reduce((a, x) => a + x.lift, 0);
+      const strategic = Math.min(1, ((Number(t.strategic_weight) || 1) / 1.5) + seasonLift + pushLift);
       const franchiseHist = hist[t.franchise] || 0;
       const gap = sig.gap;
       for (let a = 0; a < 3; a++) {                       // 3 ideas / topic → ~18 total
@@ -706,7 +781,7 @@ export function mountWhisperer(app, slug, upload) {
         const fact_check = scoreFactCheck(s, srcRefs, research, fc);
         const score = Math.round((W.gap * gap + W.velocity * velocity + W.strategic * strategic + W.historical * franchiseHist) * 1000) / 1000;
         const sources = [...new Set([...srcRefs.map((r) => r.source), ...((research && research.sources) || [])])].filter(Boolean);
-        const breakdown = { gap: Math.round(gap * 100) / 100, velocity: Math.round(velocity * 100) / 100, strategic: Math.round(strategic * 100) / 100, historical: Math.round(franchiseHist * 100) / 100, weights: W, demand: sig.demand, supply: sig.supply, live: sig.live, sources, fact_check };
+        const breakdown = { gap: Math.round(gap * 100) / 100, velocity: Math.round(velocity * 100) / 100, strategic: Math.round(strategic * 100) / 100, historical: Math.round(franchiseHist * 100) / 100, weights: W, demand: sig.demand, supply: sig.supply, live: sig.live, sources, fact_check, season: LIFTS.season.map((x) => x.value), push: LIFTS.push.map((x) => x.value) };
         const gapType = s.contradiction ? "wrong" : (sig.gapType || (velocity >= 0.8 ? "emerging" : gap >= 0.8 ? "unanswered" : items.length <= 1 ? "thin" : "stale"));
         const r = await wq(`insert into wh_feed_story(batch_id,cohort_id,demand_topic,franchise,platform,one_up,emotional_register,heading,topic_guide,summary,why_now,why_relevant,why_cohort,evidence,contradiction,contradiction_of,source_refs,score,score_breakdown,angle,gap_type,in_library,status)
           values($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19::jsonb,$20,$21,true,'draft') returning id`,

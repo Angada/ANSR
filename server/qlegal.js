@@ -389,7 +389,16 @@ export async function ingestFile(f, { source = "upload", spItemId = null, spMeta
       } catch { /* diff is best-effort */ }
     }
 
-    return { filename: f.originalname, document_id: doc.id, version_no: versionNo, ocr: !!extract.ocr, mode: derived.mode, doc_type: derived.docType };
+    // THE GATE, reported per file at upload — not discovered later on the page.
+    // POC scope is explicit: non-English and hard scans are not wired up yet, so
+    // say so at the door rather than filing a document that looks indexed.
+    const gate = derived.mode === "unsupported-language"
+      ? { blocked: true, why: `Not read — this contract is in ${derived.language}. Non-English contracts are not wired up yet in this POC. The transcript and the original are stored, but there is no key, no wikis, no dates and no standing-question answers.` }
+      : (extract.ocr && (derived.mode !== "ai"))
+        ? { blocked: true, why: "Not read — this is a hard scan and the key could not be extracted. Scanned contracts are not fully wired up yet in this POC. The transcript and the original are stored." }
+        : (extract.ocr ? { blocked: false, why: "Read by vision-OCR — spot-check the key before relying on it." } : null);
+    return { filename: f.originalname, document_id: doc.id, version_no: versionNo, ocr: !!extract.ocr,
+      mode: derived.mode, doc_type: derived.docType, language: derived.language || null, gate };
   } catch (e) {
     await q(`update ql_version set status='error', error=$2 where id=$1`, [ver.id, clip(e.message, 300)]).catch(() => {});
     return { filename: f.originalname, error: clip(e.message, 200) };
