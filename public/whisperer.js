@@ -326,7 +326,7 @@ async function renderHunger() {
         <span class="idx">Feed 03</span>
         <h3>TalentMind ${TM ? `<span class="chip tag-grn" style="cursor:default">sim active</span>` : `<span class="badge-soon">soon · needs T500 + parse AI</span>`}</h3>
         <p class="desc">Demand seeded from the talent themselves — parse each job seeker's corpus into chips, cohort them, read their hunger.</p>
-        ${TM ? "" : `<button class="btn small" onclick="talentmindSim()">${ic("play")} Run simulation</button>`}
+
         <div id="tmSim"></div>
       </div>
 
@@ -492,7 +492,11 @@ function conceptEditorLegacy() {
       <button class="btn small" onclick="addConcept()">Add</button><span></span>
     </div></div>`;
 }
-window.toggleConcepts = () => { EDIT_CONCEPTS = !EDIT_CONCEPTS; renderHunger(); };
+window.toggleConcepts = async () => {
+  EDIT_CONCEPTS = !EDIT_CONCEPTS;
+  if (EDIT_CONCEPTS) await loadThemes();   // never render the editor off a stale cache
+  renderHunger();
+};
 // AI "suggest terms" — proposes queries, APPENDS to the field; you edit + Save (stays your config)
 async function _suggestInto(name, el, btn) {
   if (!name) return rdAlert("Name the concept first", "Type a concept name, then click ✨.");
@@ -1728,7 +1732,7 @@ async function meter(steps, hostId, doneMsg, waitFor) {
   // real AI work — keep the rotating Pot logo running until it resolves
   if (waitFor) {
     fill.style.width = "100%"; fill.classList.add("indet");
-    now.innerHTML = `<img class="potspin" src="/brand/assets/logos/pot.png" alt="">Generating ideas through the LLM — this can take up to a minute…`;
+    now.innerHTML = `<img class="potspin" src="/brand/assets/logos/pot.png" alt="">Generating ideas…`;
     try { await waitFor; } catch { /* surfaced by caller */ }
     fill.classList.remove("indet");
   }
