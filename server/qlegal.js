@@ -14,7 +14,7 @@ import { runPipeline } from "./ai.js";
 import { loadConfig, getApiKey } from "./store.js";
 import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan, listSharePoint, ingestSharePointItem } from "./qlegal-sync.js";
 import { embedVersion, searchVectors, nearestDocs, embedStatus, embedSweep, clauseLibrary, estateMap, docCoverage } from "./qlegal-vectors.js";
-import { atomize, clauseWiki, clauseEdges, clausesWithRefs } from "./qlegal-clauses.js";
+import { atomize, clauseWiki, clauseEdges, clausesWithRefs, clauseIndex } from "./qlegal-clauses.js";
 
 const TENANT = "Q-LEGAL"; // ring-fenced storage namespace (vault + docstore)
 // business-rule scopes → which pipeline step each rule set is injected into
@@ -775,12 +775,18 @@ export function mountQLegal(app, upload) {
         ? "REGISTER ANSWERS (a standing question, already answered for every contract — use these for “which of our contracts…” questions):\n"
           + regAnswers.map((r) => `- [${r.id}] ${r.doc} · ${r.name}: ${r.present}${r.value ? ` (${r.value})` : ""} — ${r.answer || ""} ${(r.refs || []).join(" ")}`).join("\n")
         : "";
-      const wikiBlock = hits.map((h) => {
+      // The clause block is an INDEX, not a dump. Every clause in document order,
+      // indented by nesting, with the contract's own cross-references inlined —
+      // so the model can see where to go rather than hunting through 112 clauses
+      // pasted in full. Falls back to the model's own list for prose documents.
+      const wikiBlock = (await Promise.all(hits.map(async (h) => {
         const c2 = h.c2 || {};
         const contents = (c2.contents || []).map((x) => `${x.ref || ""} ${x.heading || ""}`).join(" · ");
-        const clauses = (c2.clauses || []).map((x) => `${x.ref || ""} ${x.label || ""}: ${x.gist || ""}`).join("\n  ");
-        return `DOCUMENT [${h.id}] ${h.title || h.filename} (${h.doc_type || "?"})\n CONTENTS WIKI: ${contents || "—"}\n CLAUSE WIKI:\n  ${clauses || "—"}`;
-      }).join("\n\n");
+        let index = "";
+        try { index = await clauseIndex(h.id); } catch { /* fall through to C2 */ }
+        if (!index) index = (c2.clauses || []).map((x) => `${x.ref || ""} ${x.label || ""} — ${x.gist || ""}`).join("\n  ");
+        return `DOCUMENT [${h.id}] ${h.title || h.filename} (${h.doc_type || "?"})\n CONTENTS: ${contents || "—"}\n CLAUSE INDEX (navigate by this — "[see also §x]" means that clause governs this one; quote from the deep text, never from this index):\n${index || "  —"}`;
+      }))).join("\n\n");
       const deepBlock = hits.map((h) => `DEEP TEXT (C1) — [${h.id}] ${h.title || h.filename}:\n${clip(h.c1_text, AP.deep_text_chars)}`).join("\n\n");
 
       // RUNG · follow the contract's own cross-references. Asked how long an

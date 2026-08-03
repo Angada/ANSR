@@ -252,6 +252,35 @@ export async function clauseWiki(documentId) {
   return r.rows;
 }
 
+// The navigation index — what the model reads FIRST to decide where to look.
+//
+// Handing a model 112 clauses in full is not retrieval, it is a haystack with
+// the needle included. The index is the same clauses reduced to one indented
+// line each, with the contract's own cross-references inlined, so the reading
+// order is visible: go to §3.1 for the term, and §3.1 defers to §15.
+// A short gist is deliberate — enough to route on, not enough to answer from,
+// so the model fetches the real clause instead of paraphrasing a summary.
+export async function clauseIndex(documentId, { gistChars = 90 } = {}) {
+  const [clauses, edges] = await Promise.all([clauseWiki(documentId), clauseEdges(documentId)]);
+  if (!clauses.length) return "";
+  const byFrom = new Map();
+  for (const e of edges) {
+    if (!e.resolved) continue;
+    if (!byFrom.has(e.from_ref)) byFrom.set(e.from_ref, []);
+    byFrom.get(e.from_ref).push(e.to_ref);
+  }
+  const lines = clauses.map((c) => {
+    const pad = "  ".repeat(Math.max(0, (c.depth || 1) - 1));
+    const topic = c.label || c.title || "";
+    const gist = (c.gist || "").replace(/\s+/g, " ").slice(0, gistChars);
+    const to = byFrom.get(c.ref);
+    return `${pad}${c.ref}${topic ? ` · ${topic}` : ""}${gist ? ` — ${gist}` : ""}${to ? `  [see also ${[...new Set(to)].join(", ")}]` : ""}`;
+  });
+  const dangling = edges.filter((e) => !e.resolved);
+  return lines.join("\n")
+    + (dangling.length ? `\n(cites but does not contain: ${[...new Set(dangling.map((e) => e.to_ref))].join(", ")})` : "");
+}
+
 export async function clauseEdges(documentId) {
   const r = await q(
     `select from_ref, to_ref, phrase, resolved
