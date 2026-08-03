@@ -150,6 +150,17 @@ window.aiSpin = (on, label) => {
   _aiN = Math.max(0, _aiN + (on ? 1 : -1));
   let el = document.getElementById("aispin");
   if (_aiN > 0) {
+    if (!document.getElementById("aispin-css")) {
+      // self-contained: the app pages are standalone and don't load console.css,
+      // so without this the spinner renders as a full-size raw image
+      const st = document.createElement("style"); st.id = "aispin-css";
+      st.textContent = `.aispin{position:fixed;right:18px;bottom:18px;z-index:120;display:flex;align-items:center;gap:9px;
+        background:rgba(255,255,255,.96);border:1px solid #E7E3DC;border-radius:999px;padding:8px 15px 8px 11px;
+        box-shadow:0 12px 30px -14px rgba(0,36,46,.45);font:600 13px 'Inter',system-ui,sans-serif;color:#3D3934}
+        .aispin img{width:20px;height:20px;animation:aispin-r 1s linear infinite}
+        @keyframes aispin-r{to{transform:rotate(360deg)}}`;
+      document.head.appendChild(st);
+    }
     if (!el) {
       el = document.createElement("div"); el.id = "aispin"; el.className = "aispin";
       el.innerHTML = `<img src="/brand/assets/logos/pot.png" alt="" class="qspin"><span class="aispin-l">AI working…</span>`;

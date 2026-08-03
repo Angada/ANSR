@@ -22,7 +22,8 @@ let EDIT_CONCEPTS = false;
 let GUARD = null;       // guardrails (audience · language · region) from business rules
 let SWEEP_PROMPT = "";  // the user's free-text "anything more to add?" brief
 let RECAP = null;       // "what went into this sweep" — persisted inputs, per batch
-let SHOW_DONE = false;  // judged ideas leave the working list (drawer, not deleted)
+let SHOW_DONE = false;
+let IDEA_TH = "all", IDEA_RG = "all", IDEA_GP = "all", IDEA_SORT = "score";  // judged ideas leave the working list (drawer, not deleted)
 let JOURNEY = null;     // the Journey board (stations · stories · dumps) for BATCH
 // ---- Journey lane: OFF ------------------------------------------------------
 // The six-station tracked lane is built and working, but not wanted right now.
@@ -244,13 +245,58 @@ async function init() {
   try { GUARD = (((await (await fetch("/api/wh/rules")).json()).rules || {}).guardrails || {}).collection || {}; } catch { GUARD = {}; }
   renderHunger();
   renderIdeas(null);
+  goStage(1);           // start on Demand Setting with the other steps hidden
 }
 
 // ---- STAGE 01 · HUNGER (3 combinable routes) -------------------------------
 async function renderHunger() {
   const seo = (await (await fetch("/api/wh/seo")).json()).inputs || [];
-  const trendChips = ALL_TOPICS.filter((t) => t.name !== "Emerging").map((t) =>
-    `<span class="chip pick ${TOPICS.includes(t.name) ? "on" : ""}" onclick="toggleTopic('${esc(t.name).replace(/'/g, "\\'")}')" title="→ ${esc(t.franchise)}">${TOPICS.includes(t.name) ? "✓ " : ""}${esc(t.name)}</span>`).join("");
+  // ---- Feed 01 is now TWO levels ------------------------------------------
+  // Level 1: CONTENT SERIES — the client's own families (1Up and its sub-series
+  // Interview Lab · Resume Lab · Skill Up; Way Up). Picking a family auto-selects
+  // every theme beneath it.
+  // Level 2: THEMES — the detailed concepts, grouped under the series they belong
+  // to, so you can see the mapping and deselect individual ones.
+  const live = ALL_TOPICS.filter((t) => t.name !== "Emerging" && t.active !== false);
+  const themesOf = (fname) => live.filter((t) => t.franchise === fname);
+  const parents = FRANCHISES.filter((f) => f.active !== false && !f.parent);
+  const kidsOf = (p) => FRANCHISES.filter((f) => f.active !== false && f.parent === p);
+
+  const seriesChip = (f, sub) => {
+    const mine = themesOf(f.name).map((t) => t.name);
+    const all = mine.length && mine.every((n) => TOPICS.includes(n));
+    const some = !all && mine.some((n) => TOPICS.includes(n));
+    return `<span class="chip pick series ${all ? "on" : some ? "part" : ""} ${sub ? "sub" : "top"}"
+      onclick="toggleSeries('${esc(f.name).replace(/'/g, "\\'")}')"
+      title="${esc(f.blurb || "")}${mine.length ? ` · ${mine.length} theme${mine.length === 1 ? "" : "s"}` : " · no themes yet"}">
+      ${all ? "✓ " : some ? "– " : ""}${esc(f.name)}${mine.length ? `<b class="n">${mine.length}</b>` : ""}</span>`;
+  };
+  const seriesPicker = parents.map((p) => {
+    const kids = kidsOf(p.name);
+    return `<div class="fam">
+      ${seriesChip(p, false)}
+      ${kids.length ? `<div class="fam-k">${kids.map((k) => seriesChip(k, true)).join("")}</div>` : ""}
+    </div>`;
+  }).join("");
+
+  // themes grouped by the series they sit under, divider between each group
+  const groups = [...parents, ...parents.flatMap((p) => kidsOf(p.name))]
+    .map((f) => [f, themesOf(f.name)]).filter(([, t]) => t.length);
+  const orphans = live.filter((t) => !FRANCHISES.some((f) => f.name === t.franchise && f.active !== false));
+  const themeChip = (t) => `<span class="chip pick ${TOPICS.includes(t.name) ? "on" : ""}"
+      onclick="toggleTopic('${esc(t.name).replace(/'/g, "\\'")}')"
+      title="${esc(t.description || t.definition || "")}">${TOPICS.includes(t.name) ? "✓ " : ""}${esc(t.name)}</span>`;
+  const themeGroups = groups.map(([f, ts]) => `<div class="tgrp">
+      <div class="tgrp-h"><span>${esc(f.name)}</span><i></i></div>
+      <div class="chips">${ts.map(themeChip).join("")}</div></div>`).join("")
+    + (orphans.length ? `<div class="tgrp"><div class="tgrp-h"><span>Unmapped</span><i></i></div>
+      <div class="chips">${orphans.map(themeChip).join("")}</div></div>` : "");
+
+  const trendChips = `
+    <div class="lvl"><span class="lvl-n">Step 1</span> Pick a content series <span class="lvl-s">— selecting a family takes every theme under it</span></div>
+    <div class="fams">${seriesPicker || `<span class="chip" style="border-style:dashed">no series configured</span>`}</div>
+    <div class="lvl" style="margin-top:14px"><span class="lvl-n">Step 2</span> Fine-tune the themes <span class="lvl-s">— grouped by the series they belong to</span></div>
+    ${themeGroups}`;
   const seoChips = seo.length
     ? seo.map((s) => `<span class="chip">${esc(s.kind)} · ${esc((s.content || "").slice(0, 20))}…<a class="x" onclick="delSeo(${s.id});return false" href="#">✕</a></span>`).join("")
     : `<span class="chip" style="border-style:dashed">no research pasted</span>`;
@@ -263,7 +309,7 @@ async function renderHunger() {
         <span class="idx">Feed 01</span>
         <h3><span class="tick" onclick="route('trend')">✓</span> Trend Spotting
           <a class="ceditlink" onclick="toggleConcepts()">${EDIT_CONCEPTS ? "done" : "⚙ edit concepts"}</a></h3>
-        <p class="desc">Pick the demand concepts — the domains job seekers hunger for. Each concept carries the <b>search terms</b> we fire at YouTube/Reddit and routes to a 1Up franchise.</p>
+        <p class="desc">Pick a <b>content series</b> to take everything under it, then fine-tune the individual <b>themes</b>. Each theme carries the <b>search terms</b> fired at YouTube and Reddit.</p>
         <div class="chips">${trendChips}</div>
       </div>
 
@@ -309,6 +355,15 @@ function conceptModal() {
 }
 window.setSweepPrompt = (v) => { SWEEP_PROMPT = v; };
 window.route = (k) => { ROUTES[k] = !ROUTES[k]; renderHunger(); };
+// pick/drop a whole content series — takes every theme mapped under it
+window.toggleSeries = (fname) => {
+  ROUTES.trend = true;
+  const mine = ALL_TOPICS.filter((t) => t.franchise === fname && t.name !== "Emerging" && t.active !== false).map((t) => t.name);
+  if (!mine.length) return rdAlert("No themes yet", `Nothing is mapped to "${fname}" yet. Add themes to it in \u2699 edit concepts.`);
+  const all = mine.every((n) => TOPICS.includes(n));
+  TOPICS = all ? TOPICS.filter((n) => !mine.includes(n)) : [...new Set([...TOPICS, ...mine])];
+  renderHunger();
+};
 window.toggleTopic = (name) => { ROUTES.trend = true; TOPICS = TOPICS.includes(name) ? TOPICS.filter((t) => t !== name) : [...TOPICS, name]; renderHunger(); };
 window.addSeo = async () => { const content = $("#seoText")?.value.trim(); if (!content) return; ROUTES.seo = true; await fetch("/api/wh/seo", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "keywords", content }) }); renderHunger(); };
 window.uploadSeo = async (file) => {
@@ -1052,16 +1107,38 @@ function renderIdeas(stories, franchises) {
   // holds what still needs a decision, so it gets SHORTER as you work instead
   // of longer. Judged ideas aren't hidden or lost — they drop into a "done"
   // drawer right below, and they're always in the Library.
-  const pending = stories.filter((s) => !s.feedback);
-  const done = stories.filter((s) => s.feedback);
-  const shown = SHOW_DONE ? stories : pending;
+  // client-side idea filters — theme, feeling, gap type, and sort order
+  const keep = (s) => (IDEA_TH === "all" || s.demand_topic === IDEA_TH)
+    && (IDEA_RG === "all" || shortReg(s.emotional_register) === IDEA_RG)
+    && (IDEA_GP === "all" || s.gap_type === IDEA_GP);
+  const all = stories.filter(keep);
+  const pending = all.filter((s) => !s.feedback);
+  const done = all.filter((s) => s.feedback);
+  let shown = SHOW_DONE ? all : pending;
+  if (IDEA_SORT === "theme") shown = [...shown].sort((a, b) => String(a.demand_topic).localeCompare(String(b.demand_topic)) || (b.score - a.score));
+  else if (IDEA_SORT === "new") shown = [...shown].sort((a, b) => b.id - a.id);
   const boards = groupBoards(shown);
   const doneBoards = groupBoards(done);
-  const filter = `<div class="ideas-head">
-      <span class="chip tag-grn" style="cursor:default">${ic("box")} ${esc(BATCH?.name || "batch")}</span>
-      <span class="chip" style="border:none;background:none;padding:0">franchise</span>
-      <select onchange="setFR(this.value)"><option value="all" ${FR === "all" ? "selected" : ""}>all</option>${(franchises || []).map((f) => `<option ${FR === f.name ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
-      ${done.length ? `<button class="btn small" onclick="toggleDone()">${SHOW_DONE ? "Hide the done ones" : `Show all (${stories.length})`}</button>` : ""}
+  const themes = [...new Set(stories.map((s) => s.demand_topic).filter(Boolean))].sort();
+  const regs = [...new Set(stories.map((s) => shortReg(s.emotional_register)).filter(Boolean))].sort();
+  const f = (label, cur, opts, fn, hint) => `<label class="lf" title="${esc(hint || "")}"><span class="lf-k">${label}</span>
+    <select onchange="${fn}(this.value)">${opts.map(([v, l]) => `<option value="${esc(v)}" ${cur === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>`;
+  const filter = `<div class="ih">
+      <div class="ih-top">
+        <div><h2 class="ih-t">Content ideas</h2>
+          <div class="ih-s">${esc(BATCH?.name || "this batch")}${RECAP?.brief ? ` · “${esc(String(RECAP.brief).slice(0, 60))}”` : ""}</div></div>
+        <a class="gateslink" href="#" onclick="goStage(2);return false" title="the evidence behind these ideas">◈ See the sweep evidence</a>
+      </div>
+      <div class="lib-filters" style="margin:0">
+        ${f("1Up series", FR, [["all", "all series"], ...(franchises || []).map((x) => [x.name, x.name])], "setFR", "Which 1Up sub-series it routes to")}
+        ${f("Theme", IDEA_TH, [["all", "all themes"], ...themes.map((t) => [t, t])], "setIdeaTh", "The demand concept it came from")}
+        ${regs.length ? f("Feeling", IDEA_RG, [["all", "any feeling"], ...regs.map((r) => [r, r])], "setIdeaRg", "The emotional register it hits") : ""}
+        ${f("Gap", IDEA_GP, [["all", "any gap"], ["unanswered", "unanswered"], ["stale", "stale"], ["thin", "thin"], ["emerging", "emerging"]], "setIdeaGp", "Why there is room for this")}
+        ${f("Sort", IDEA_SORT, [["score", "strongest first"], ["theme", "by theme"], ["new", "newest first"]], "setIdeaSort", "How the boards are ordered")}
+        <span class="lf-n">${pending.length} to judge${done.length ? ` · ${done.length} done` : ""}</span>
+        ${[FR, IDEA_TH, IDEA_RG, IDEA_GP].some((x) => x !== "all") ? `<button class="btn small" onclick="clearIdeaFilters()">Clear</button>` : ""}
+        ${done.length ? `<button class="btn small" onclick="toggleDone()">${SHOW_DONE ? "Hide done" : `Show all (${stories.length})`}</button>` : ""}
+      </div>
     </div>`;
   const doneDrawer = (!SHOW_DONE && done.length) ? `<details class="donedrawer">
       <summary>${done.length} idea${done.length === 1 ? "" : "s"} you've already judged — ${["used", "saved", "rejected"].map((k) => `${done.filter((s) => s.feedback === k).length} ${k}`).join(" · ")}</summary>
@@ -1071,11 +1148,32 @@ function renderIdeas(stories, franchises) {
     ? `<div class="empty">// all judged — nothing left in this batch //</div>`
     : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`;
   host.innerHTML = `<p class="intro"><b>CONTENT IDEAS</b> — each concept becomes a story board: a title, the angle, and the justification behind it. Mark each one <b>Used</b>, <b>Save</b> or <b>Reject</b> and it drops out of this list into the done drawer below, so the list shrinks as you go. Everything stays findable in the <b>Library</b>.</p>` +
-    // journeyCTA() returns "" while the Journey lane is off
-    recapBlock(stories) + trendReport(stories) + feedSignalBlock() + journeyCTA(stories) + filter +
-    (boards.length ? `<div class="boards">${boards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>` : emptyMsg) + doneDrawer;
+    filter + (boards.length ? `<div class="boards">${boards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>` : emptyMsg) + doneDrawer;
+  renderSweepReport();     // keep step 2 in sync with the same data
+}
+
+// ---- STEP 02 · SWEEP — the evidence, not the ideas -------------------------
+// Everything that explains HOW the sweep ran lives here: what went in, the
+// trend-spotting report, and the signal (top videos, SEO terms, Reddit).
+// The ideas themselves live on step 3, so neither page is a wall.
+function renderSweepReport() {
+  const host = $("#stageSweep"); if (!host) return;
+  const stories = _RENDER?.stories;
+  if (!stories || !stories.length) {
+    host.innerHTML = `<p class="intro"><b>SWEEP</b> — what RayDar collected, how it read it, and the evidence behind every idea.</p>
+      <div class="empty">// run a sweep from Demand Setting to see the evidence //</div>`;
+    return;
+  }
+  host.innerHTML = `<p class="intro"><b>SWEEP</b> — the evidence behind this batch: what went in, what the feed returned, and how each theme scored. The ideas themselves are on <b>Content Ideas</b>.</p>`
+    + recapBlock(stories) + trendReport(stories) + feedSignalBlock()
+    + `<div class="process" style="margin-top:18px"><button class="sweep-btn" onclick="goStage(3)">◎ See the content ideas →</button></div>`;
 }
 window.toggleDone = () => { SHOW_DONE = !SHOW_DONE; loadIdeas(); };
+window.setIdeaTh = (v) => { IDEA_TH = v; loadIdeas(); };
+window.setIdeaRg = (v) => { IDEA_RG = v; loadIdeas(); };
+window.setIdeaGp = (v) => { IDEA_GP = v; loadIdeas(); };
+window.setIdeaSort = (v) => { IDEA_SORT = v; loadIdeas(); };
+window.clearIdeaFilters = () => { FR = IDEA_TH = IDEA_RG = IDEA_GP = "all"; loadIdeas(); };
 
 // The bridge from Journey 1 to Journey 2. Ideas on their own stop here; this is
 // how a batch becomes briefed, owned, dated work. Without a door this obvious

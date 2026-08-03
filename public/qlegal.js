@@ -50,7 +50,7 @@ function renderNav() {
   $("#mainnav").innerHTML = [["ask", "Ask"], ["browse", "Browse"], ["manage", `Manage${needsYou ? ` <span class="count" style="color:var(--org)">●${needsYou}</span>` : ""}`], ["settings", "Settings"]]
     .map(([k, l]) => `<button class="${AREA === k ? "on" : ""}" onclick="setArea('${k}')">${l}</button>`).join("");
   const subs = AREA === "ask"
-    ? [["chat", "Ask the repository", null], ["draft", "Draft a contract", null], ["registers", "Standing questions", REGISTERS.length || null]]
+    ? [["chat", "Ask the Estate", null], ["draft", "Draft a contract", null], ["registers", "Standing questions", REGISTERS.length || null]]
     : AREA === "browse"
       ? [["contracts", "Contracts", LOADED ? DOCS.length : null], ["map", "Estate map", null], ["spfiles", "SharePoint files", null]]
       : AREA === "manage"
@@ -89,6 +89,18 @@ function docChip(d, extra = "") {
   const name = d.title || d.filename || d.name || ("#" + d.id);
   return `<span class="docchip touch" onclick="openDoc(${d.id})"><span class="emb">Q</span>${esc(String(name).slice(0, 44))}${d.doc_type ? ` <span class="am">· ${esc(d.doc_type)}</span>` : ""}${extra}</span>`;
 }
+function liveHitsHtml() {
+  if (ASKING || !LIVE || !LIVE.q) return "";
+  return `<div class="livehits">
+      ${LIVE.hits.length
+        ? `<div class="rsec-lbl">“${esc(LIVE.q)}” in the text · click to open</div>` + LIVE.hits.slice(0, 5).map((h) => `
+          <div class="hit touch" onclick="openDoc(${h.id})">
+            <div class="hn">${esc(h.title || h.filename)} ${h.doc_type ? `<span class="typebadge">${esc(h.doc_type)}</span>` : ""}${h.via && h.via.includes("semantic") ? ' <span class="am" title="matched by meaning, not just words">≈ semantic</span>' : ""}</div>
+            ${h.snippet ? `<div class="hs">${snip(h.snippet)}</div>` : h.sem_snippet ? `<div class="hs">${h.sem_ref ? `<span class="ref">${esc(h.sem_ref)}</span> ` : ""}${esc(h.sem_snippet)}</div>` : ""}
+          </div>`).join("")
+        : `<div class="rungline" style="text-align:center">no literal match for “${esc(LIVE.q)}” — press Enter to ask the AI</div>`}
+    </div>`;
+}
 function renderChat() {
   const host = $("#view-chat");
   const exp30 = expiringIn(31), exp180 = expiringIn(183);
@@ -126,7 +138,8 @@ function renderChat() {
       <div class="tstep" data-t="2"><span class="ti">·</span>Deep-reading the C1 transcripts</div>
       <div class="tstep" data-t="3"><span class="ti">·</span>Composing the cited answer</div>
     </div>` : "";
-  const live = (!ASKING && LIVE && LIVE.q) ? `
+  const live = liveHitsHtml();
+  const _unusedLive = (!ASKING && LIVE && LIVE.q) ? `
     <div class="livehits">
       ${LIVE.hits.length
         ? `<div class="rsec-lbl">“${esc(LIVE.q)}” in the text · click to open</div>` + LIVE.hits.slice(0, 5).map((h) => `
@@ -179,10 +192,13 @@ window.liveSearch = (v) => {
     try {
       const j = await (await fetch(`/api/qlegal/search?q=${encodeURIComponent(term)}`)).json();
       LIVE = { q: term, hits: j.hits || [] };
+      // Surgical update — re-rendering the whole chat on every keystroke was the
+      // "random refresh": it repainted the page and stole the caret mid-typing.
       if (!ASKING && document.getElementById("askin")) {
-        const el = document.getElementById("askin"); const pos = el.selectionStart;
-        renderChat();
-        const el2 = document.getElementById("askin"); if (el2) { el2.value = term; el2.focus(); el2.setSelectionRange(pos, pos); }
+        const strip = document.querySelector(".livehits");
+        const html = liveHitsHtml();
+        if (strip) strip.outerHTML = html;
+        else document.querySelector(".cmd")?.insertAdjacentHTML("afterend", html);
       }
     } catch { /* live search is best-effort */ }
   }, 350);
