@@ -762,6 +762,12 @@
     border-radius:8px;background:rgba(192,57,43,.06);padding:9px 11px}
   .ferr-r{font-size:12.5px;line-height:1.6;color:var(--red)}
   .ferr-a{font-weight:600}
+  /* the editor overlay must start BELOW the app nav, not under it — the nav is
+     fixed, so a 5vh top pad put the modal header straight behind it */
+  .cmodal-ov{align-items:flex-start;padding:calc(var(--navh, 104px) + 16px) 20px 40px}
+  .cmodal{max-height:calc(100vh - var(--navh, 104px) - 56px)}
+  .cmodal-h{top:0;z-index:2}
+  @media(max-width:640px){.cmodal-ov{padding:calc(var(--navh, 72px) + 10px) 12px 24px}}
   </style>
 </head>
 <body>
@@ -798,7 +804,7 @@
     <div id="view-rules" hidden></div>
 
     <div class="foot">
-      <span>RAYDAR // demand ↔ supply // routed to 1UP franchises</span>
+      <span></span>
       <a class="byline" href="https://thekettleblack.in" target="_blank" rel="noopener">Bespoke AI by
         <img src="/brand/assets/logos/tkb-logo.png" class="tkb" alt="TKB">
       </a>
