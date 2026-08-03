@@ -708,13 +708,59 @@ function picker(c) {
 async function renderConfirm() {
   const host = $("#view-confirm");
   host.innerHTML = `<div class="empty">loading…</div>`;
+  let LED = {};
   try { CONFIRMS = ((await (await fetch("/api/qlegal/confirms")).json()).confirms) || []; } catch { CONFIRMS = []; }
+  try { LED = await (await fetch("/api/qlegal/confirms/ledger")).json(); } catch { LED = {}; }
   CONF_N = CONFIRMS.length || null; renderNav();
-  host.innerHTML = `<p class="intro"><b>CONFIRM QUEUE</b> — the AI proposes, you decide. Every decision teaches the system.</p>`
-    + `<div class="cfilter"><input placeholder="filter by kind, contract…" oninput="filterCards('conflist',this.value)"></div>`
-    + (CONFIRMS.length ? `<div id="conflist">${CONFIRMS.map((c) => confCard(c)).join("")}</div>` : `<div class="empty">// nothing awaiting confirmation //</div>`);
+
+  // Grouped by KIND, not by time: twelve classifications in a row is a rhythm;
+  // alternating kinds is twelve context switches.
+  const KINDS = [["classification", "What kind of document is this?"], ["link", "Does this sit under that?"],
+    ["lineage", "Are these the same contract?"], ["removal", "Gone from the source"]];
+  const groups = KINDS.map(([k, q]) => [k, q, CONFIRMS.filter((c) => c.kind === k)]).filter(([, , g]) => g.length);
+
+  const ledger = (LED.decided_30d || LED.open != null) ? `
+    <div class="wikicard reveal" style="border-left:3px solid var(--grn)">
+      <div class="rsec-lbl">What your decisions changed</div>
+      <div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:8px">
+        <span class="tagchip">${LED.decided_30d || 0} decided in 30 days</span>
+        <span class="tagchip">${LED.decided_7d || 0} this week</span>
+        ${LED.suppressed ? `<span class="tagchip">${LED.suppressed} suggestion${LED.suppressed === 1 ? "" : "s"} retired for good</span>` : ""}
+        ${LED.confidence_pct != null ? `<span class="tagchip">classifier now ${LED.confidence_pct}% confident</span>` : ""}
+        ${LED.confirmed ? `<span class="tagchip">${LED.confirmed} of ${LED.classified} confirmed by a human</span>` : ""}
+      </div>
+      <div class="am" style="line-height:1.55">Every "not this" is remembered — that exact suggestion is never made again, so this list gets shorter as you work.</div>
+      ${(LED.reasons || []).length ? `<div style="margin-top:9px"><div class="rsec-lbl">Reasons you gave — a repeat is a rule worth writing</div>
+        ${LED.reasons.map((r) => `<div class="am" style="padding:3px 0">• ${esc(r.reason)} <b>×${r.c}</b></div>`).join("")}</div>` : ""}
+    </div>` : "";
+
+  const blocked = LED.blocked ? `
+    <div class="wikicard reveal" style="border-left:3px solid var(--amber)">
+      <div class="rsec-lbl">Blocked — not decisions, system problems</div>
+      <p class="rsummary">${LED.blocked} document${LED.blocked === 1 ? "" : "s"} couldn't be classified because the pipeline couldn't run — usually no keyed model. That isn't a judgement call, so it isn't in the list below.</p>
+      <button class="btn small touch" onclick="setArea('settings');setSub('pipelines')">Check AI Pipelines ▸</button>
+    </div>` : "";
+
+  host.innerHTML = `<p class="intro"><b>NEEDS YOU</b> — the AI proposes, you decide. Everything you need is on the card; every answer teaches the system.</p>`
+    + ledger + blocked
+    + (groups.length
+      ? groups.map(([k, question, g]) => `
+        <div class="rsec-lbl" style="margin:20px 0 8px">${esc(question)} · ${g.length}</div>
+        ${g.length > 1 ? `<div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button class="btn small btn--org touch" onclick="confBatch('${k}','accept')">Accept all ${g.length}</button>
+          <span class="am">only when the evidence below reads the same for each</span></div>` : ""}
+        <div id="conflist-${k}">${g.map((c) => confCard(c)).join("")}</div>`).join("")
+      : `<div class="empty">// nothing awaiting your decision //</div>`);
   sequenceReveal(host, ".reveal", 110, 50);
 }
+// accept a whole group at once — same resolve path as a single decision
+window.confBatch = (kind, action) => {
+  const ids = CONFIRMS.filter((c) => c.kind === kind).map((c) => c.id);
+  rdConfirm(`Accept all ${ids.length}?`, "Each one resolves exactly as if you pressed Accept on it individually. Classifications use the AI's proposed category — change any you disagree with first.", async () => {
+    await fetch("/api/qlegal/confirms/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids, action }) });
+    renderConfirm(); loadRegistry(); loadCats(); loadConfirmCount().then(renderNav);
+  });
+};
 window.confAct = async (id, action, kind) => {
   if (action === "reject") return rdForm("Not this — why?", [{ k: "reason",
     label: "One line. This is remembered: the same suggestion won't be made again, and a reason that recurs becomes a business rule.",

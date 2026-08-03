@@ -24,6 +24,12 @@ let SWEEP_PROMPT = "";  // the user's free-text "anything more to add?" brief
 let RECAP = null;       // "what went into this sweep" — persisted inputs, per batch
 let SHOW_DONE = false;  // judged ideas leave the working list (drawer, not deleted)
 let JOURNEY = null;     // the Journey board (stations · stories · dumps) for BATCH
+// ---- Journey lane: OFF ------------------------------------------------------
+// The six-station tracked lane is built and working, but not wanted right now.
+// Hidden, not deleted: the tab, the sub-nav entry and the CTA under the sweep
+// results all key off this one flag. The server routes, schema and event log
+// stay in place and are simply unused — flip to true to bring it all back.
+const JOURNEY_ON = false;
 
 // ---- journey rail (horizontal) ---------------------------------------------
 const STATIONS = [
@@ -48,11 +54,12 @@ window.toIdeas = () => { STAGE = 3; $("#track").classList.add("at-ideas"); rail(
 
 // ---- sub-nav: New Sweep / Batches / Library / Settings ----------------------
 function renderSubnav() {
-  $("#subnav").innerHTML = [["sweep", "New Sweep"], ["journey", "Journey"], ["batches", "Batches"], ["library", "Library"], ["settings", "Settings"]]
+  $("#subnav").innerHTML = [["sweep", "New Sweep"], ...(JOURNEY_ON ? [["journey", "Journey"]] : []), ["batches", "Batches"], ["library", "Library"], ["settings", "Settings"]]
     .map(([k, l]) => `<button class="${VIEW === k ? "on" : ""}" onclick="setView('${k}')">${l}</button>`).join("");
 }
 window.setView = (v) => {
   if (v === "rules") v = "settings";        // old deep-links land on Settings
+  if (v === "journey" && !JOURNEY_ON) v = "sweep";   // lane is off — no dead end
   VIEW = v; renderSubnav();
   $("#view-sweep").hidden = v !== "sweep";
   $("#view-journey").hidden = v !== "journey";
@@ -590,7 +597,35 @@ function trendReport(stories) {
 // you typed in the brief, which APIs were queried and what came back. Built
 // from what was PERSISTED at sweep time (/journey/recap), so re-opening an old
 // batch recaps THAT batch — not whatever is currently ticked on screen.
-function recapBlock() {
+// Plain-English scoring explainer. The four numbers on every idea are opaque
+// unless someone says, in words, what each one measured and why it came out
+// where it did — so this reads the ACTUAL averages off this sweep's ideas and
+// narrates them, rather than describing the formula in the abstract.
+function scoreExplainer(stories) {
+  const n = (stories || []).length; if (!n) return "";
+  const avg = (k) => (stories.reduce((s, x) => s + (Number(x.score_breakdown?.[k]) || 0), 0) / n);
+  const w = stories[0]?.score_breakdown?.weights || { gap: .35, velocity: .25, strategic: .20, historical: .20 };
+  const band = (v, lo, hi, low, mid, high) => v < lo ? low : v < hi ? mid : high;
+  const g = avg("gap"), v = avg("velocity"), st = avg("strategic"), h = avg("historical");
+  const row = (label, val, weight, text) => `<div class="sx-r">
+    <div class="sx-k">${label} <span class="sx-v">${val.toFixed(2)}</span></div><div>${text} <span style="color:var(--dim2)">Counts for ${Math.round(weight * 100)}% of the final score.</span></div></div>`;
+  return `<div class="tsr-block span2 sx">
+    <div class="tsr-k">${ic("bolt", 12)} Why these ideas scored what they did</div>
+    ${row("Gap", g, w.gap, band(g, .35, .7,
+      "<b>Low.</b> There is already plenty of content answering these questions — the audience is being served, so a new piece has to be better, not just present.",
+      "<b>Moderate.</b> More is being asked than answered, but the space is not empty. Worth publishing with a distinct angle.",
+      "<b>High.</b> People are asking far more than anyone is answering. This is open ground."))}
+    ${row("Velocity", v, w.velocity, band(v, .3, .7,
+      "<b>Slow.</b> The conversation is steady rather than spiking — evergreen, not urgent.",
+      "<b>Building.</b> Views are accumulating at a healthy rate. There is momentum without a stampede.",
+      "<b>Hot.</b> The top item is moving very fast — publish soon or miss the wave."))}
+    ${row("Strategic", st, w.strategic, "How much this theme matters to the business, set by you in the theme's weight. Not measured from the feed — this is your priority, not the internet's.")}
+    ${row("Historical", h, w.historical, "How often you have accepted ideas in this sub-series before. Every Used, Saved and Rejected you mark feeds this, so the ranking tracks your taste over time.")}
+    <div class="tsr-note" style="margin-top:8px">Final score = ${w.gap} × gap + ${w.velocity} × velocity + ${w.strategic} × strategic + ${w.historical} × historical. All four weights are editable in <b>Settings</b>.</div>
+  </div>`;
+}
+
+function recapBlock(stories) {
   const r = RECAP; if (!r) return "";
   const chip = (label, count) => `<span class="tsr-chip"><span class="t">${esc(label)}</span>${count != null ? `<b>${count}</b>` : ""}</span>`;
   const mut = (label) => `<span class="tsr-chip mut"><span class="t">${esc(label)}</span></span>`;
@@ -641,7 +676,7 @@ function recapBlock() {
   const hi = `${(r.concepts || []).length} concepts · ${(r.seo || []).length} research input${(r.seo || []).length === 1 ? "" : "s"} · ${f.collected ?? 0} items collected · ${r.output?.ideas ?? 0} ideas`;
   return `<details class="tsr rcp" open>
     <summary class="tsr-top"><span class="ic-wrap">${ic("box", 15)}</span><span class="tsr-title">What went into this sweep</span><span class="tsr-hi">${hi}</span><span class="tsr-chev">▾</span></summary>
-    <div class="tsr-grid">${routeBlock}${outBlock}${conceptBlock}${seoBlock}${briefBlock}${feedBlock}${guardBlock}</div>
+    <div class="tsr-grid">${routeBlock}${outBlock}${conceptBlock}${seoBlock}${briefBlock}${feedBlock}${guardBlock}${scoreExplainer(stories)}</div>
   </details>`;
 }
 
@@ -956,7 +991,6 @@ function renderIdeas(stories, franchises) {
       <span class="chip tag-grn" style="cursor:default">${ic("box")} ${esc(BATCH?.name || "batch")}</span>
       <span class="chip" style="border:none;background:none;padding:0">franchise</span>
       <select onchange="setFR(this.value)"><option value="all" ${FR === "all" ? "selected" : ""}>all</option>${(franchises || []).map((f) => `<option ${FR === f.name ? "selected" : ""}>${esc(f.name)}</option>`).join("")}</select>
-      <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${pending.length} still to judge${done.length ? ` · ${done.length} done` : ""}</span>
       ${done.length ? `<button class="btn small" onclick="toggleDone()">${SHOW_DONE ? "Hide the done ones" : `Show all (${stories.length})`}</button>` : ""}
     </div>`;
   const doneDrawer = (!SHOW_DONE && done.length) ? `<details class="donedrawer">
@@ -967,7 +1001,8 @@ function renderIdeas(stories, franchises) {
     ? `<div class="empty">// all judged — nothing left in this batch //</div>`
     : `<div class="empty">// no ideas${FR !== "all" ? " for " + esc(FR) : ""} //</div>`;
   host.innerHTML = `<p class="intro"><b>IDEAS</b> — grouped into <b>story boards</b> by concept. Mark each one <b>Used</b>, <b>Save</b> or <b>Reject</b> and it drops out of this list into the done drawer below, so the list shrinks as you go. Everything stays findable in the <b>Library</b>.</p>` +
-    recapBlock() + trendReport(stories) + feedSignalBlock() + journeyCTA(stories) + filter +
+    // journeyCTA() returns "" while the Journey lane is off
+    recapBlock(stories) + trendReport(stories) + feedSignalBlock() + journeyCTA(stories) + filter +
     (boards.length ? `<div class="boards">${boards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>` : emptyMsg) + doneDrawer;
 }
 window.toggleDone = () => { SHOW_DONE = !SHOW_DONE; loadIdeas(); };
@@ -976,6 +1011,7 @@ window.toggleDone = () => { SHOW_DONE = !SHOW_DONE; loadIdeas(); };
 // how a batch becomes briefed, owned, dated work. Without a door this obvious
 // nobody finds the Journey tab, because nothing on the results page points at it.
 function journeyCTA(stories) {
+  if (!JOURNEY_ON) return "";
   const enrolled = (stories || []).filter((s) => s.stage).length;
   return `<div class="jcta">
     <div class="jcta-t">${enrolled ? "This batch is already in the journey" : "Turn these ideas into actual work"}</div>
@@ -1049,7 +1085,6 @@ function libraryBoard(s, i, franchises) {
       ${s.contradiction ? `<span class="chip flag" style="cursor:default">${ic("bolt")} contradiction</span>` : ""}
       ${fb ? `<span class="chip ${fb === "used" ? "tag-grn" : fb === "saved" ? "tag-amber" : "tag-mag"}" style="cursor:default">${esc(fb)}</span>` : `<span class="chip" style="cursor:default;border-style:dashed;color:var(--dim2)">not judged yet</span>`}
       ${s.reject_reason ? `<span class="chip tag-mag" style="cursor:default" title="the reason given when this was rejected">${esc(s.reject_reason)}</span>` : ""}
-      ${s.stage ? `<span class="chip tag-cyan" style="cursor:default" title="how far this got through the detailed journey">${esc(JSTAGE_LABEL[s.stage] || s.stage)}</span>` : ""}
       ${s.selected ? `<span class="chip tag-grn" style="cursor:default" title="ticked to build">▸ to build</span>` : ""}
       ${s.batch_name ? `<span class="chip" style="cursor:default;margin-left:auto">${ic("box")} ${esc(s.batch_name)}</span>` : ""}
     </div>
@@ -1081,7 +1116,6 @@ async function loadLibrary() {
   const filters = `<div class="lib-filters">
       ${sel("Outcome", LIB_FB, [["all", "all"], ["used", "used"], ["saved", "saved"], ["rejected", "rejected"], ["unmarked", "not judged yet"]], "setLibFB", "What you marked it in the action bar")}
       ${LIB_FB === "rejected" ? sel("Why rejected", LIB_RS, [["all", "any reason"], ...REJECT_REASONS.map((r) => [r, r])], "setLibRS", "The reason given when it was rejected") : ""}
-      ${sel("Journey", LIB_ST, [["all", "all"], ["none", "not in the journey"], ...Object.entries(JSTAGE_LABEL)], "setLibST", "How far it got through the detailed journey")}
       ${sel("Series", LIB_FR, [["all", "all"], ...FRANCHISES.map((f) => [f.name, f.name])], "setLibFR", "Which 1Up sub-series it routes to")}
       ${sel("Sweep", LIB_BA, [["all", "all"], ...LIB_BATCHES.map((b) => [String(b.id), b.name])], "setLibBA", "Which sweep produced it")}
       <span class="lf-n">${stories.length} idea${stories.length === 1 ? "" : "s"}</span>

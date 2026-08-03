@@ -272,11 +272,20 @@
   .tsr-chip span.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tsr-chip b{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#FFF1E9;color:var(--grn);font-size:11px;font-weight:700;flex:0 0 auto}
   .tsr-chip.mut{color:var(--dim2);border-style:dashed}
-  .tsr-tiles{display:flex;gap:9px;flex-wrap:wrap}
-  .tsr-tile{flex:1;min-width:64px;background:#fff;border:1px solid var(--line2);border-radius:10px;padding:9px 11px}
+  /* tiles were flex:1 with a 64px floor — seven of them squeezed to ~60px and
+     clipped their labels ("COLLECTED" → "COLLECTE"). Grid with a real minimum
+     lets them wrap onto a second row instead of crushing. */
+  .tsr-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:9px}
+  .tsr-tile{background:#fff;border:1px solid var(--line2);border-radius:10px;padding:10px 12px;min-width:0;overflow:visible}
   .tsr-tile .v{font-size:20px;font-weight:700;color:var(--txt);line-height:1}
   /* tile captions: 9.5px light grey was unreadable — bigger, bolder, darker */
-  .tsr-tile .l{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--dim);margin-top:6px;line-height:1.3}
+  .tsr-tile .l{font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--dim);margin-top:6px;line-height:1.35;white-space:normal;word-break:normal;overflow-wrap:break-word}
+  /* plain-English score explainer */
+  .sx{grid-column:1/-1}
+  .sx-r{display:grid;grid-template-columns:132px 1fr;gap:10px;padding:5px 0;font-size:12.5px;line-height:1.6}
+  .sx-k{font-weight:700;color:var(--txt);display:flex;gap:7px;align-items:baseline}
+  .sx-v{font-family:var(--mono);font-size:12px;color:var(--grn);font-weight:700}
+  @media(max-width:640px){.sx-r{grid-template-columns:1fr;gap:2px}}
   .tsr-note{font-size:12px;color:var(--dim);line-height:1.5;margin-top:9px}
   .tsr-note b{color:var(--txt)}
 

@@ -397,6 +397,28 @@ export function mountContra(app, upload) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
   });
 
+  // Every decision made on this review — so the report can show a finding as
+  // resolved instead of re-presenting it as if nobody had looked.
+  app.get("/api/contra/review/:id/decisions", async (req, res) => {
+    const rows = (await q(`select box_key, finding_key, verdict, reason, actor, created_at
+                             from contra_decision where review_id=$1`, [Number(req.params.id)])).rows;
+    res.json({ decisions: rows });
+  });
+
+  // The teaching signal: a check rejected repeatedly across contracts of the SAME
+  // archetype is the archetype being wrong, not the contracts. Surfaced for a
+  // human to soften or remove — never applied automatically.
+  app.get("/api/contra/archetype/:id/signal", async (req, res) => {
+    const rows = (await q(
+      `select box_key, finding_key, count(*) c,
+              array_agg(distinct nullif(reason,'')) filter (where reason is not null) as reasons
+         from contra_decision
+        where archetype_id=$1 and verdict='reject'
+        group by box_key, finding_key having count(*) >= 2
+        order by c desc limit 20`, [Number(req.params.id)])).rows;
+    res.json({ signals: rows });
+  });
+
   // Clause labels — a 2-4 word topic per cited § (Indemnity, Payment terms…), so the
   // report chips say what each clause is about. Generated once (gated) + cached on the report.
   app.post("/api/contra/review/:id/clause-labels", async (req, res) => {
@@ -425,11 +447,23 @@ export function mountContra(app, upload) {
     } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 200) }); }
   });
 
-  // Human action on a box (accept / reject / comment) → remembered on the timeline.
+  // Human action on a box. A comment is a note; an accept/reject is a DECISION —
+  // it resolves the item, persists against the thing decided (not just the
+  // moment), and feeds the archetype-level teaching signal below.
   app.post("/api/contra/review/:id/act", async (req, res) => {
     const id = Number(req.params.id);
-    const { kind, box_key, body, by } = req.body || {};
+    const { kind, box_key, finding_key, body, by } = req.body || {};
     if (!["accept", "reject", "comment"].includes(kind)) return res.status(400).json({ error: "bad kind" });
+    if (kind !== "comment") {
+      const rv = (await q(`select archetype_id from contra_review where id=$1`, [id])).rows[0];
+      await q(`insert into contra_decision(review_id, archetype_id, box_key, finding_key, verdict, reason, actor)
+               values($1,$2,$3,$4,$5,$6,$7)
+               on conflict (review_id, box_key, finding_key)
+               do update set verdict=excluded.verdict, reason=excluded.reason, actor=excluded.actor, created_at=now()`,
+        [id, rv?.archetype_id || null, String(box_key || "").slice(0, 80) || null,
+         finding_key ? String(finding_key).slice(0, 160) : null, kind,
+         String(body || "").slice(0, 300) || null, String(by || "you").slice(0, 40)]).catch(() => {});
+    }
     const seq = await nextSeq(id);
     const label = kind === "accept" ? `Accepted · ${box_key || "review"}` : kind === "reject" ? `Rejected · ${box_key || "review"}` : `Comment · ${box_key || "whole contract"}`;
     await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning) values($1,$2,'human',$3,$4,$5,$6)`,

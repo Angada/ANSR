@@ -949,12 +949,60 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
     )).rows;
     res.json({ confirms: rows });
   });
-  app.post("/api/qlegal/confirm/:id", async (req, res) => {
-    const id = Number(req.params.id);
-    const { action, doc_type, by } = req.body || {};
-    if (!["accept", "reject"].includes(action)) return res.status(400).json({ error: "action must be accept|reject" });
+  // ---- batch confirm: the only way classification survives 1000 contracts ----
+  // Evidence is homogeneous within a kind, so answering 12 identical questions
+  // one at a time is a UI failure, not diligence. Each row still resolves through
+  // the SAME path as a single decision — same accept logic, same feedback label,
+  // same suppression on reject — so a batch can never take a shortcut a single
+  // decision wouldn't.
+  app.post("/api/qlegal/confirms/batch", async (req, res) => {
+    const ids = (req.body?.ids || []).map(Number).filter(Boolean).slice(0, 200);
+    const action = req.body?.action;
+    if (!ids.length || !["accept", "reject"].includes(action)) return res.status(400).json({ error: "ids + action required" });
+    let done = 0; const errors = [];
+    for (const id of ids) {
+      try { await resolveConfirm(id, { action, doc_type: req.body?.doc_type, reason: req.body?.reason, by: req.body?.by }); done++; }
+      catch (e) { errors.push({ id, error: clip(e.message, 120) }); }
+    }
+    res.json({ resolved: done, errors });
+  });
+
+  // ---- the learning ledger: proof the queue is shrinking ---------------------
+  // Without this the queue is data entry. With it you can see last month's
+  // answers making this month's list shorter — which is the whole promise.
+  app.get("/api/qlegal/confirms/ledger", async (_req, res) => {
+    const one = async (sql, p = []) => Number((await q(sql, p)).rows[0]?.c || 0);
+    const [d30, d7, open, blocked, suppressed] = await Promise.all([
+      one(`select count(*) c from ql_confirm where status<>'open' and resolved_at > now() - interval '30 days'`),
+      one(`select count(*) c from ql_confirm where status<>'open' and resolved_at > now() - interval '7 days'`),
+      one(`select count(*) c from ql_confirm where status='open' and not blocked`),
+      one(`select count(*) c from ql_confirm where status='open' and blocked`),
+      one(`select count(*) c from ql_confirm where status='rejected' and proposal_key is not null`),
+    ]);
+    // classification confidence now vs before the oldest decision in the window
+    const conf = (await q(
+      `select round(avg((facts->>'doc_type_confidence')::numeric) * 100) as pct,
+              count(*) filter (where (facts->>'doc_type_confirmed')='true') as confirmed,
+              count(*) as total
+         from ql_document where coalesce(status,'active')<>'inactive' and facts ? 'doc_type_confidence'`
+    ).catch(() => ({ rows: [] }))).rows[0] || {};
+    // the reasons people gave — a reason recurring across documents is a rule
+    const reasons = (await q(
+      `select reason, count(*) c from ql_confirm
+        where status='rejected' and reason is not null and reason <> ''
+        group by reason order by c desc limit 6`
+    ).catch(() => ({ rows: [] }))).rows;
+    res.json({ decided_30d: d30, decided_7d: d7, open, blocked, suppressed,
+      confidence_pct: conf.pct != null ? Number(conf.pct) : null,
+      confirmed: Number(conf.confirmed || 0), classified: Number(conf.total || 0), reasons });
+  });
+
+  // ONE resolve path, used by both the single decision and the batch — so a
+  // batch can never take a shortcut a single confirm wouldn't (same accept
+  // effects, same feedback label, same rejection suppression).
+  async function resolveConfirm(id, { action, doc_type, reason, by } = {}) {
     const c = (await q(`select * from ql_confirm where id=$1 and status='open'`, [id])).rows[0];
-    if (!c) return res.status(404).json({ error: "not found or already resolved" });
+    if (!c) throw new Error("not found or already resolved");
     if (action === "accept") {
       const p = c.proposal || {};
       if (c.kind === "link" && p.parent_id) {
@@ -965,7 +1013,9 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
           [c.document_id, p.other_id]);
       } else if (c.kind === "classification") {
         const t = clip(doc_type || p.doc_type, 40);
-        if (t) await q(`update ql_document set doc_type=$2, updated_at=now() where id=$1`, [c.document_id, t]);
+        if (t) await q(`update ql_document set doc_type=$2,
+            facts = jsonb_set(coalesce(facts,'{}'::jsonb), '{doc_type_confirmed}', 'true'::jsonb, true),
+            updated_at=now() where id=$1`, [c.document_id, t]);
       } else if (c.kind === "removal") {
         // gone from SharePoint → INACTIVE, never deleted: the derived layer keeps
         // the full record (facts, obligations, timeline) for the paper trail
@@ -978,12 +1028,19 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
     await q(`update ql_confirm set status=$2, resolved_by=$3, reason=$4,
               proposal_key=coalesce(proposal_key,$5), resolved_at=now() where id=$1`,
       [id, action === "accept" ? "accepted" : "rejected", clip(by, 40) || "you",
-       action === "reject" ? clip(req.body?.reason, 200) || null : null,
+       action === "reject" ? clip(reason, 200) || null : null,
        proposalKey(c.kind, c.proposal || {})]);
     // every confirmation is a learning label (append-only)
     await q(`insert into ql_feedback(surface, document_id, field, was, corrected, note, actor) values('confirm',$1,$2,$3,$4,$5,$6)`,
       [c.document_id, c.kind, JSON.stringify(c.proposal), action, clip(c.why, 240), clip(by, 40) || "you"]).catch(() => {});
-    res.json({ ok: true });
+    return c;
+  }
+
+  app.post("/api/qlegal/confirm/:id", async (req, res) => {
+    const { action } = req.body || {};
+    if (!["accept", "reject"].includes(action)) return res.status(400).json({ error: "action must be accept|reject" });
+    try { await resolveConfirm(Number(req.params.id), req.body || {}); res.json({ ok: true }); }
+    catch (e) { res.status(404).json({ error: clip(e.message, 120) }); }
   });
 
   // ---- Legal Setting: the growing category taxonomy -----------------------------
