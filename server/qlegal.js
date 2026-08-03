@@ -240,7 +240,39 @@ async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false
     maxTokens: P.max_tokens,
   });
   await logRun(out, { ref_type: "version", ref_id: verId, rules: rules.codes, input: filename, output: "concise key (C2)" });
-  const kp = jparse(out.text) || {};
+  let kp = jparse(out.text) || {};
+
+  // C2 IS MANDATORY. A document with a clause layer but no title, parties, type
+  // or dates is not "mostly ingested" — it is unfindable, and worse, it looks
+  // ingested. Two contracts sat in the estate that way (FEBI, TJX Principal):
+  // 110 and 69 clauses each, and nothing to identify them by.
+  //
+  // So: judge the result, retry once, and if it still comes back empty, FAIL the
+  // version loudly instead of filing a shell.
+  const emptyKey = (k) => {
+    const m = (k && k.meta) || {};
+    return !m.title && !m.doc_type && !m.party1 && !m.party2 && !m.effective_date;
+  };
+  let keyOut = out;
+  if (emptyKey(kp)) {
+    // a second attempt at a lower ceiling: the commonest cause is a response that
+    // ran past max_tokens and truncated mid-JSON, which a shorter read survives
+    const retry = await runPipeline("qlegal-key", {
+      system: [rules.text, keyContract(cats.length ? cats : ["MSA", "SOW", "NDA", "Other"])].filter(Boolean).join("\n\n"),
+      user: `Document filename: ${filename}\n\nContract:\n${clip(c1, Math.floor(P.read_chars * 0.6))}`,
+      maxTokens: P.max_tokens,
+    }).catch(() => null);
+    const rp = retry ? (jparse(retry.text) || {}) : {};
+    await logRun(retry || { pipeline: "qlegal-key", mode: "error" },
+      { ref_type: "version", ref_id: verId, input: filename,
+        output: emptyKey(rp) ? "C2 retry FAILED — no key extracted" : "C2 recovered on retry (shorter read)" });
+    if (!emptyKey(rp)) { kp = rp; keyOut = retry; }
+    else {
+      const why = "The concise key (C2) could not be extracted — twice. The transcript and clause layer are stored, but this contract has no title, parties, type or dates, so it cannot be identified or filtered. Re-index it, or check the qlegal-key pipeline.";
+      await q(`update ql_version set status='failed', error=$2 where id=$1`, [verId, clip(why, 500)]);
+      return { mode: "key-failed", docType: null, atom, keyFailed: why };
+    }
+  }
   const meta = kp.meta || {};
   const tags = [...new Set([...(Array.isArray(kp.tags) ? kp.tags : []).map((t) => String(t).toLowerCase().trim()).filter(Boolean),
     ...(ocr ? ["scanned-source"] : []), ...(meta.executed ? ["executed"] : [])])].slice(0, 12);
@@ -257,7 +289,7 @@ async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false
     clause_source: atom.structured ? "canon" : "model",       // say which, so a thin wiki is explainable
     clause_stats: atom.structured ? { clauses: atom.clauses, labelled: atom.labelled, edges: atom.edges, unresolved: atom.unresolved } : null,
     exhibits: (kp.exhibits || []).slice(0, 60),
-    notice: kp.notice || {}, mode: out.mode };
+    notice: kp.notice || {}, mode: keyOut.mode };
   await q(`update ql_version set c2=$2::jsonb, is_executed=$3, status='done', error=null where id=$1`,
     [verId, JSON.stringify(c2), !!meta.executed]);
   // a human-confirmed category is never clobbered by a re-run (confirm-don't-guess)
@@ -424,6 +456,8 @@ export async function ingestFile(f, { source = "upload", spItemId = null, spMeta
     let gate = null;
     if (derived.mode === "unsupported-language") {
       gate = { blocked: true, why: `Not read — this contract is in ${derived.language}. Non-English contracts are not wired up yet in this POC. The transcript and the original are stored, but there is no key, no wikis, no dates and no standing-question answers.` };
+    } else if (derived.mode === "key-failed") {
+      gate = { blocked: true, why: derived.keyFailed };
     } else if (extract.ocr && derived.mode !== "ai") {
       gate = { blocked: true, why: "Not read — this is a hard scan and the key could not be extracted. Scanned contracts are not fully wired up yet in this POC. The transcript and the original are stored." };
     }

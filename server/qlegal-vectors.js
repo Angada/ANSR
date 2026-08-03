@@ -122,18 +122,51 @@ async function vlog({ model, ref_type, ref_id, input, output, status }) {
 
 // embed a batch of texts with the ACTIVE model; falls back to hash:v1 on any
 // failure so ingestion never stalls on an embedding outage.
+// Known-good embedding models per provider. The configured one is tried first;
+// these are what we fall back THROUGH before giving up. Z.AI carries two names
+// because the estate hit "Unknown Model" on one of them and there is no way to
+// know which a given account has without asking.
+const FALLBACKS = [
+  "openai:text-embedding-3-small",
+  "google:gemini-embedding-001",
+  "zai:embedding-2",
+  "zai:embedding-3",
+];
+
 export async function embedTexts(texts, forceModel) {
-  const id = forceModel || embedModelId();
-  if (id !== "hash:v1") {
+  const first = forceModel || embedModelId();
+  // Try the configured model, then every other provider that actually holds a
+  // key. The old code tried ONE model and fell straight to hash:v1 — so a single
+  // wrong model name silently degraded the entire estate to keyword-grade
+  // vectors, which is what happened: zai answered "Unknown Model" and google 401,
+  // and nothing above noticed because the fallback always "succeeds".
+  const tried = new Set();
+  const candidates = [first, ...FALLBACKS].filter((id) => {
+    if (!id || id === "hash:v1" || tried.has(id)) return false;
+    tried.add(id);
+    const p = id.split(":")[0];
+    return EMBEDDERS[p] && getApiKey(p);
+  });
+
+  for (const id of candidates) {
     const [provider, model] = [id.split(":")[0], id.split(":").slice(1).join(":")];
     try {
       const out = [];
       for (let i = 0; i < texts.length; i += 48) out.push(...await EMBEDDERS[provider](texts.slice(i, i + 48), model, getApiKey(provider)));
-      if (out.length === texts.length) return { model: id, vectors: out };
+      if (out.length === texts.length) {
+        if (id !== first) await vlog({ model: id, ref_type: "embed", input: `${texts.length} texts`,
+          output: `${first} unavailable — embedded with ${id} instead`, status: "ai" });
+        return { model: id, vectors: out };
+      }
     } catch (e) {
       await vlog({ model: id, ref_type: "embed", input: `${texts.length} texts`, output: clip(String(e.message || e), 200), status: "error" });
     }
   }
+  // Genuinely nothing worked. hash:v1 keeps ingestion moving, but it is keyword-
+  // grade, not semantic — and the status endpoint reports it as degraded so the
+  // difference is visible rather than assumed.
+  await vlog({ model: "hash:v1", ref_type: "embed", input: `${texts.length} texts`,
+    output: `no embedding provider available (tried ${[...tried].join(", ") || "none"}) — using key-free hash vectors, semantic search is degraded`, status: "error" });
   return { model: "hash:v1", vectors: texts.map(hashEmbed) };
 }
 
