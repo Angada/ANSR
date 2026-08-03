@@ -1407,6 +1407,20 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
     catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
   });
   // what the semantic index actually holds for one document (the coverage panel)
+  // The clause wiki + the contract's own reference graph. Served from the clause
+  // table, so it is the whole document — not whatever survived a model call.
+  app.get("/api/qlegal/clauses/:id", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [clauses, edges] = await Promise.all([clauseWiki(id), clauseEdges(id)]);
+      res.json({
+        clauses, edges,
+        stats: { clauses: clauses.length, labelled: clauses.filter((c) => c.label).length,
+          edges: edges.length, unresolved: edges.filter((e) => !e.resolved).length },
+      });
+    } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+  });
+
   app.get("/api/qlegal/coverage/:id", async (req, res) => {
     try { res.json(await docCoverage(Number(req.params.id))); }
     catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
