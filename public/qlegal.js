@@ -313,7 +313,7 @@ function renderRegistry() {
     </tr>`;
   }).join("");
   host.innerHTML = `<p class="intro"><b>CONTRACTS</b> — the estate. Filter by Legal Setting, expiry, or anything; click a contract for its page.</p>`
-    + warn + drop + `<div id="qproc"></div>` + strip
+    + warn + drop + `<div id="qproc"></div><div id="ql-batch"></div>` + strip
     + (list.length
       ? colfChips(REG_COLS, CST, base) + `<div class="scroll-x reveal"><table class="ctable">${colfHead(REG_COLS, CST)}<tbody>${rows}</tbody></table></div>`
       : DOCS.length ? `<div class="empty">// nothing matches these filters //</div>`
@@ -350,6 +350,7 @@ window.qUpload = async (files) => {
     fd.append("paths", JSON.stringify(chunk.map((f) => f.webkitRelativePath || "")));
     chunk.forEach((f) => fd.append("files", f));
     try {
+      startBatchPoll();   // the batch row exists from the first request — watch it live
       const r = await fetch("/api/qlegal/upload", { method: "POST", body: fd });
       const txt = await r.text();
       let j; try { j = JSON.parse(txt); } catch {
@@ -373,6 +374,9 @@ window.qUpload = async (files) => {
   const dups = results.filter((r) => r.skipped).length;
   const errs = results.filter((r) => r.error);
   await loadRegistry(); loadConfirmCount().then(renderNav); loadCats(); renderNav(); renderRegistry();
+  stopBatchPoll();
+  await renderBatch();          // final state, and it stays on the page
+
   // The gate speaks at the door. A document that could not be read must not be
   // counted among the ones that were, and a document that WAS read can still
   // have a clause sitting in a picture — say so here, not on a page later.
@@ -1411,3 +1415,63 @@ function rdForm(title, fields, onOk) {
 }
 
 init();
+
+// ==========================================================================
+// The persistent ingestion batch — the list IS the progress meter.
+// It lives in the database, so a reload, a second tab or a phone shows the same
+// run. Blocked documents wait here for an accept or a reject instead of being
+// announced once in a dialog the user dismissed and cannot get back.
+// ==========================================================================
+let BATCH_T = null;
+function stopBatchPoll() { if (BATCH_T) { clearInterval(BATCH_T); BATCH_T = null; } }
+function startBatchPoll() { stopBatchPoll(); BATCH_T = setInterval(renderBatch, 2000); }
+
+const STAGE_LABEL = { queued: "Queued", reading: "Reading…", done: "" };
+const STATUS_CHIP = {
+  ok: ["Indexed", "ok"], blocked: ["Needs a decision", "warn"],
+  failed: ["Failed", "bad"], duplicate: ["Already held", "mute"], pending: ["", "mute"],
+};
+
+window.decideItem = async (id, decision) => {
+  await fetch(`/api/qlegal/batch/item/${id}/decide`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ decision }),
+  });
+  await renderBatch(); await loadRegistry(); renderRegistry();
+};
+
+async function renderBatch() {
+  const el = document.getElementById("ql-batch");
+  if (!el) return;
+  let d; try { d = await (await fetch("/api/qlegal/batch/latest")).json(); } catch { return; }
+  if (!d.batch) { el.innerHTML = ""; return; }
+  const items = d.items || [];
+  const done = items.filter((i) => i.stage === "done").length;
+  const blocked = items.filter((i) => i.status === "blocked" && !i.decision);
+  const running = d.batch.status === "running";
+  if (!running) stopBatchPoll();
+
+  const rows = items.map((i) => {
+    const [chip, tone] = STATUS_CHIP[i.status] || ["", "mute"];
+    const stage = i.stage === "done" ? "" : (STAGE_LABEL[i.stage] || i.stage);
+    const notes = (i.gate && i.gate.notes) || (i.gate && i.gate.why ? [i.gate.why] : []);
+    return `<div class="qlb-row${i.status === "blocked" && !i.decision ? " qlb-row--open" : ""}">
+      <div class="qlb-name">${esc(i.filename)}</div>
+      <div class="qlb-state">${stage ? `<span class="qlb-stage">${esc(stage)}</span>` : ""}
+        ${chip ? `<span class="qlb-chip qlb-chip--${tone}">${esc(chip)}</span>` : ""}
+        ${i.decision ? `<span class="qlb-chip qlb-chip--mute">${esc(i.decision === "accept" ? "Kept" : "Rejected")}</span>` : ""}</div>
+      ${notes.length ? `<div class="qlb-why">${notes.map((n) => esc(n)).join("<br>")}</div>` : ""}
+      ${i.note && !notes.length ? `<div class="qlb-why">${esc(i.note)}</div>` : ""}
+      ${i.status === "blocked" && !i.decision ? `<div class="qlb-act">
+        <button class="btn btn--sm" onclick="decideItem(${i.id},'accept')">Keep it anyway</button>
+        <button class="btn btn--sm btn--ghost" onclick="decideItem(${i.id},'reject')">Reject</button></div>` : ""}
+    </div>`;
+  }).join("");
+
+  el.innerHTML = `<div class="qlb">
+    <div class="qlb-head"><b>${esc(d.batch.label || "Ingestion")}</b>
+      <span class="qlb-count">${done} of ${items.length} processed${blocked.length ? ` · ${blocked.length} awaiting you` : ""}</span>
+      ${running ? `<span class="qlb-live">running</span>` : `<button class="btn btn--sm btn--ghost" onclick="document.getElementById('ql-batch').innerHTML=''">Dismiss</button>`}</div>
+    ${d.stalled ? `<div class="qlb-why">This run stopped before finishing — the documents still queued were never stored, so re-upload them.</div>` : ""}
+    ${rows}</div>`;
+}

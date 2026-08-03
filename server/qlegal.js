@@ -579,11 +579,48 @@ export function mountQLegal(app, upload) {
     // an absolute path on the user's machine is never available, by design. We send
     // whatever exists, per file, and record exactly that — no more.
     const paths = (() => { try { return JSON.parse(req.body?.paths || "[]"); } catch { return []; } })();
+
+    // The batch is recorded BEFORE any work starts, and each file's state is
+    // written as it changes. A reload, a second tab or a phone can then watch the
+    // same run — the list is the progress meter, naming the document being read
+    // rather than a percentage that explains nothing when it stalls.
+    // Cloud Run throttles CPU once a response is sent, so the request still drives
+    // the loop; what the database buys is visibility and an honest record, not a
+    // daemon. A request that dies leaves its remaining files 'queued' and says so.
+    const batch = (await q(
+      `insert into ql_batch(label, total) values ($1,$2) returning id`,
+      [files.length === 1 ? files[0].originalname : `${files.length} documents`, files.length])).rows[0];
+    for (const [i, f] of files.entries())
+      await q(`insert into ql_batch_item(batch_id, filename, ord) values ($1,$2,$3)`, [batch.id, f.originalname, i]);
+
+    const setItem = (i, patch) => q(
+      `update ql_batch_item set stage=coalesce($3,stage), status=coalesce($4,status),
+         document_id=coalesce($5,document_id), gate=coalesce($6::jsonb,gate), note=coalesce($7,note), updated_at=now()
+        where batch_id=$1 and ord=$2`,
+      [batch.id, i, patch.stage || null, patch.status || null, patch.document_id || null,
+       patch.gate ? JSON.stringify(patch.gate) : null, patch.note || null]).catch(() => {});
+
     const results = [];
     for (const [i, f] of files.entries()) {
-      results.push(await ingestFile(f, { origin: paths[i] || null, actor: req.body?.by || "you" }));
+      await setItem(i, { stage: "reading" });
+      try {
+        const r = await ingestFile(f, { origin: paths[i] || null, actor: req.body?.by || "you" });
+        results.push(r);
+        await setItem(i, {
+          stage: "done",
+          status: r.skipped ? "duplicate" : (r.gate && r.gate.blocked ? "blocked" : "ok"),
+          document_id: r.document_id || null,
+          gate: r.gate || null,
+          note: r.skipped ? "already in the repository" : null,
+        });
+      } catch (e) {
+        const msg = String(e.message || e);
+        results.push({ filename: f.originalname, error: msg });
+        await setItem(i, { stage: "done", status: "failed", note: msg.slice(0, 400) });
+      }
       try { rmSync(f.path); } catch { /* ignore */ }
     }
+    await q(`update ql_batch set status='done', updated_at=now() where id=$1`, [batch.id]).catch(() => {});
     // Tree-link + lineage proposals must finish BEFORE we respond: Cloud Run
     // throttles CPU once the response is sent, so fire-and-forget work after
     // res.json() silently never runs. Best-effort per doc — a failure here
@@ -593,7 +630,7 @@ export function mountQLegal(app, upload) {
       await proposeLinks(r.document_id).catch(() => {});
       await proposeLineage(r.document_id).catch(() => {});
     }
-    res.json({ results });
+    res.json({ batch_id: batch.id, results });
   });
 
   // ---- registry (the estate table) -------------------------------------------
@@ -1443,6 +1480,41 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
   });
 
   // the parent routing map — the estate meta-wiki
+  // The persistent batch: what is running, what each document did, and what is
+  // waiting on a human. Poll-able from anywhere, because it lives in the database
+  // and not in the tab that started it.
+  app.get("/api/qlegal/batch/:id", async (req, res) => {
+    try {
+      const id = req.params.id === "latest"
+        ? (await q(`select id from ql_batch order by id desc limit 1`)).rows[0]?.id
+        : Number(req.params.id);
+      if (!id) return res.json({ batch: null, items: [] });
+      const batch = (await q(`select * from ql_batch where id=$1`, [id])).rows[0] || null;
+      const items = (await q(`select * from ql_batch_item where batch_id=$1 order by ord`, [id])).rows;
+      // a batch whose request died leaves items queued — say so rather than
+      // showing a spinner that will never resolve
+      const stalled = batch && batch.status === "done" && items.some((x) => x.stage === "queued" || x.stage === "reading");
+      res.json({ batch, items, stalled });
+    } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+  });
+
+  // Accept or reject a blocked document. Rejecting is a real decision, recorded
+  // against the item — not a dialog the user dismissed and cannot revisit.
+  app.post("/api/qlegal/batch/item/:id/decide", async (req, res) => {
+    const d = String(req.body?.decision || "");
+    if (!["accept", "reject"].includes(d)) return res.status(400).json({ error: "decision must be accept or reject" });
+    try {
+      const row = (await q(
+        `update ql_batch_item set decision=$2, decided_at=now(), updated_at=now() where id=$1 returning *`,
+        [Number(req.params.id), d])).rows[0];
+      // rejecting removes the half-read document from the repository, which is the
+      // whole point of a gate: a contract nobody vouched for should not be answerable
+      if (row && d === "reject" && row.document_id)
+        await q(`update ql_document set status='inactive', updated_at=now() where id=$1`, [row.document_id]).catch(() => {});
+      res.json({ ok: true, item: row });
+    } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+  });
+
   app.get("/api/qlegal/estate-wiki", async (_req, res) => {
     try { res.json(await estateWiki({})); }
     catch (e) { res.status(500).json({ error: String(e.message || e) }); }
