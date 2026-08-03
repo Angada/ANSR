@@ -741,16 +741,45 @@ function obligationRow(o, compact) {
     ${acts}</div>`;
 }
 async function loadObligations() { try { OBLIGS = ((await (await fetch("/api/qlegal/obligations")).json()).obligations) || []; } catch { OBLIGS = []; } }
+// Obligations are CARDS, not a table — each one carries buttons and a § citation,
+// which a row cannot hold. So the Super Filter is applied as chips above the
+// cards: the same searchable multi-select with live counts, minus the sortable
+// header there is no header for. "Which of Legal's insurance certificates are
+// overdue" is a two-chip question, and a plain text box cannot ask it.
+const dueBucket = (d) => {
+  if (!d) return "no date";
+  const days = Math.round((new Date(d) - Date.now()) / 86400000);
+  if (days < 0) return "overdue";
+  if (days <= 30) return "next 30 days";
+  if (days <= 90) return "next 90 days";
+  if (days <= 365) return "this year";
+  return "later";
+};
+const OST = colfState({ sortKey: null });
+const OBL_COLS = [
+  { key: "contract", label: "Contract", get: (o) => o.title || o.filename || "—" },
+  { key: "kind", label: "Kind", get: (o) => o.kind || "—" },
+  { key: "who", label: "Who owes it", get: (o) => o.who_owes || "—" },
+  { key: "doer", label: "Doer", get: (o) => o.owner || "unassigned" },
+  { key: "status", label: "Status", get: (o) => o.status || "—" },
+  // Bucketed, not per-date: one chip per calendar day would be a list, not a
+  // filter. "Overdue" and "next 30 days" are the questions people actually ask.
+  { key: "due", label: "Due", get: (o) => dueBucket(o.due_date), sortLabels: ["soonest first", "latest first"] },
+];
+
 async function renderObligations() {
   const host = $("#view-obligations");
   host.innerHTML = `<div class="empty">loading…</div>`;
   await loadObligations(); renderNav();
-  const upcoming = OBLIGS.filter((o) => o.status !== "done");
-  const done = OBLIGS.filter((o) => o.status === "done");
+  const all = colfRows(OBL_COLS, OST, OBLIGS);
+  const upcoming = all.filter((o) => o.status !== "done");
+  const done = all.filter((o) => o.status === "done");
   host.innerHTML = `<p class="intro"><b>OBLIGATIONS</b> — the task manager. Renewal &amp; termination deadlines and each contract's deliverables/SLAs, every one citing its §. Track it → assign the doer → ✓ Completed (or Dismiss). Reminders ride these dates.</p>`
+    + colfChips(OBL_COLS, OST, OBLIGS)
     + `<div class="cfilter"><input placeholder="filter by task, contract, kind, doer…" oninput="filterCards('oblist',this.value)"></div>`
     + (upcoming.length ? `<div class="wikicard reveal" id="oblist">${upcoming.map((o) => obligationRow(o)).join("")}</div>` : `<div class="empty">// nothing tracked yet — obligations appear as contracts are ingested //</div>`)
     + (done.length ? `<div class="wikicard reveal" style="opacity:.7"><div class="rsec-lbl">Completed</div>${done.map((o) => obligationRow(o)).join("")}</div>` : "");
+  colfWire(OBL_COLS, OST, OBLIGS, renderObligations);   // re-wire after every render
   sequenceReveal(host, ".reveal", 120, 60);
 }
 window.oblAct = async (id, status) => { await fetch(`/api/qlegal/obligation/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) }); if (OPEN) openDoc(OPEN.document.id); else renderObligations(); };
