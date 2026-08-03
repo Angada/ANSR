@@ -39,6 +39,34 @@ const HEAD = [
   /^\s*(?:(ANNEXURE|Annexure|SCHEDULE|Schedule|APPENDIX|Appendix|EXHIBIT|Exhibit)\s+([A-Z0-9IVXLC]+))\s*[.)\-–—:]?\s*(.*)$/,
 ];
 
+// The commonest layout in real agreements, and the one that defeats a
+// single-line regex: the number sits ALONE on its line and the heading text
+// begins the next one — "2.2." / "Statements of Work. As used herein…".
+// Measured on the sample estate, missing this form cost the Insulet MSA every
+// one of its clauses.
+const NUM_ONLY = /^\s*(\d+(?:\.\d+)*)\s*[.)]?\s*$/;
+
+// Clause numbers are small and shallow. Street numbers and ZIP codes are not:
+// without this, "1100 Dallas, Texas 75240" became §1100 with title "Dallas,
+// Texas 75240", and the address block outranked the actual contract.
+const plausibleRef = (ref) => {
+  const parts = String(ref).split(".");
+  if (parts.length > 4) return false;
+  return parts.every((p) => p.length <= 2 && Number(p) >= 0 && Number(p) <= 99);
+};
+
+// Title from the line that follows a bare number: contracts print the heading
+// as a leading Title-Case sentence — "Term. The term of this Agreement shall…".
+const titleFrom = (line) => {
+  const t = String(line || "").trim();
+  // a definitions clause leads with the defined term in quotes — that term IS
+  // the title, and it is the single most useful label in the whole document
+  const d = t.match(/^["“”']([^"“”']{1,60})["“”']\s+(?:means|shall mean|has the meaning)/i);
+  if (d) return d[1].trim();
+  const m = t.match(/^([A-Z][^.;:]{0,78})[.:]\s/);
+  return m ? m[1].trim() : "";
+};
+
 // A heading line is short and does not end mid-sentence. Contract bodies often
 // begin with a number ("12 months' notice"), and without this guard every such
 // paragraph forks a bogus clause.
@@ -66,16 +94,27 @@ export function splitClauses(text) {
     cur = null;
   };
 
-  for (const raw of lines) {
+  for (let ln = 0; ln < lines.length; ln++) {
+    const raw = lines[ln];
     if (FURNITURE.test(raw)) continue;
     let hit = null;
-    if (looksHeading(raw)) {
+
+    // 1 · the number alone on its line, heading text on the next
+    const numOnly = raw.match(NUM_ONLY);
+    if (numOnly && plausibleRef(numOnly[1])) {
+      let j = ln + 1;
+      while (j < lines.length && !lines[j].trim()) j++;
+      hit = { ref: numOnly[1], title: titleFrom(lines[j]) };
+    }
+
+    // 2 · the explicit single-line forms
+    if (!hit && looksHeading(raw)) {
       for (let i = 0; i < HEAD.length; i++) {
         const m = raw.match(HEAD[i]);
         if (!m) continue;
-        hit = i === 3
-          ? { ref: `${m[1]} ${m[2]}`.replace(/\s+/g, " ").trim(), title: (m[3] || "").trim() }
-          : { ref: m[1], title: (m[2] || "").trim() };
+        if (i === 3) { hit = { ref: `${m[1]} ${m[2]}`.replace(/\s+/g, " ").trim(), title: (m[3] || "").trim() }; break; }
+        if (/^\d/.test(m[1]) && !plausibleRef(m[1])) continue;   // an address, not a clause
+        hit = { ref: m[1], title: (m[2] || "").trim() };
         break;
       }
     }

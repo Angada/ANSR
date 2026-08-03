@@ -770,12 +770,17 @@ export function mountWhisperer(app, slug, upload) {
       const strategic = Math.min(1, ((Number(t.strategic_weight) || 1) / 1.5) + seasonLift + pushLift);
       const franchiseHist = hist[t.franchise] || 0;
       const gap = sig.gap;
-      for (let a = 0; a < 3; a++) {                       // 3 ideas / topic → ~18 total
+      // The three angles for a topic are INDEPENDENT — nothing in one feeds
+      // another — so they ran 18 model calls end to end for no reason. Opus at
+      // 2500 tokens is ~30s a call; that is ~9 minutes of pure waiting, which is
+      // what actually hung the sweep (an exhausted YouTube key would have made
+      // it FASTER, not slower — collection just returns empty). Run them together.
+      await Promise.all([0, 1, 2].map(async (a) => {
         const grounding = (items.length || research) ? `\nReal feed: ${JSON.stringify(items.map((x) => ({ src: x.source, title: x.title, url: x.url, tags: x.tags })))}\nResearch: ${JSON.stringify(research || {}).slice(0, 2000)}` : "";
         const contra = a === 1;
         const { j } = await ai("feedstory-generate", `${guardPrompt ? guardPrompt + "\n\n" : ""}Create ONE content idea (heading + topic guide brief only — NOT finished copy) for the '${t.franchise}' franchise. Angle: ${ANGLES[a]}. ${contra ? "This is a CONTRADICTION idea — push against a popular but wrong belief; state the belief. " : ""}Ground it in the real feed + research when given; evidence must be specific.`, `Demand topic: ${t.name} (underlying question: ${t.question})\nFranchise: ${t.franchise} · format: ${t.format_home}\nCohort: ${JSON.stringify(hunger).slice(0, 1200)}${extra ? `\nUser's extra brief for this sweep (weight it heavily): ${extra}` : ""}\nPick 1-up from ${JSON.stringify(oneups)}, register from ${JSON.stringify(regs)}.${grounding}`, 2500); // room for the full idea JSON (opus is verbose → 1200 truncated → parse-fail → 0 ideas)
         // LLM-only — no dummy fallback. If the model didn't return a usable idea, skip it.
-        if (!j || !j.heading) continue;
+        if (!j || !j.heading) return;
         const s = j;
         s.topic_guide = s.topic_guide || {};
         if (s.title && String(s.title).trim()) s.topic_guide.title = String(s.title).trim();
@@ -803,7 +808,7 @@ export function mountWhisperer(app, slug, upload) {
           values($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19::jsonb,$20,$21,true,'draft') returning id`,
           [bid, cohortId, t.name, t.franchise, s.platform || t.format_home, s.one_up, s.emotional_register, s.heading, JSON.stringify(s.topic_guide || {}), s.summary, s.why_now, s.why_relevant, s.why_cohort, s.evidence || "", !!s.contradiction, s.contradiction_of || null, JSON.stringify(srcRefs), score, JSON.stringify(breakdown), ANGLES[a], gapType]);
         made.push(r.rows?.[0]?.id);
-      }
+      }));
     }
     await wq(`update wh_batch set story_count=$2, status='swept', swept_at=now() where id=$1`, [bid, made.length]);
     res.json({ ok: true, made: made.length });

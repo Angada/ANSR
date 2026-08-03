@@ -14,6 +14,7 @@ import { runPipeline } from "./ai.js";
 import { loadConfig, getApiKey } from "./store.js";
 import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan, listSharePoint, ingestSharePointItem } from "./qlegal-sync.js";
 import { embedVersion, searchVectors, nearestDocs, embedStatus, embedSweep, clauseLibrary, estateMap, docCoverage } from "./qlegal-vectors.js";
+import { atomize, clauseWiki, clauseEdges, clausesWithRefs } from "./qlegal-clauses.js";
 
 const TENANT = "Q-LEGAL"; // ring-fenced storage namespace (vault + docstore)
 // business-rule scopes → which pipeline step each rule set is injected into
@@ -214,6 +215,24 @@ async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false
   }
   const cats = (await q(`select name from ql_category where status='active' order by name`)).rows.map((r) => r.name);
   const P = await ruleParams("c2-key");                    // the C2 dials (Settings → Business Rules)
+  // STEP · the Canon clause layer, BEFORE the key. The contract's own structure
+  // is read deterministically (§ refs, verbatim bodies, nesting, cross-refs) and
+  // labelled in small batches. Doing this first means the clause wiki no longer
+  // depends on one model call surviving intact — the layer that truncated.
+  let atom = { clauses: 0, edges: 0, structured: false };
+  try {
+    atom = await atomize(docId, verId, c1);
+    await logRun({ pipeline: "qlegal-atomize", mode: atom.structured ? "hybrid" : "no-structure" },
+      { ref_type: "version", ref_id: verId, input: filename,
+        output: atom.structured
+          ? `${atom.clauses} clauses · ${atom.labelled} labelled · ${atom.edges} cross-refs (${atom.unresolved} unresolved)`
+          : "no clause structure found — the document is prose or a scan transcript" });
+  } catch (e) {
+    // the clause layer failing must never cost the document its key
+    await logRun({ pipeline: "qlegal-atomize", mode: "error" },
+      { ref_type: "version", ref_id: verId, input: filename, output: `failed — ${String(e.message || e).slice(0, 200)}` });
+  }
+
   const rules = await rulesFor("ingestion");
   const out = await runPipeline("qlegal-key", {
     system: [rules.text, keyContract(cats.length ? cats : ["MSA", "SOW", "NDA", "Other"])].filter(Boolean).join("\n\n"),
@@ -225,9 +244,18 @@ async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false
   const meta = kp.meta || {};
   const tags = [...new Set([...(Array.isArray(kp.tags) ? kp.tags : []).map((t) => String(t).toLowerCase().trim()).filter(Boolean),
     ...(ocr ? ["scanned-source"] : []), ...(meta.executed ? ["executed"] : [])])].slice(0, 12);
+  // The clause wiki now comes from the CLAUSE TABLE when the document had real
+  // structure — every clause, not the model's recollection of some of them, and
+  // not capped: "which clauses mention indemnity" is only true if all were seen.
+  // The model's list stays the fallback for prose documents with no § at all.
+  const wiki = atom.structured
+    ? (await clauseWiki(docId)).map((c) => ({ ref: c.ref, topic: c.label || c.title || "", gist: c.gist || "" }))
+    : (kp.clauses || []).slice(0, P.max_clauses);
   const c2 = { meta, summary: kp.summary || "", tags,
     contents: (kp.contents || []).slice(0, P.max_contents),   // the contents wiki (navigate without re-reading)
-    clauses: (kp.clauses || []).slice(0, P.max_clauses),      // the clause wiki (what each § actually says)
+    clauses: wiki,                                            // the clause wiki (what each § actually says)
+    clause_source: atom.structured ? "canon" : "model",       // say which, so a thin wiki is explainable
+    clause_stats: atom.structured ? { clauses: atom.clauses, labelled: atom.labelled, edges: atom.edges, unresolved: atom.unresolved } : null,
     exhibits: (kp.exhibits || []).slice(0, 60),
     notice: kp.notice || {}, mode: out.mode };
   await q(`update ql_version set c2=$2::jsonb, is_executed=$3, status='done', error=null where id=$1`,
@@ -755,6 +783,37 @@ export function mountQLegal(app, upload) {
       }).join("\n\n");
       const deepBlock = hits.map((h) => `DEEP TEXT (C1) — [${h.id}] ${h.title || h.filename}:\n${clip(h.c1_text, AP.deep_text_chars)}`).join("\n\n");
 
+      // RUNG · follow the contract's own cross-references. Asked how long an
+      // agreement runs, ranking returns the term clause — and the term clause
+      // says "continue indefinitely unless terminated per Section 15". Section
+      // 15 ranks nowhere near the question, because a cross-reference reads
+      // nothing like its target. So walk the edge and put BOTH in front of the
+      // model, with the linking phrase, verbatim.
+      let linkBlock = "";
+      try {
+        const parts = [];
+        for (const h of hits.slice(0, AP.documents_read)) {
+          const seeds = [
+            ...(semClauses || []).filter((s) => Number(s.document_id) === Number(h.id)).map((s) => s.ref),
+            ...((h.c2 || {}).clauses || []).map((c) => c.ref),
+          ].filter(Boolean).slice(0, 12);
+          if (!seeds.length) continue;
+          const edges = (await clauseEdges(h.id)).filter((e) => e.resolved && seeds.includes(e.from_ref));
+          if (!edges.length) continue;
+          const pulled = await clausesWithRefs(h.id, edges.map((e) => e.to_ref), { hops: 1 });
+          if (!pulled.length) continue;
+          parts.push(`[${h.id}] ${h.title || h.filename}\n`
+            + edges.slice(0, 12).map((e) => `  ${e.from_ref} → ${e.to_ref}  ("${e.phrase}")`).join("\n")
+            + "\n  REFERENCED CLAUSES, VERBATIM:\n"
+            + pulled.map((c) => `  ${c.ref} ${c.label || c.title || ""}: ${clip(c.body, 900)}`).join("\n"));
+        }
+        if (parts.length) {
+          linkBlock = "CROSS-REFERENCES THE CONTRACT ITSELF MAKES (follow these before answering — a clause that defers to another is NOT answered until the other is read):\n"
+            + parts.join("\n\n");
+          rungs.push("CLAUSE CROSS-REFERENCES");
+        }
+      } catch { /* the graph is an enrichment; Ask still answers without it */ }
+
       // vector hits are POINTERS to real §§ — the model still cites the document
       const semBlock = (semClauses || []).length
         ? "SEMANTICALLY CLOSEST CLAUSES (found by meaning, not words — each is a real § in the named contract):\n"
@@ -764,7 +823,7 @@ export function mountQLegal(app, upload) {
         `REPOSITORY SHAPE: ${estate.map((e) => `${e.t}: ${e.c}`).join(" · ") || "empty"}`,
         regBlock,
         soon.length ? `UPCOMING OBLIGATIONS (120 days): ${soon.map((s) => `${s.filename} — ${s.what} (${s.due_date ? String(s.due_date).slice(0, 10) : "?"})`).join(" | ")}` : "",
-        semBlock, wikiBlock, deepBlock,
+        semBlock, wikiBlock, linkBlock, deepBlock,
       ].filter(Boolean).join("\n\n");
 
       const rules = await rulesFor("search");
