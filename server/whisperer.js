@@ -80,7 +80,7 @@ Object.assign(RULE_DEFAULTS, {
   factcheck: { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { languageCode: "en" }, prompt: "Check claims against published fact-checks; flag anything contradicted — never assert independently." },
   wikidata:  { app: "RayDar", category: "integration", pipeline: "raydar-contradiction", collection: { limit: 3 }, prompt: "Ground entities and definitions against Wikipedia / Wikidata." },
   // ---- journey steps (the Hunger routes) ----
-  trend_spotting: { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { topics: 6, include_emerging: true }, prompt: "From the chosen demand topics, frame the cohort's hunger — what they search, watch and complain about — and return the demand topics to sweep." },
+  trend_spotting: { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { topics: 6, include_emerging: true, max_topics_per_sweep: 2, max_terms_per_topic: 3, cache_hours: 24 }, prompt: "From the chosen demand topics, frame the cohort's hunger — what they search, watch and complain about — and return the demand topics to sweep." },
   seo_inputs:     { app: "RayDar", category: "journey", pipeline: "hunger-generate", collection: { max_inputs: 50 }, prompt: "Parse pasted SEO research (keywords / GSC / competitor gaps) → demand signals mapped to the 6 topics; extract the highest-intent queries." },
   talentmind:     { app: "RayDar", category: "journey", pipeline: "cohort-nl-query", collection: { tenure_max_years: 2, job_seekers_only: true }, prompt: "Job seekers only, under 2 years tenure per company. Parse each corpus into TalentMind chips, cohort them, read their hunger." },
   // ---- scoring (composite rank weights + gap map) ----
@@ -109,9 +109,24 @@ async function getRule(id) { try { const r = (await q(`select rule from wh_busin
 // comments are the demand signal; views÷age is velocity. All params from the rule.
 // ISO-8601 duration ("PT1M32S") → seconds
 const durSecs = (d) => { const m = String(d || "").match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/); return m ? (Number(m[1] || 0) * 3600 + Number(m[2] || 0) * 60 + Number(m[3] || 0)) : null; };
+// A YouTube search costs 100 quota units. Re-running the same term the same day
+// buys nothing but spends the day's budget, so every search is cached by term
+// and served from the cache until it ages out (default 24h, editable).
+async function ytCacheGet(term, hours) {
+  if (!(hours > 0)) return null;
+  const r = await q(`select payload from wh_search_cache where source='youtube' and term=$1 and fetched_at > now() - ($2 || ' hours')::interval`, [term, hours]).catch(() => null);
+  return r?.rows?.[0]?.payload || null;
+}
+const ytCachePut = (term, payload) =>
+  q(`insert into wh_search_cache(source, term, payload, fetched_at) values('youtube',$1,$2::jsonb, now())
+     on conflict (source, term) do update set payload=excluded.payload, fetched_at=now()`, [term, JSON.stringify(payload)]).catch(() => {});
+
 async function fetchYouTube(topic) {
   const key = getIntegrationKey("youtube"); if (!key) return [];
   const c = (await getRule("youtube")).collection || {};
+  const cacheHours = Number(((await getRule("trend_spotting")).collection || {}).cache_hours ?? 24);
+  const cached = await ytCacheGet(topic, cacheHours);
+  if (cached) { feedNote("youtube", "served from cache", `"${topic}" was searched within the last ${cacheHours}h — no quota spent`); return cached; }
   const publishedAfter = new Date(Date.now() - (c.publishedDays || 30) * 864e5).toISOString();
   const s = await timeout(fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=${Math.min(c.maxResults || 20, 25)}&regionCode=${c.regionCode || "IN"}&relevanceLanguage=${c.relevanceLanguage || "en"}&order=${c.order || "viewCount"}&publishedAfter=${encodeURIComponent(publishedAfter)}&q=${encodeURIComponent(topic)}&key=${encodeURIComponent(key)}`));
   if (!(await feedOk("youtube", s))) return [];
@@ -160,12 +175,14 @@ async function fetchYouTube(topic) {
     } catch { /* comments optional */ }
   }));
   const now = Date.now();
-  return vids.map((v) => {
+  const items = vids.map((v) => {
     const st = stats[v.id] || {}; const pub = st.publishedAt || v.publishedAt;
     const ageDays = pub ? Math.max(1, Math.round((now - new Date(pub).getTime()) / 864e5)) : null;
     return { source: "youtube", external_id: v.id, title: v.title, url: `https://youtube.com/watch?v=${v.id}`, body: v.body, drop_reason: v.drop_reason || null,
       meta: { views: st.views || 0, ageDays, comments: cmts[v.id] || [], durationSec: st.durationSec ?? null, audioLang: st.audioLang || null } };
   });
+  if (items.length) await ytCachePut(topic, items);   // 100 quota units banked
+  return items;
 }
 // Reddit requires a unique, descriptive User-Agent (platform:appID:version) — generic
 // ones like "Python/urllib" are heavily throttled. Set REDDIT_UA env to append your
@@ -212,17 +229,26 @@ async function fetchSerpNews(topic) {
 }
 // topics may be strings or {name, terms[]}. Each concept's terms are the actual
 // search queries fired at YouTube/Reddit/News; items are tagged with the concept.
+// How much of a sweep we are willing to spend. YouTube search costs 100 quota
+// units a call against a 10,000/day default — roughly four full sweeps a day —
+// so this cap is the difference between a team that can sweep and one that
+// cannot. Editable in Settings; never silently ignored.
+let COLLECT_CAP = { topics: 2, terms: 3 };
 async function collectFeed(topics) {
   feedReset();
+  const ts = (await getRule("trend_spotting")).collection || {};
+  COLLECT_CAP = { topics: Number(ts.max_topics_per_sweep) || 2, terms: Number(ts.max_terms_per_topic) || 3 };
+  if ((topics || []).length > COLLECT_CAP.topics)
+    feedNote("youtube", "sweep capped", `${topics.length} themes picked but only the first ${COLLECT_CAP.topics} were swept — YouTube search costs 100 quota units a call. Raise the cap in Settings, or run the rest as a second sweep.`);
   const out = [];
   // Collection used to run strictly sequentially — up to 6 topics x 4 terms, each
   // round waiting on 4 APIs with a 9s timeout. Worst case that is ~24 serial
   // rounds, which outran the request timeout and left the sweep spinning. The
   // terms within a topic now run together, so a topic costs one round, not four.
-  for (const t of (topics || []).slice(0, 6)) {
+  for (const t of (topics || []).slice(0, COLLECT_CAP.topics)) {
     const name = typeof t === "string" ? t : t.name;
     const terms = (typeof t === "object" && Array.isArray(t.terms) && t.terms.length) ? t.terms : [name];
-    const rounds = await Promise.allSettled(terms.slice(0, 4).map(async (term) => {
+    const rounds = await Promise.allSettled(terms.slice(0, COLLECT_CAP.terms).map(async (term) => {
       const batches = await Promise.allSettled([fetchYouTube(term), fetchReddit(term), fetchNews(term), fetchSerpNews(term)]);
       const got = [];
       for (const b of batches) if (b.status === "fulfilled") for (const it of (b.value || [])) got.push({ ...it, topic: name, term });

@@ -336,6 +336,12 @@ async function renderHunger() {
       <span class="idx">Your brief</span>
       <textarea id="sweepPrompt" rows="2" placeholder="anything more to add in your sweep?" oninput="setSweepPrompt(this.value)">${esc(SWEEP_PROMPT)}</textarea>
     </div>
+    ${TOPICS.length > 2 ? `<div class="quota">
+      <b>${TOPICS.length} themes picked — only the first 2 will be swept.</b>
+      A YouTube search costs 100 quota units, and the daily allowance is 10,000 — about four full sweeps a day.
+      Run <b>one series or one theme at a time</b> and you get far more sweeps out of the same key.
+      Repeat a term within 24 hours and it is served from cache for free. The cap is editable in <b>Settings → Trend Spotting</b>.
+    </div>` : ""}
     <div class="process"><button class="sweep-btn" onclick="onProcess()">◎ Run the sweep</button></div>
     <div id="procMeter"></div></div>
     ${EDIT_CONCEPTS ? conceptModal() : ""}`;
