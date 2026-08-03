@@ -756,11 +756,37 @@ app.post("/api/pipelines/default", (req, res) => {
   res.json({ ok: true, applied });
 });
 
+// Embedding pipelines are NOT free-form. A chat model cannot embed, Anthropic has
+// no embeddings endpoint at all, and Z.AI answers "Unknown Model" for the names
+// its own docs list — which cost this estate a full re-index and, worse, silently
+// downgraded every vector to key-free hashes while reporting success. So the
+// choice is restricted to what is known to work, and the restriction lives on the
+// SERVER: a dropdown that only offers valid options is a suggestion, not a gate.
+const EMBED_PIPELINES = new Set(["qlegal-embed", "atlas-embed"]);
+const EMBED_ALLOWED = {
+  openai: ["text-embedding-3-small", "text-embedding-3-large"],
+};
+
 app.post("/api/pipelines/:id", (req, res) => {
   const cfg = loadConfig();
   const p = cfg.pipelines[req.params.id];
   if (!p) return res.status(404).json({ error: "unknown pipeline" });
   const { provider, model, enabled, prompt } = req.body || {};
+
+  if (EMBED_PIPELINES.has(req.params.id) && (provider !== undefined || model !== undefined)) {
+    const wantP = provider !== undefined ? provider : p.provider;
+    const wantM = model !== undefined ? model : p.model;
+    const ok = EMBED_ALLOWED[wantP] && EMBED_ALLOWED[wantP].includes(wantM);
+    if (!ok) return res.status(400).json({
+      error: `${wantP}:${wantM} cannot be used for embeddings. Allowed: ${Object.entries(EMBED_ALLOWED).map(([k, v]) => v.map((m) => `${k}:${m}`).join(", ")).join(", ")}.`,
+      why: "Z.AI rejects its own documented embedding model names, Anthropic has no embeddings endpoint, and a chat model cannot embed at all — each of those falls back to key-free hash vectors that look like success while making semantic search keyword-grade.",
+    });
+    // A model with no key is not a working choice — it is the same silent
+    // degradation wearing a valid name.
+    if (!getApiKey(wantP)) return res.status(400).json({
+      error: `No API key saved for ${wantP}. Add it in Admin → Vault before pointing embeddings at it.`,
+    });
+  }
   cfg.pipelines[req.params.id] = { ...p, ...(provider !== undefined && { provider }), ...(model !== undefined && { model }), ...(enabled !== undefined && { enabled: !!enabled }), ...(prompt !== undefined && { prompt }) };
   saveConfig(cfg);
   res.json({ ok: true, pipeline: cfg.pipelines[req.params.id] });

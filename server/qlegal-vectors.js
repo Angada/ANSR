@@ -128,9 +128,7 @@ async function vlog({ model, ref_type, ref_id, input, output, status }) {
 // know which a given account has without asking.
 const FALLBACKS = [
   "openai:text-embedding-3-small",
-  "google:gemini-embedding-001",
-  "zai:embedding-2",
-  "zai:embedding-3",
+  "openai:text-embedding-3-large",
 ];
 
 export async function embedTexts(texts, forceModel) {
