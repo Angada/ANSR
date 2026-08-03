@@ -541,7 +541,7 @@ function wikiView() {
             <div class="am" style="margin-top:2px;line-height:1.5">${esc(k.preview)}${k.chars > 300 ? "…" : ""}</div></div>`).join("")}
         </div></details></div>`;
   })() : "";
-  return head + askDocBox(d) + highlight + setting + parties + summary + confs + regCard + noticeCard + oblCard + treeCard + nearCard + coverCard + contentsCard + clauseCard;
+  return head + askDocBox(d) + parties + highlight + setting + summary + confs + regCard + noticeCard + oblCard + treeCard + nearCard + coverCard + contentsCard + clauseCard;
 }
 // re-embed just this contract (the sweep is estate-wide; this is the one-doc door)
 window.reindexDoc = async (id) => {

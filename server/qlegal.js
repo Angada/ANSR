@@ -39,9 +39,43 @@ async function alreadyRejected(docId, kind, proposal) {
 
 // pull the first JSON object out of an LLM reply (tolerates prose / code fences)
 function jparse(text) {
-  const m = String(text || "").match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  try { return JSON.parse(m[0]); } catch { return null; }
+  const raw = String(text || "");
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch { /* fall through to salvage */ } }
+  // SALVAGE. A reply cut off by max_tokens is valid JSON missing its closers —
+  // discarding it lost the ENTIRE concise key (no type, no dates, no clauses) on
+  // every long contract. Rewind to the last COMPLETE value, then close what's
+  // open: a partial clause wiki beats an empty document.
+  const i = raw.indexOf("{");
+  if (i < 0) return null;
+  const b = raw.slice(i);
+  let depth = 0, inStr = false, esc = false, safe = -1;
+  const stack = [];
+  for (let k = 0; k < b.length; k++) {
+    const c = b[k];
+    if (esc) { esc = false; continue; }
+    if (c === "\\") { esc = true; continue; }
+    if (c === '"') { inStr = !inStr; if (!inStr && depth > 0) safe = k; continue; }
+    if (inStr) continue;
+    if (c === "{" || c === "[") { stack.push(c); depth++; }
+    else if (c === "}" || c === "]") { stack.pop(); depth--; if (depth > 0) safe = k; }
+  }
+  if (safe < 0) return null;
+  let out = b.slice(0, safe + 1);
+  // recompute what is still open at the cut point, then close it
+  const open = [];
+  inStr = false; esc = false;
+  for (const c of out) {
+    if (esc) { esc = false; continue; }
+    if (c === "\\") { esc = true; continue; }
+    if (c === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (c === "{" || c === "[") open.push(c);
+    else if (c === "}" || c === "]") open.pop();
+  }
+  out = out.replace(/,\s*$/, "");
+  while (open.length) out += open.pop() === "{" ? "}" : "]";
+  try { return JSON.parse(out); } catch { return null; }
 }
 const clip = (s, n) => String(s || "").slice(0, n);
 const validDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) ? s : null;
@@ -54,11 +88,11 @@ const validDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || "")) ? s : null;
 // no toggle. Defaults here are the fallback when a rule row is missing.
 const RULE_PARAMS = {
   "c1-read":     { max_transcript_chars: 400000, ocr_fallback: true, ocr_when_text_under_chars: 60 },
-  "c2-key":      { read_chars: 60000, max_tokens: 4000, classify_confidence_min: 0.7, max_clauses: 400, max_contents: 300 },
+  "c2-key":      { read_chars: 60000, max_tokens: 24000, classify_confidence_min: 0.7, max_clauses: 400, max_contents: 300 },
   obligations:   { read_chars: 50000, max_tokens: 2500, max_per_contract: 60, default_lead_days: 30 },
   registers:     { read_chars: 50000, max_tokens: 3000, sweep_batch: 25, keep_corrected: true },
   families:      { candidates_considered: 200, lineage_similarity_min: 0.85, require_explicit_reference: true },
-  ask:           { documents_read: 4, semantic_candidates: 12, deep_text_chars: 10000, register_answers: 400, history_turns: 4, obligations_horizon_days: 120, max_tokens: 1500 },
+  ask:           { documents_read: 4, semantic_candidates: 12, deep_text_chars: 10000, register_answers: 400, history_turns: 4, obligations_horizon_days: 120, max_tokens: 4000 },
   vectors:       { granularities: ["document", "section", "clause"], max_clause_vectors: 240, max_section_vectors: 80, nearest_in_estate: 5, embed_batch: 48 },
   drafting:      { candidates_ranked: 15, max_models: 3, model_read_chars: 20000, max_tokens: 8000 },
   "sharepoint-scan": { nightly_hour_ist: 2, file_types: [".pdf", ".docx", ".doc", ".txt", ".md"], removal_detection: true, max_files_per_scan: 200 },
@@ -731,7 +765,7 @@ ALREADY-EXTRACTED ANSWERS (standing questions): ${regs.map((r) => `${r.name}: ${
 FULL TEXT (C1):
 ${clip(d.c1_text, 55000)}${history.length ? `\n\nTHE CONVERSATION SO FAR (the question may be a follow-up):\n${history.map((t) => `Q: ${t.q}\nA: ${t.a}`).join("\n\n")}` : ""}`].filter(Boolean).join("\n\n"),
         user: question,
-        maxTokens: 1200,
+        maxTokens: 4000,
       });
       await logRun(out, { ref_type: "document", ref_id: id, rules: rules.codes, input: question, output: clip(out.text, 400) });
       res.json({ answer: out.mode === "ai" ? out.text : "(no answer — point the Q-Legal pipelines at a keyed model in AI Skills & Pipelines)", mode: out.mode });
