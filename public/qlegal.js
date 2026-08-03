@@ -257,7 +257,56 @@ const REG_COLS = [
     sortLabels: ["Fewest first", "Most first"] },
   { key: "updated", label: "Updated", get: (d) => d.updated_at, fmt: (v) => (v && v !== "—" ? fmtD(v) : "—"),
     cmp: (a, b) => String(a.updated_at).localeCompare(String(b.updated_at)), sortLabels: ["Oldest first", "Newest first"] },
+  // Index status. Four layers either happened or did not — transcript, key,
+  // clause structure, vectors — so the percentage says HOW ingested a contract is
+  // and the tooltip says which rung is missing. "100%" and "50%" both used to
+  // render identically as a row in a table.
+  { key: "index", label: "Index", get: (d) => idxLabel(d), cmp: (a, b) => idxPct(a) - idxPct(b),
+    sortLabels: ["Least indexed", "Most indexed"], hint: "transcript · key · clauses · vectors" },
+  { key: "act", label: "", noFilter: true, noSort: true, get: () => "" },
 ];
+
+// ---- index status: four layers, each either present or not ------------------
+const idxParts = (d) => [
+  ["transcript (C1)", Number(d.c1_chars) > 200],
+  ["key (C2)", !!d.has_c2],
+  ["clause structure", Number(d.clauses) > 0],
+  ["vectors", Number(d.vectors) > 0],
+];
+const idxPct = (d) => Math.round((idxParts(d).filter(([, ok]) => ok).length / 4) * 100);
+const idxLabel = (d) => (d.ver_status === "failed" ? "failed" : `${idxPct(d)}%`);
+const idxTone = (d) => (d.ver_status === "failed" ? "bad" : idxPct(d) === 100 ? "ok" : idxPct(d) >= 50 ? "warn" : "bad");
+const idxWhy = (d) => {
+  if (d.ver_status === "failed") return d.ver_error || "ingestion failed";
+  const miss = idxParts(d).filter(([, ok]) => !ok).map(([n]) => n);
+  return miss.length ? `missing: ${miss.join(", ")}` : `fully indexed · ${d.clauses} clauses, ${d.vectors} vectors`;
+};
+
+window.reindexDoc = async (id) => {
+  rdAlert("Re-indexing", "Re-running the key, clause layer, obligations, registers and vectors from the stored transcript. This takes a few seconds.");
+  try {
+    const r = await (await fetch(`/api/qlegal/document/${id}/reindex`, { method: "POST" })).json();
+    if (r.error) return rdAlert("Re-index failed", r.error);
+    await loadRegistry(); renderRegistry();
+    rdAlert(r.failed ? "Re-index finished — still failing" : "Re-indexed",
+      r.failed ? r.why : `${r.clauses} clauses read. The key, obligations, registers and vectors were rebuilt.`);
+  } catch (e) { rdAlert("Re-index failed", String(e.message || e)); }
+};
+
+// Read the layer itself rather than trusting that it read. C1 is the transcript
+// the whole estate rests on; C2 is what every query runs against first.
+window.viewLayer = async (id, which) => {
+  try {
+    if (which === "c1") {
+      const r = await (await fetch(`/api/qlegal/document/${id}/c1`)).json();
+      if (r.error) return rdAlert("Cannot show C1", r.error);
+      return rdBig(`C1 — the transcript${r.ocr ? " (read by vision-OCR)" : ""}`,
+        `${r.chars.toLocaleString("en-IN")} characters\n\n${r.text.slice(0, 200000)}`);
+    }
+    const d = await (await fetch(`/api/qlegal/document/${id}`)).json();
+    rdBig("C2 — the concise key", JSON.stringify(d.c2 || {}, null, 2));
+  } catch (e) { rdAlert("Cannot show it", String(e.message || e)); }
+};
 function renderRegistry() {
   const host = $("#view-registry");
   if (OPEN) { host.innerHTML = wikiView(); sequenceReveal(host, ".reveal", 120, 50); return; }
@@ -310,6 +359,11 @@ function renderRegistry() {
       <td>v${d.latest_version}${d.source === "sharepoint" ? ' <span class="am" title="synced from SharePoint">· SP</span>' : ""}${d.scanned ? ' <span class="am">· scan</span>' : ""}${d.status === "inactive" ? ' <span class="ochip o-dismissed">inactive</span>' : ""}</td>
       <td>${Number(d.open_obligations) ? `<span class="duechip due-soon">${d.open_obligations}</span>` : "<span class='am'>—</span>"}</td>
       <td class="am">${fmtD(d.updated_at)}</td>
+      <td><span class="idx idx--${idxTone(d)}" title="${esc(idxWhy(d))}">${esc(idxLabel(d))}</span></td>
+      <td><span class="rowact">
+        <button class="btn small touch" onclick="event.stopPropagation();viewLayer(${d.id},'c1')">C1</button>
+        <button class="btn small touch" onclick="event.stopPropagation();viewLayer(${d.id},'c2')">C2</button>
+        <button class="btn small touch" onclick="event.stopPropagation();reindexDoc(${d.id})">Re-index</button></span></td>
     </tr>`;
   }).join("");
   host.innerHTML = `<p class="intro"><b>CONTRACTS</b> — the estate. Filter by Legal Setting, expiry, or anything; click a contract for its page.</p>`
@@ -1503,4 +1557,13 @@ async function renderBatch() {
       ${running ? `<span class="qlb-live">running</span>` : `<button class="btn btn--sm btn--ghost" onclick="document.getElementById('ql-batch').innerHTML=''">Dismiss</button>`}</div>
     ${d.stalled ? `<div class="qlb-why">This run stopped before finishing — the documents still queued were never stored, so re-upload them.</div>` : ""}
     ${rows}</div>`;
+}
+
+// A big readable viewer — C1 runs to a hundred thousand characters and an alert
+// box is the wrong shape for it.
+function rdBig(title, body) {
+  const { ov, close } = _ov(`<h3>${esc(title)}</h3>
+    <pre style="white-space:pre-wrap;word-break:break-word;max-height:64vh;overflow:auto;font-size:12.3px;line-height:1.55;background:var(--tint2,#F7F7F5);padding:12px;border-radius:8px">${esc(body)}</pre>
+    <div class="row"><button class="btn btn--primary" data-ok>Close</button></div>`);
+  ov.querySelector("[data-ok]").onclick = close;
 }

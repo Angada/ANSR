@@ -687,11 +687,52 @@ export function mountQLegal(app, upload) {
       `select d.*, (select count(*) from ql_obligation o where o.document_id=d.id and o.status in ('proposed','confirmed')
          and (o.due_date is null or o.due_date >= current_date)) as open_obligations,
         (select count(*) from ql_version v where v.document_id=d.id) as versions,
-        exists(select 1 from ql_version v where v.document_id=d.id and v.ocr) as scanned
+        exists(select 1 from ql_version v where v.document_id=d.id and v.ocr) as scanned,
+        -- index status, per layer. Each is a thing that either happened or did
+        -- not; a percentage that averages them tells you HOW ingested a contract
+        -- is, and which rung is missing when the answer is "not fully".
+        (select count(*) from ql_clause c where c.document_id=d.id) as clauses,
+        (select count(*) from ql_embedding e where e.document_id=d.id) as vectors,
+        (select count(*) from ql_register_hit rh where rh.document_id=d.id) as register_hits,
+        (select v.status from ql_version v where v.document_id=d.id and v.version_no=d.latest_version) as ver_status,
+        (select v.error from ql_version v where v.document_id=d.id and v.version_no=d.latest_version) as ver_error,
+        (select length(v.c1_text) from ql_version v where v.document_id=d.id and v.version_no=d.latest_version) as c1_chars,
+        (select (v.c2->'meta'->>'title') is not null and (v.c2->'meta'->>'title') <> ''
+           from ql_version v where v.document_id=d.id and v.version_no=d.latest_version) as has_c2
        from ql_document d order by d.updated_at desc limit 1000`
     )).rows;
     const counts = (await q(`select coalesce(doc_type,'unclassified') t, count(*) c from ql_document group by 1 order by c desc`)).rows;
     res.json({ documents: docs, by_type: counts });
+  });
+
+  // Re-index ONE contract from its stored C1 — the same derive chain ingestion
+  // runs, so a refresh is never a diverging copy of the pipeline.
+  app.post("/api/qlegal/document/:id/reindex", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const row = (await q(
+        `select v.id ver_id, v.version_no, v.c1_text, v.ocr, d.filename
+           from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version
+          where d.id=$1`, [id])).rows[0];
+      if (!row) return res.status(404).json({ error: "not found" });
+      if (!row.c1_text) return res.status(400).json({ error: "no transcript stored — re-upload the file" });
+      const out = await deriveFromC1({ docId: id, verId: row.ver_id, versionNo: row.version_no,
+        c1: row.c1_text, filename: row.filename, ocr: !!row.ocr });
+      try { await embedVersion({ docId: id, verId: row.ver_id, c2: null, filename: row.filename }); } catch { /* vectors are best-effort */ }
+      res.json({ ok: true, mode: out.mode, clauses: out.atom?.clauses || 0, failed: out.mode === "key-failed", why: out.keyFailed || null });
+    } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+  });
+
+  // the transcript itself — read it, rather than trusting that it read
+  app.get("/api/qlegal/document/:id/c1", async (req, res) => {
+    try {
+      const r = (await q(
+        `select v.c1_text, v.ocr, d.filename from ql_version v
+           join ql_document d on d.id=v.document_id and v.version_no=d.latest_version where d.id=$1`,
+        [Number(req.params.id)])).rows[0];
+      if (!r) return res.status(404).json({ error: "not found" });
+      res.json({ filename: r.filename, ocr: !!r.ocr, chars: (r.c1_text || "").length, text: r.c1_text || "" });
+    } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
   });
 
   // ---- one contract's wiki page ----------------------------------------------
