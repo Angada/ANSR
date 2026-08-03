@@ -235,6 +235,7 @@ export async function atomize(documentId, versionId, text, { label = true } = {}
     edges: edges.length,
     labelled: labels.size,
     unresolved: edges.filter((e) => !e.resolved).length,
+    missing: [...new Set(edges.filter((e) => !e.resolved).map((e) => e.to_ref))].slice(0, 12),
     structured: true,
   };
 }

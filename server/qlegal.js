@@ -324,7 +324,7 @@ async function deriveFromC1({ docId, verId, versionNo, c1, filename, ocr = false
   try { await embedVersion({ docId, verId, c2, filename }); }
   catch { /* vectors are best-effort */ }
 
-  return { mode: out.mode, docType: meta.doc_type || null };
+  return { mode: out.mode, docType: meta.doc_type || null, atom };
 }
 
 // re-index one document from its stored C1 (no re-download, no re-OCR)
@@ -436,6 +436,13 @@ export async function ingestFile(f, { source = "upload", spItemId = null, spMeta
     if ((extract.figure_pages || []).length)
       notes.push(`Image OCR — skipped in this phase. ${extract.figure_pages.length} page${extract.figure_pages.length === 1 ? " carries" : "s carry"} their substance as an image (${pg(extract.figure_pages)}); the heading is indexed, the figure is not. Tables, flowcharts and scoped annexures on these pages are NOT searchable and will not appear in answers.`);
     if (extract.ocr && !gate) notes.push("Read by vision-OCR — spot-check the key before relying on it.");
+    // COMPLETENESS · the contract points at something it does not contain. This was
+    // already computed when the cross-references were read and then discarded — a
+    // contract citing a schedule nobody attached is exactly the doubt a gate exists
+    // to raise, and the reader is the only party who can say whether it matters.
+    const miss = (derived.atom && derived.atom.missing) || [];
+    if (miss.length)
+      notes.push(`Incomplete — this contract cites ${miss.length === 1 ? "a document" : "documents"} it does not contain: ${miss.join(", ")}. Answers about ${miss.length === 1 ? "it" : "them"} will be wrong by omission until the missing ${miss.length === 1 ? "part is" : "parts are"} uploaded.`);
     if (notes.length) gate = gate || { blocked: false, why: notes[0] };
     if (gate) gate.notes = notes;
     return { filename: f.originalname, document_id: doc.id, version_no: versionNo, ocr: !!extract.ocr,
