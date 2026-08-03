@@ -177,6 +177,63 @@ export function edgesFrom(clauses) {
   return edges;
 }
 
+
+// ---- defined-term edges -----------------------------------------------------
+//
+// The largest silent gap in the whole layer. "Services" is defined once, in one
+// clause, and then used in forty — and not one of those forty says "as defined
+// in §1.1", so no cross-reference exists to follow and no vector ranks the
+// definition against a question about scope. The clause that decides what the
+// words MEAN is invisible to every retrieval path we have.
+//
+// The definitions are already in hand: the splitter titles a definitions clause
+// with the term it defines, because contracts print «"Services" means …».
+const GENERIC = new Set(["agreement", "party", "parties", "person", "day", "days", "month", "year",
+  "term", "notice", "law", "date", "business day", "writing"]);
+
+export function definedTerms(clauses) {
+  const terms = new Map();                       // lower term -> defining ref
+  for (const c of clauses) {
+    // ONLY the explicit «"X" means …» construction. Using the clause TITLE as a
+    // term looked like free recall and was quietly wrong: it made "Termination",
+    // "Expenses" and even "Preamble" into defined terms, so every clause that
+    // said the word "termination" got an edge to the termination heading. A
+    // heading is not a definition, and a wrong edge is worse than a missing one
+    // because Ask follows it and reads the wrong clause with confidence.
+    const cands = [];
+    for (const m of String(c.body || "").matchAll(/["\u201c\u201d']([^"\u201c\u201d']{3,60})["\u201c\u201d']\s+(?:means|shall mean|has the meaning)/gi))
+      cands.push(m[1]);
+    for (const t of cands) {
+      const k = t.trim().toLowerCase();
+      if (k.length < 4 || GENERIC.has(k)) continue;
+      if (!terms.has(k)) terms.set(k, { ref: c.ref, term: t.trim() });
+    }
+  }
+  return terms;
+}
+
+// A clause that uses a defined term gets an edge TO the clause defining it —
+// that direction, so Ask seeded on the clause you asked about can pull the
+// meaning of the words in it. Capped per clause: a clause using eight defined
+// terms does not need eight edges to be understood, and an uncapped join turns
+// a 100-clause contract into thousands of rows nobody reads.
+export function defineEdges(clauses, terms, { perClause = 4 } = {}) {
+  const edges = [];
+  for (const c of clauses) {
+    const hay = String(c.body || "").toLowerCase();
+    let n = 0;
+    for (const [k, v] of terms) {
+      if (v.ref === c.ref) continue;                       // the definition itself
+      if (n >= perClause) break;
+      // word-boundary match, so "service" does not fire on "services agreement"
+      if (!new RegExp(`\\b${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(hay)) continue;
+      edges.push({ from_ref: c.ref, to_ref: v.ref, phrase: `uses the defined term "${v.term}"`, resolved: true, kind: "defines" });
+      n++;
+    }
+  }
+  return edges;
+}
+
 // ---- HALF 2 · labels, batched ----------------------------------------------
 
 // Small batches on purpose. The whole reason C2 came back empty was one call
@@ -209,7 +266,9 @@ export async function atomize(documentId, versionId, text, { label = true } = {}
   const clauses = splitClauses(text);
   if (!clauses.length) return { clauses: 0, edges: 0, labelled: 0, structured: false };
 
-  const edges = edgesFrom(clauses);
+  const edges = edgesFrom(clauses).map((e) => ({ ...e, kind: "xref" }));
+  const terms = definedTerms(clauses);
+  const defs = defineEdges(clauses, terms);
   const labels = label ? await labelClauses(clauses) : new Map();
 
   await q(`delete from ql_clause where version_id = $1`, [versionId]);
@@ -223,16 +282,18 @@ export async function atomize(documentId, versionId, text, { label = true } = {}
     );
   }
   await q(`delete from ql_clause_edge where version_id = $1`, [versionId]);
-  for (const e of edges) {
+  for (const e of [...edges, ...defs]) {
     await q(
-      `insert into ql_clause_edge(document_id, version_id, from_ref, to_ref, phrase, resolved)
-       values ($1,$2,$3,$4,$5,$6)`,
-      [documentId, versionId, e.from_ref, e.to_ref, e.phrase, e.resolved],
+      `insert into ql_clause_edge(document_id, version_id, from_ref, to_ref, phrase, resolved, kind)
+       values ($1,$2,$3,$4,$5,$6,$7)`,
+      [documentId, versionId, e.from_ref, e.to_ref, e.phrase, e.resolved, e.kind || "xref"],
     );
   }
   return {
     clauses: clauses.length,
     edges: edges.length,
+    defined_terms: terms.size,
+    define_edges: defs.length,
     labelled: labels.size,
     unresolved: edges.filter((e) => !e.resolved).length,
     missing: [...new Set(edges.filter((e) => !e.resolved).map((e) => e.to_ref))].slice(0, 12),
@@ -265,8 +326,8 @@ export async function clauseIndex(documentId, { gistChars = 90 } = {}) {
   const [clauses, edges] = await Promise.all([clauseWiki(documentId), clauseEdges(documentId)]);
   if (!clauses.length) return "";
   const byFrom = new Map();
-  for (const e of edges) {
-    if (!e.resolved) continue;
+  for (const e of [...edges, ...defs]) {
+    if (!e.resolved || e.kind === "defines") continue;
     if (!byFrom.has(e.from_ref)) byFrom.set(e.from_ref, []);
     byFrom.get(e.from_ref).push(e.to_ref);
   }
@@ -345,7 +406,7 @@ export async function estateWiki({ limit = 1000 } = {}) {
 
 export async function clauseEdges(documentId) {
   const r = await q(
-    `select from_ref, to_ref, phrase, resolved
+    `select from_ref, to_ref, phrase, resolved, kind
        from ql_clause_edge where document_id = $1 order by from_ref`, [documentId]);
   return r.rows;
 }
