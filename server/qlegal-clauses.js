@@ -326,7 +326,11 @@ export async function estateWiki({ limit = 1000 } = {}) {
   const lines = docs.map((d) => {
     const f = d.facts || {};
     const parties = [d.party1, d.party2 || d.counterparty].filter(Boolean).join(" ↔ ") || "parties not stated";
-    const dates = [f.start_date, f.end_date].filter(Boolean).join(" → ") || "dates not stated";
+    // the C2 key names these effective_date / expiry_date — read what is written,
+    // not what the field "should" be called, or every contract reports no dates
+    const dates = f.effective_date
+      ? `${f.effective_date} → ${f.expiry_date || (f.auto_renewal ? "auto-renews" : "no expiry stated")}`
+      : "dates not stated";
     const a = anchors.get(Number(d.id));
     const jump = a && a.size ? ` · jump: ${[...a].map(([k, v]) => `${k} ${v}`).join(", ")}` : "";
     const n = counts.get(Number(d.id));
