@@ -56,6 +56,14 @@
   .gateslink:hover{border-color:var(--org-dim);background:var(--bg2)}
   .backlnk{font-size:13px;color:var(--org);cursor:pointer;font-weight:600;margin-bottom:10px;display:inline-block}
 
+  /* The estate table scrolls sideways, and anything appended to the right edge is
+     invisible until you think to scroll — which is the same as not shipping it.
+     Index and the row actions are pinned so they are always reachable. */
+  .ctable th:last-child, .ctable td:last-child{position:sticky;right:0;background:var(--panel);z-index:2;box-shadow:-8px 0 10px -8px rgba(0,0,0,.16)}
+  .ctable tr:hover td:last-child{background:var(--tint,#FFF7F1)}
+  .ctable th:nth-last-child(2), .ctable td:nth-last-child(2){position:sticky;right:148px;background:var(--panel);z-index:2}
+  .ctable tr:hover td:nth-last-child(2){background:var(--tint,#FFF7F1)}
+  .rowact .btn{padding:2px 7px;font-size:11.5px}
   .idx{font-size:11.5px;border-radius:20px;padding:2px 8px;white-space:nowrap;cursor:help}
   .idx--ok{background:#E9F6EE;color:#1C6B3D}
   .idx--warn{background:#FDF3E0;color:#8A5A00}
