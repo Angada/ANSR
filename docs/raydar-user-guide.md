@@ -38,6 +38,15 @@ off, the terms are usually why.
 item shows its reason (too short, wrong language, off-topic, blocked channel).
 Nothing disappears silently.
 
+**Repeats, hidden not removed** — a video surfaced by an earlier sweep is set
+aside rather than shown again, so the same clip doesn't headline three months
+running. It stays listed under *repeats* with a link, so nothing is lost — the
+first sighting simply stays the record.
+
+**Cached searches** — a term searched in the last 24 hours is served from cache
+and costs no quota. Cache hits are labelled, so a fast free sweep can't be
+mistaken for a broken one.
+
 **Gap analysis** — the heart of it. Per theme: how many questions people asked
 versus how much content already answers them, and **the real questions, quoted
 from the comments**. A high gap with unanswered questions underneath is the
