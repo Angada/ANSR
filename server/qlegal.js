@@ -13,7 +13,7 @@ import { putOriginal, putExtract, getExtract, getOriginal } from "./storage.js";
 import { runPipeline } from "./ai.js";
 import { loadConfig, getApiKey } from "./store.js";
 import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan, listSharePoint, ingestSharePointItem } from "./qlegal-sync.js";
-import { embedVersion, searchVectors, nearestDocs, embedStatus, embedSweep, clauseLibrary, estateMap, docCoverage } from "./qlegal-vectors.js";
+import { embedVersion, searchVectors, nearestDocs, embedStatus, embedSweep, clauseLibrary, estateMap, docCoverage, embedHealth } from "./qlegal-vectors.js";
 import { atomize, clauseWiki, clauseEdges, clausesWithRefs, clauseIndex, estateWiki, verifyCitations } from "./qlegal-clauses.js";
 
 const TENANT = "Q-LEGAL"; // ring-fenced storage namespace (vault + docstore)
@@ -1650,6 +1650,14 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
         await q(`update ql_document set status='inactive', updated_at=now() where id=$1`, [row.document_id]).catch(() => {});
       res.json({ ok: true, item: row });
     } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
+  });
+
+  // Is the semantic spine healthy? Reported separately from ingest-readiness
+  // because it warns rather than blocks — a contract with hash vectors is still
+  // read, keyed, atomized, searchable and citable; only ranking suffers.
+  app.get("/api/qlegal/embed-health", async (_req, res) => {
+    try { res.json(await embedHealth()); }
+    catch (e) { res.json({ ok: false, degraded: true, reason: String(e.message || e) }); }
   });
 
   app.get("/api/qlegal/estate-wiki", async (_req, res) => {

@@ -487,3 +487,26 @@ export async function estateMap() {
   // even when it sits inside a healthy cluster.
   return { available: true, model, points: rows.map((r, i) => ({ id: r.id, name: r.title || r.filename, type: r.doc_type || "unclassified", source: r.source || "upload", x: Math.round(nx[i] * 1000) / 1000, y: Math.round(ny[i] * 1000) / 1000 })) };
 }
+
+// Is the embedding spine actually going to work, BEFORE a document depends on it?
+// The estate ran for days on key-free hash vectors because every failure path
+// ended in a successful-looking fallback. A pre-flight answers the only question
+// that matters — will this ingest produce real semantic vectors or not — and it
+// is cheap, because a wrong key fails on one short string as surely as on a
+// thousand clauses.
+export async function embedHealth() {
+  const target = embedModelId();
+  const provider = target.split(":")[0];
+  if (target === "hash:v1" || !EMBEDDERS[provider])
+    return { ok: false, degraded: true, target, reason: `${target} cannot embed — set an OpenAI embedding model in Settings → AI Pipelines.` };
+  if (!getApiKey(provider))
+    return { ok: false, degraded: true, target, reason: `No API key saved for ${provider}. Add it in Admin → Vault, or vectors fall back to key-free hashes and semantic search becomes keyword-grade.` };
+  try {
+    const probe = await EMBEDDERS[provider](["health check"], target.split(":").slice(1).join(":"), getApiKey(provider));
+    if (!probe || !probe.length) throw new Error("empty response");
+    return { ok: true, degraded: false, target };
+  } catch (e) {
+    return { ok: false, degraded: true, target,
+      reason: `${target} rejected a test call — ${clip(String(e.message || e), 160)}. Ingestion will still run, but vectors will be key-free hashes until this is fixed.` };
+  }
+}

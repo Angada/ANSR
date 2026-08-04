@@ -379,7 +379,16 @@ function renderRegistry() {
     </tr>`;
   }).join("");
   host.innerHTML = `<p class="intro"><b>CONTRACTS</b> — the estate. Filter by Legal Setting, expiry, or anything; click a contract for its page.</p>`
-    + warn + drop
+    + warn
+    // Amber, not red, and it never stops an upload — the contract will still be
+    // read, keyed and citable. What it stops is the silence that let the whole
+    // estate sit on key-free vectors while every log line said success.
+    + (EMBED && EMBED.degraded ? `<div class="wikicard reveal" style="border-left:3px solid var(--amber,#C98A00);margin-bottom:14px">
+        <b>Semantic search is degraded</b>
+        <div class="am" style="margin-top:4px;line-height:1.5">${esc(EMBED.reason || "the embedding model is not answering")}</div>
+        <div class="am" style="margin-top:4px">Documents still ingest, and clause citations are unaffected — only meaning-based ranking falls back to keyword-grade vectors.</div>
+      </div>` : "")
+    + drop
     // Re-uploading a badly-read document used to do nothing: the duplicate check
     // is on bytes, so the fix was silently skipped. This says "yes, the same file,
     // on purpose" — it files a NEW version that supersedes the bad reading, and
@@ -471,9 +480,15 @@ window.qUpload = async (files) => {
 // ==========================================================================
 // The contract page — blocks by importance
 // ==========================================================================
-let READY = null;   // can we ingest at all? (a model is required for C2/wikis/map)
+let READY = null;
+let EMBED = null;   // semantic-spine health — a warning, never a gate   // can we ingest at all? (a model is required for C2/wikis/map)
 window.checkReady = async (rerender) => {
   try { READY = await (await fetch("/api/qlegal/readiness")).json(); } catch { READY = null; }
+  // The semantic spine is checked separately and never blocks: a contract with
+  // key-free hash vectors is still read, keyed, atomized, searchable and citable
+  // — only ranking suffers. But it must be VISIBLE, because the estate ran for
+  // days on hash vectors while every failure path reported success.
+  try { EMBED = await (await fetch("/api/qlegal/embed-health")).json(); } catch { EMBED = null; }
   if (rerender) renderRegistry();
 };
 let COVER = null;   // "what the search sees" for the open contract
