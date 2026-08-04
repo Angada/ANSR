@@ -267,10 +267,20 @@ export function defineEdges(clauses, terms, { perClause = 4 } = {}) {
 const BATCH = 25;
 const TRIM = 1200;
 
-export async function labelClauses(clauses, { onProgress } = {}) {
+export async function labelClauses(clauses, { onProgress, concurrency = 4 } = {}) {
   const labels = new Map();
-  for (let i = 0; i < clauses.length; i += BATCH) {
-    const chunk = clauses.slice(i, i + BATCH);
+  const batches = [];
+  for (let i = 0; i < clauses.length; i += BATCH) batches.push(clauses.slice(i, i + BATCH));
+
+  // Batches run CONCURRENTLY. Sequentially, a 110-clause agreement was five
+  // model calls end to end and a re-index took over four hundred seconds — long
+  // enough that it read as broken, which is how it was reported. The batches are
+  // independent by construction (each carries its own clauses and returns its own
+  // labels), so nothing but the loop was making them wait for each other.
+  // Capped, because the point is to stop queueing behind ourselves, not to open
+  // every request at once against a rate limit.
+  let done = 0;
+  const runOne = async (chunk) => {
     const payload = chunk.map((c) => `${c.ref} ${c.title || ""}\n${(c.body || "").slice(0, TRIM)}`).join("\n\n---\n\n");
     try {
       const out = await runPipeline("qlegal-atomize", { user: payload, maxTokens: 4000 });
@@ -281,8 +291,12 @@ export async function labelClauses(clauses, { onProgress } = {}) {
     } catch { /* a batch that fails leaves those clauses unlabelled — the § and
                  the verbatim text are already safe, which is the part that must
                  never depend on a model being reachable */ }
-    if (onProgress) onProgress(Math.min(i + BATCH, clauses.length), clauses.length);
-  }
+    done += chunk.length;
+    if (onProgress) onProgress(Math.min(done, clauses.length), clauses.length);
+  };
+
+  for (let i = 0; i < batches.length; i += concurrency)
+    await Promise.all(batches.slice(i, i + concurrency).map(runOne));
   return labels;
 }
 
