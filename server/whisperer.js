@@ -364,6 +364,9 @@ function rankFeedSignal(items, allowedLangs = ["en"]) {
     const questions = comments.filter(isQuestion).length;
     return { source: f.source, title: f.title || "", url: f.url, topic: f.topic || null, term: f.term || null,
       franchise: f.tags?.franchise || null, views, ageDays, comments: comments.length, questions,
+      // the actual question TEXT, not just the count — a gap is only persuasive
+      // when you can read what people are asking and nobody is answering
+      qs: comments.filter(isQuestion).map((c) => String(c).replace(/<[^>]+>/g, " ").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/\s+/g, " ").trim()).filter((c) => c.length > 12 && c.length < 220).slice(0, 6),
       audioLang: m.audioLang || null, drop_reason: f.drop_reason || null, repeat: !!f.repeat,
       velocity: Math.round(velocity * 100) / 100 };
   }).filter((x) => x.views > 0 || x.comments > 0 || x.source === "reddit")
@@ -690,12 +693,17 @@ export function mountWhisperer(app, slug, upload) {
     // of every URL ever collected. Deleting the sweeps left that memory intact,
     // so a "fresh start" immediately reported everything as "already surfaced in
     // an earlier sweep". If nothing is left, the memory must go too.
-    let forgot = 0;
+    // Two separate memories survive a batch delete, and both make a "fresh
+    // start" a lie if they are left behind: wh_feed_item (every URL ever seen →
+    // everything reports as a repeat) and wh_search_cache (the 24h search cache
+    // → the same terms replay the same results without touching the API).
+    let forgot = 0, uncached = 0;
     const left = (await wq(`select count(*)::int n from wh_batch`)).rows[0]?.n ?? 0;
     if (left === 0) {
       forgot = (await wq(`delete from wh_feed_item returning 1`)).rows.length;
+      uncached = (await wq(`delete from wh_search_cache returning 1`)).rows.length;
     }
-    res.json({ ok: true, deleted: doomed.length, remaining: kept - doomed.length, forgot, batches: doomed });
+    res.json({ ok: true, deleted: doomed.length, remaining: kept - doomed.length, forgot, uncached, batches: doomed });
   });
 
   // rename / re-describe a batch by hand

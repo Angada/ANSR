@@ -787,10 +787,17 @@ function gapAnalysis(stories) {
     ${rows.map(([topic, t]) => {
       const g = t.gap / Math.max(1, t.n);
       const [label, tip] = READ[t.type] || ["Measured", "Demand and supply are close — a strong angle matters more than the topic itself."];
+      // the real questions, pulled from the comments collected under this theme
+      const asked = [...new Set((FEED_SIGNAL || [])
+        .filter((r) => r.topic === topic)
+        .flatMap((r) => r.qs || []))].slice(0, 8);
       return `<div class="ga-r">
         <div class="ga-t">${esc(topic)}<span class="ga-b ${esc(t.type || "")}">${esc(label)}</span></div>
         <div class="ga-m"><b>${t.demand}</b> question${t.demand === 1 ? "" : "s"} asked · <b>${t.supply}</b> piece${t.supply === 1 ? "" : "s"} of content already there · gap <b>${g.toFixed(2)}</b></div>
         <div class="ga-w">${esc(tip)}</div>
+        ${asked.length ? `<div class="ga-q"><div class="ga-qk">What they actually asked</div>
+          ${asked.map((qq) => `<div class="ga-qr">${esc(qq)}</div>`).join("")}
+          <div class="tsr-note">Straight from the comments on the videos and threads swept for this theme — unedited.</div></div>` : ""}
       </div>`;
     }).join("")}
     ${(RECAP?.feed?.comments_read) ? `<div class="tsr-note">Read from <b>${RECAP.feed.comments_read}</b> comments across <b>${RECAP.feed.collected || 0}</b> collected items this sweep.</div>` : ""}
@@ -1260,7 +1267,7 @@ window.purgeBatches = async () => {
         if (String(typed || "").trim().toUpperCase() !== "DELETE") return rdAlert("Cancelled", "Nothing was deleted.");
       }
       const r = await (await fetch("/api/wh/batches/purge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...body, preview: false }) })).json();
-      rdAlert("Purged", `${r.deleted} batch${r.deleted === 1 ? "" : "es"} deleted · ${r.remaining} remaining.${r.forgot ? ` Also cleared ${r.forgot} remembered item${r.forgot === 1 ? "" : "s"}, so the next sweep starts genuinely fresh — nothing will be marked as a repeat.` : ""}`);
+      rdAlert("Purged", `${r.deleted} batch${r.deleted === 1 ? "" : "es"} deleted · ${r.remaining} remaining.${(r.forgot || r.uncached) ? ` Also cleared ${r.forgot} remembered item${r.forgot === 1 ? "" : "s"} and ${r.uncached} cached search${r.uncached === 1 ? "" : "es"}, so the next sweep starts genuinely fresh — nothing marked as a repeat, and every term searched live.` : ""}`);
       if (BATCH && (r.batches || []).some((b) => b.id === BATCH.id)) { BATCH = null; RECAP = null; renderIdeas(null); }
       BATCHES_CACHE = []; renderBatches(); renderBatchPick();
     });
