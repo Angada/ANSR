@@ -282,20 +282,32 @@ const idxWhy = (d) => {
   return miss.length ? `missing: ${miss.join(", ")}` : `fully indexed · ${d.clauses} clauses, ${d.vectors} vectors`;
 };
 
-window.reindexDoc = async (id) => {
-  rdAlert("Re-indexing", "Re-running the key, clause layer, obligations, registers and vectors from the stored transcript. This takes a few seconds.");
+// Re-index takes a couple of minutes. Blocking on a dialog told you nothing and
+// looked like nothing happening, so it reports through the batch panel — the same
+// live list an upload uses — and the row says what it is doing meanwhile.
+window.reindexDoc = async (id, ev) => {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  const cell = document.getElementById(`idx-${id}`);
+  if (cell) cell.innerHTML = `<span class="idx idx--warn">re-indexing…</span>`;
+  document.querySelectorAll(`[data-act="${id}"] button`).forEach((b) => { b.disabled = true; });
+  startBatchPoll();
   try {
     const r = await (await fetch(`/api/qlegal/document/${id}/reindex`, { method: "POST" })).json();
-    if (r.error) return rdAlert("Re-index failed", r.error);
+    stopBatchPoll(); await renderBatch();
     await loadRegistry(); renderRegistry();
+    if (r.error) return rdAlert("Re-index failed", r.error);
     rdAlert(r.failed ? "Re-index finished — still failing" : "Re-indexed",
       r.failed ? r.why : `${r.clauses} clauses read. The key, obligations, registers and vectors were rebuilt.`);
-  } catch (e) { rdAlert("Re-index failed", String(e.message || e)); }
+  } catch (e) {
+    stopBatchPoll(); await loadRegistry(); renderRegistry();
+    rdAlert("Re-index failed", String(e.message || e));
+  }
 };
 
 // Read the layer itself rather than trusting that it read. C1 is the transcript
 // the whole estate rests on; C2 is what every query runs against first.
-window.viewLayer = async (id, which) => {
+window.viewLayer = async (id, which, ev) => {
+  if (ev) { ev.stopPropagation(); ev.preventDefault(); }
   try {
     if (which === "c1") {
       const r = await (await fetch(`/api/qlegal/document/${id}/c1`)).json();
@@ -359,11 +371,11 @@ function renderRegistry() {
       <td>v${d.latest_version}${d.source === "sharepoint" ? ' <span class="am" title="synced from SharePoint">· SP</span>' : ""}${d.scanned ? ' <span class="am">· scan</span>' : ""}${d.status === "inactive" ? ' <span class="ochip o-dismissed">inactive</span>' : ""}</td>
       <td>${Number(d.open_obligations) ? `<span class="duechip due-soon">${d.open_obligations}</span>` : "<span class='am'>—</span>"}</td>
       <td class="am">${fmtD(d.updated_at)}</td>
-      <td><span class="idx idx--${idxTone(d)}" title="${esc(idxWhy(d))}">${esc(idxLabel(d))}</span></td>
-      <td><span class="rowact">
-        <button class="btn small touch" onclick="event.stopPropagation();viewLayer(${d.id},'c1')">C1</button>
-        <button class="btn small touch" onclick="event.stopPropagation();viewLayer(${d.id},'c2')">C2</button>
-        <button class="btn small touch" onclick="event.stopPropagation();reindexDoc(${d.id})">Re-index</button></span></td>
+      <td id="idx-${d.id}"><span class="idx idx--${idxTone(d)}" title="${esc(idxWhy(d))}">${esc(idxLabel(d))}</span></td>
+      <td onclick="event.stopPropagation()"><span class="rowact" data-act="${d.id}">
+        <button class="btn small touch" onclick="viewLayer(${d.id},'c1',event)">C1</button>
+        <button class="btn small touch" onclick="viewLayer(${d.id},'c2',event)">C2</button>
+        <button class="btn small touch" onclick="reindexDoc(${d.id},event)">Re-index</button></span></td>
     </tr>`;
   }).join("");
   host.innerHTML = `<p class="intro"><b>CONTRACTS</b> — the estate. Filter by Legal Setting, expiry, or anything; click a contract for its page.</p>`
@@ -1509,7 +1521,10 @@ let BATCH_T = null;
 function stopBatchPoll() { if (BATCH_T) { clearInterval(BATCH_T); BATCH_T = null; } }
 function startBatchPoll() { stopBatchPoll(); BATCH_T = setInterval(renderBatch, 2000); }
 
-const STAGE_LABEL = { queued: "Queued", reading: "Reading…", done: "" };
+const STAGE_LABEL = { queued: "Queued", reading: "Reading…", done: "",
+  // a re-index reports the phase it is in, so two minutes of silence reads as
+  // work rather than as a hang
+  rebuilding: "Rebuilding key, clauses, obligations…", embedding: "Embedding vectors…" };
 const STATUS_CHIP = {
   ok: ["Indexed", "ok"], blocked: ["Needs a decision", "warn"],
   failed: ["Failed", "bad"], duplicate: ["Already held", "mute"], pending: ["", "mute"],

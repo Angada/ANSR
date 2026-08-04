@@ -716,10 +716,28 @@ export function mountQLegal(app, upload) {
           where d.id=$1`, [id])).rows[0];
       if (!row) return res.status(404).json({ error: "not found" });
       if (!row.c1_text) return res.status(400).json({ error: "no transcript stored — re-upload the file" });
+
+      // A re-index takes a couple of minutes and used to report nothing at all
+      // until it finished, which is indistinguishable from not running. It is a
+      // batch of one, so it is recorded as one — the panel already on this page
+      // then shows its stage, and a closed tab no longer hides the work.
+      const b = (await q(`insert into ql_batch(label, total) values ($1,1) returning id`,
+        [`Re-index · ${row.filename}`])).rows[0];
+      await q(`insert into ql_batch_item(batch_id, filename, document_id, ord, stage) values ($1,$2,$3,0,'rebuilding')`,
+        [b.id, row.filename, id]);
+      const stage = (st) => q(`update ql_batch_item set stage=$2, updated_at=now() where batch_id=$1`, [b.id, st]).catch(() => {});
+
       const out = await deriveFromC1({ docId: id, verId: row.ver_id, versionNo: row.version_no,
         c1: row.c1_text, filename: row.filename, ocr: !!row.ocr });
+      await stage("embedding");
       try { await embedVersion({ docId: id, verId: row.ver_id, c2: null, filename: row.filename }); } catch { /* vectors are best-effort */ }
-      res.json({ ok: true, mode: out.mode, clauses: out.atom?.clauses || 0, failed: out.mode === "key-failed", why: out.keyFailed || null });
+
+      const failed = out.mode === "key-failed";
+      await q(`update ql_batch_item set stage='done', status=$2, note=$3, updated_at=now() where batch_id=$1`,
+        [b.id, failed ? "blocked" : "ok",
+         failed ? out.keyFailed : `${out.atom?.clauses || 0} clauses · key, obligations, registers and vectors rebuilt`]).catch(() => {});
+      await q(`update ql_batch set status='done', updated_at=now() where id=$1`, [b.id]).catch(() => {});
+      res.json({ ok: true, batch_id: b.id, mode: out.mode, clauses: out.atom?.clauses || 0, failed, why: out.keyFailed || null });
     } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
   });
 
