@@ -396,6 +396,17 @@ function renderRegistry() {
     + `<label class="supersede"><input type="checkbox" id="sup" onchange="window.__supersede=this.checked">
          <span>Re-read a document already held — files it as a new version superseding the earlier reading</span></label>`
     + `<div class="poc-note">POC: please add up to <b>3 documents at a time</b>. Each one runs a full read, clause layer, key, obligations, registers and vectors.</div>`
+    // Expectation-setting, stated once and permanently rather than explained in a
+    // meeting each time someone finds ranking merely good. Written so a
+    // non-technical reader learns what an embedding IS before being told what is
+    // limited about ours — and so the limit is scoped honestly: it affects
+    // ranking by meaning, and nothing that is read straight off the page.
+    + `<details class="pocnote-x"><summary>About semantic search (embeddings) — what it is, and what this POC does not include</summary>
+        <p><b>What an embedding is.</b> Every clause is converted into a list of numbers that represents its <i>meaning</i> rather than its words. Ask “what happens if we walk away early” and the repository can surface a termination clause that never uses the word “walk” — because the meanings sit close together, even when the vocabulary does not. It is what lets a thousand contracts be questioned in plain English instead of by keyword.</p>
+        <p><b>What this POC runs on.</b> Entry-tier, shared infrastructure: a general-purpose embedding model and vectors stored alongside the application database, with background work driven by the browser session. It is genuinely useful and it is not production-grade.</p>
+        <p><b>What production adds</b>, scoped and provisioned as part of the engagement: a dedicated managed vector index that stays fast as the repository grows past a few thousand documents, a higher-tier embedding model with a larger context for long clauses, always-on background workers so re-indexing and overnight syncs continue without anyone holding a tab open, and per-tenant isolation of the vector store.</p>
+        <p><b>What is affected, and what is not.</b> Only <i>ranking by meaning</i> — which contracts a broad question surfaces first, and how well it copes with paraphrase. Everything read directly from the document is unaffected: clause text and § citations, parties, dates, governing law, obligations, the contract tree and every filter. A cited clause is quoted verbatim from the contract, whatever the ranking did to find it.</p>
+      </details>`
     + `<div id="qproc"></div><div id="ql-batch"></div>`
     + (list.length
       ? colfChips(REG_COLS, CST, base) + `<div class="scroll-x reveal"><table class="ctable">${colfHead(REG_COLS, CST)}<tbody>${rows}</tbody></table></div>`

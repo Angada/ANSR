@@ -66,6 +66,13 @@
   .rowact .btn{padding:2px 7px;font-size:11.5px}
   .supersede{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--dim);margin:0 0 8px;cursor:pointer;line-height:1.45}
   .supersede input{margin-top:2px;flex:0 0 auto}
+  .pocnote-x{border:1px solid var(--line2);border-radius:8px;padding:9px 12px;margin:0 0 16px;background:var(--panel)}
+  .pocnote-x summary{cursor:pointer;font-size:12.7px;color:var(--dim);font-weight:600;list-style:none}
+  .pocnote-x summary::-webkit-details-marker{display:none}
+  .pocnote-x summary::before{content:"▸ ";color:var(--org)}
+  .pocnote-x[open] summary::before{content:"▾ "}
+  .pocnote-x p{font-size:12.5px;line-height:1.6;color:var(--dim);margin:9px 0 0}
+  .pocnote-x b{color:var(--ink,#222)}
   .poc-note{font-size:12.5px;color:var(--dim);background:var(--tint,#FFF7F1);border:1px solid var(--line2);border-radius:8px;padding:8px 11px;margin:0 0 14px}
   .idx{font-size:11.5px;border-radius:20px;padding:2px 8px;white-space:nowrap;cursor:help}
   .idx--ok{background:#E9F6EE;color:#1C6B3D}
