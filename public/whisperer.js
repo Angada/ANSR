@@ -633,6 +633,21 @@ window.onProcess = async () => {
   let failed = null;
   const settled = Promise.race([gen, guard]).catch((e) => { failed = e; });
   await meter(steps, "procMeter", "◎ Signal locked", settled);
+  // a sweep that wrote nothing must explain itself, not render an empty page
+  const res = await settled;
+  if (!failed && res && res.made === 0) {
+    const host = $("#procMeter");
+    const why = (res.feed_errors || []).length
+      ? `The feed refused us: ${(res.feed_errors).map((e) => `<b>${esc(e.source)} — ${esc(e.reason)}</b>`).join(", ")}.`
+      : res.collected === 0
+        ? `Nothing was collected from ${res.topics} theme${res.topics === 1 ? "" : "s"} — either the search terms returned no results, or the feed keys are not live.`
+        : `${res.collected} items were collected, but the model wrote no usable ideas — usually a disabled or unkeyed AI pipeline.`;
+    if (host) host.innerHTML = `<div class="ferr"><div class="ferr-r"><b>The sweep finished but produced no ideas.</b> ${why}
+      <span class="ferr-a">Check Admin → Integrations for the feed keys, and Admin → AI &amp; Pipelines that <i>feedstory-generate</i> is enabled and keyed.</span></div></div>
+      <div class="process" style="margin-top:10px"><button class="btn small" onclick="onProcess()">Try again</button></div>`;
+    renderBatchPick();
+    return;
+  }
   if (failed) {
     const host = $("#procMeter");
     if (host) host.innerHTML = `<div class="ferr"><div class="ferr-r"><b>The sweep did not finish</b> — ${esc(failed.message)}.

@@ -845,7 +845,11 @@ export function mountWhisperer(app, slug, upload) {
       }));
     }
     await wq(`update wh_batch set story_count=$2, status='swept', swept_at=now() where id=$1`, [bid, made.length]);
-    res.json({ ok: true, made: made.length });
+    // When a sweep writes nothing, say WHY. An empty result page is otherwise
+    // indistinguishable from a broken one — the same failure mode as the silent
+    // API key, one layer up.
+    const diag = { topics: topicRows.length, collected: feed.length, feed_errors: FEED_ERRORS.slice() };
+    res.json({ ok: true, made: made.length, ...diag });
   });
 
   // the results-page "top videos that scored high" block — ranked feed snapshot for this
