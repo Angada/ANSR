@@ -394,6 +394,7 @@ function rankFeedSignal(items, allowedLangs = ["en"], domainTerms = DOMAIN_TERMS
       // when you can read what people are asking and nobody is answering
       qs: comments.filter(isQuestion).map((c) => String(c).replace(/<[^>]+>/g, " ").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/\s+/g, " ").trim()).filter((c) => c.length > 12 && c.length < 220).slice(0, 6),
       audioLang: m.audioLang || null, drop_reason: f.drop_reason || null, repeat: !!f.repeat,
+      body: f.body || "",   // the master-theme filter reads this; without it only the title was ever checked
       velocity: Math.round(velocity * 100) / 100 };
   }).filter((x) => x.views > 0 || x.comments > 0 || x.source === "reddit")
     .sort((a, b) => b.velocity - a.velocity || b.views - a.views || b.comments - a.comments);
@@ -726,7 +727,12 @@ export function mountWhisperer(app, slug, upload) {
     // everything reports as a repeat) and wh_search_cache (the 24h search cache
     // → the same terms replay the same results without touching the API).
     let forgot = 0, uncached = 0;
-    const left = (await wq(`select count(*)::int n from wh_batch`)).rows[0]?.n ?? 0;
+    // `?? 0` here was backwards and dangerous: wq() swallows errors and returns
+    // {rows:[]}, so a transient timeout on this COUNT read as "zero batches
+    // left" and wiped every URL ever collected plus the whole search cache while
+    // dozens of batches still existed. Unknown must mean "do not delete".
+    const leftRow = (await wq(`select count(*)::int n from wh_batch`)).rows[0];
+    const left = leftRow ? Number(leftRow.n) : null;      // null = we could not tell
     if (left === 0) {
       forgot = (await wq(`delete from wh_feed_item returning 1`)).rows.length;
       uncached = (await wq(`delete from wh_search_cache returning 1`)).rows.length;

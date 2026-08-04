@@ -32,7 +32,15 @@ function stubReply(id, user) {
 // rule's custom model dropdown) run this pipeline on a different model/provider.
 // images (optional): [{ media_type, data(base64) }] — sent as vision content
 // blocks alongside the user text (Anthropic-compatible vision, e.g. Claude).
-export async function runPipeline(pipelineId, { system = "", user = "", images = [], maxTokens = 800, provider, model } = {}) {
+export async function runPipeline(pipelineId, opts = {}) {
+  // A positional call — runPipeline(id, "", text, 1600) — used to destructure a
+  // STRING silently: no throw, just user:"" and an empty prompt, so the API
+  // rejected it and the caller reported "no AI model enabled". Three RayDar
+  // steps failed this way 100% of the time and blamed the operator's key.
+  // Fail loudly instead of pretending to run.
+  if (typeof opts !== "object" || opts === null || Array.isArray(opts))
+    return { mode: "error", pipeline: pipelineId, text: `runPipeline("${pipelineId}") was called with a ${typeof opts}, not an options object — expected { system, user, maxTokens }` };
+  const { system = "", user = "", images = [], maxTokens = 800, provider, model } = opts;
   const cfg = loadConfig();
   const p = cfg.pipelines[pipelineId];
   if (!p) return { mode: "error", text: `unknown pipeline: ${pipelineId}` };

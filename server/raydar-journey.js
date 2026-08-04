@@ -196,7 +196,7 @@ export async function readDump(text) {
 
   // unknown shape → one model call, then write the shape back for next time
   const sample = lines.slice(0, 40).join("\n").slice(0, 6000);
-  const out = await runPipeline("raydar-dump", "", sample, 1600);
+  const out = await runPipeline("raydar-dump", { user: sample, maxTokens: 1600 });
   const j = out.mode === "ai" ? jsonFrom(out.text) : null;
   if (!j) {
     // last resort: keep the phrases so the dump is never silently lost
@@ -272,7 +272,7 @@ export function mountJourney(app, upload) {
       series.map((s) => `· ${s.name}${s.parent ? ` (part of ${s.parent})` : ""} — ${s.blurb || ""}`).join("\n"),
     ].filter(Boolean).join("\n");
 
-    const out = await runPipeline("raydar-theme-compile", "", user, 1400);
+    const out = await runPipeline("raydar-theme-compile", { user, maxTokens: 1400 });
     const j = out.mode === "ai" ? jsonFrom(out.text) : null;
     if (!j) {
       // no key / disabled → a deterministic starting point from their own words,
@@ -502,7 +502,7 @@ export function mountJourney(app, upload) {
       questions.length ? `\nQUESTIONS FROM THE DUMP:\n${questions.slice(0, 40).join("\n")}` : "",
     ].filter(Boolean).join("\n");
 
-    const out = await runPipeline("raydar-brief", "", user, 2200);
+    const out = await runPipeline("raydar-brief", { user, maxTokens: 2200 });
     const j = out.mode === "ai" ? jsonFrom(out.text) : null;
     // deterministic fallback so the station still produces a real artifact with
     // no key — built purely from the dump, nothing invented
