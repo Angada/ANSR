@@ -93,6 +93,19 @@ Object.assign(RULE_DEFAULTS, {
     collection: {
       language: "English", region: "India", locale: "en-IN",
       languages: ["en"], // ENFORCED deterministically on the feed (not just the prompt): only these ISO codes survive; ["all"] disables the filter
+      // THE MASTER FILTER. An item must be about work at all. Keyword overlap
+      // alone let a single word carry a match — "negotiate" pulled in Modi, the
+      // Ukraine war and Pattaya bar prices. Nothing survives collection unless
+      // it also mentions one of these. Empty list = filter off.
+      domain_terms: ["job", "jobs", "career", "careers", "hiring", "hire", "recruit", "recruiter", "recruitment",
+        "salary", "salaries", "ctc", "pay", "package", "appraisal", "hike", "promotion", "raise", "offer",
+        "resume", "cv", "portfolio", "interview", "interviewer", "hr", "shortlist", "applicant", "application",
+        "fresher", "graduate", "intern", "internship", "placement", "campus", "onboarding", "notice period",
+        "employee", "employer", "workplace", "office", "corporate", "manager", "team lead", "colleague",
+        "skill", "skills", "upskill", "upskilling", "reskill", "certification", "course", "learn", "training",
+        "layoff", "layoffs", "fired", "resign", "resignation", "quit", "switch", "attrition", "bench",
+        "gcc", "startup", "mnc", "faang", "tech", "developer", "engineer", "analyst", "designer", "product",
+        "remote", "hybrid", "wfh", "work from home", "linkedin", "naukri", "referral", "profile"],
       audience: "Indian job seekers · GCC / tech talent", brand: "Talent500", currency: "INR",
       idiom: ["hike", "notice period", "CTC", "package", "service company", "product company", "fresher", "campus placement", "on-site", "bench"],
       out_of_scope: ["Hindi / regional-language content (v2)"],
@@ -351,10 +364,23 @@ function langExcludeReason(title, allowed, { audioLang = null, hinglishGuard = t
   return allowed.includes(code) ? null : `${lang} — not in allowed languages (${allowed.join(", ")})`;
 }
 
+// THE MASTER DOMAIN FILTER. RayDar is about work — jobs, hiring, pay, skills.
+// An item that mentions none of that is off-topic no matter which keyword it
+// happened to share. Checks the title and the description, so a well-titled but
+// unrelated video still fails. Returns a drop reason, or null to keep.
+function offDomainReason(title, body, domainTerms) {
+  const terms = (domainTerms || []).map((t) => String(t).toLowerCase()).filter(Boolean);
+  if (!terms.length) return null;                       // empty list = filter off
+  const hay = `${title || ""} ${String(body || "").slice(0, 400)}`.toLowerCase();
+  return terms.some((t) => hay.includes(t)) ? null : "not about jobs, hiring or careers";
+}
+
 // Rank collected feed items by velocity (views ÷ days), split into on-topic (kept)
 // vs off-topic (dropped, with reason), and compute coverage stats — the auditable
 // snapshot behind the results page's "top videos" block. Returns {kept,dropped,stats}.
-function rankFeedSignal(items, allowedLangs = ["en"]) {
+let DOMAIN_TERMS = [];
+function rankFeedSignal(items, allowedLangs = ["en"], domainTerms = DOMAIN_TERMS) {
+  DOMAIN_TERMS = domainTerms || DOMAIN_TERMS;
   const rows = (items || []).filter((f) => f.url).map((f) => {
     const m = f.meta || {};
     const views = Number(m.views || 0), ageDays = m.ageDays || null;
@@ -378,6 +404,8 @@ function rankFeedSignal(items, allowedLangs = ["en"]) {
     if (r.drop_reason) { dropped.push({ ...r, reason: r.drop_reason, hard: true }); continue; }
     const langReason = langExcludeReason(r.title, allowedLangs, { audioLang: r.audioLang });
     if (langReason) { dropped.push({ ...r, reason: langReason, hard: true }); continue; } // rule-driven hard drop, never promoted back
+    const domReason = offDomainReason(r.title, r.body, DOMAIN_TERMS);
+    if (domReason) { dropped.push({ ...r, reason: domReason, hard: true }); continue; }   // master filter — never promoted back
     const m = relevanceMatch(r);
     if (m === null) { dropped.push({ ...r, reason: "no topic-keyword match" }); continue; }
     r.match = m || null;
@@ -779,7 +807,7 @@ export function mountWhisperer(app, slug, upload) {
     }
     const feed = await collectFeed(feedTopics).catch(() => []);
     await classifyFeed(feed).catch(() => {});            // Stage 2 — channel through each source's rule prompt
-    await wq(`update wh_batch set feed_signal=$2::jsonb where id=$1`, [bid, JSON.stringify(rankFeedSignal(feed, allowedLangs))]).catch(() => {}); // results-page "top videos" snapshot
+    await wq(`update wh_batch set feed_signal=$2::jsonb where id=$1`, [bid, JSON.stringify(rankFeedSignal(feed, allowedLangs, (guard.collection || {}).domain_terms))]).catch(() => {}); // results-page "top videos" snapshot
     // SEO gets its OWN idea board, grounded ONLY in the SEO feed → visible in the output with ✨-tagged sources
     if (seoTerms.length && feed.some((f) => f.topic === "__seo__")) {
       topicRows = [...topicRows, { name: "SEO research", franchise: topicRows[0]?.franchise || "Emerging", format_home: "", strategic_weight: 1, question: `high-intent keywords from your SEO upload: ${seoTerms.slice(0, 8).join(", ")}`, terms: seoTerms, __seo: true }];

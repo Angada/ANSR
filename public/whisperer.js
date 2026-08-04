@@ -150,7 +150,9 @@ const BR_FIELDS = {
   trend_spotting: [["topics", "Demand topics per sweep", "n"], ["include_emerging", "Include Emerging", "b"]],
   seo_inputs: [["max_inputs", "Max SEO inputs read", "n"]],
   talentmind: [["tenure_max_years", "Tenure cap (years)", "n"], ["job_seekers_only", "Job seekers only", "b"]],
-  guardrails: [["languages", "Allowed languages (ISO codes — 'all' disables the filter)", "l"], ["audience", "Audience", "t"], ["region", "Region", "t"], ["currency", "Currency", "t"]],
+  guardrails: [["languages", "Allowed languages (ISO codes — 'all' disables the filter)", "l"],
+    ["domain_terms", "MASTER FILTER — an item must mention one of these, or it is dropped (empty = off)", "l"],
+    ["audience", "Audience", "t"], ["region", "Region", "t"], ["currency", "Currency", "t"]],
 };
 async function renderBizRules() {
   const host = $("#view-rules");
