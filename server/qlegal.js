@@ -371,14 +371,18 @@ async function refreshDoc(docId) {
 // ---- shared per-file ingestion (upload path + SharePoint scan) ---------------
 // Writes per step as it completes (resumable spirit): version row first, then C1,
 // then the derive chain — a crash never loses finished work.
-export async function ingestFile(f, { source = "upload", spItemId = null, spMeta = null, origin = null, actor = null } = {}) {
+export async function ingestFile(f, { source = "upload", spItemId = null, spMeta = null, origin = null, actor = null, supersede = false } = {}) {
   const buf = readFileSync(f.path);
   const sha256 = createHash("sha256").update(buf).digest("hex");
   const ext = extname(f.originalname).toLowerCase();
 
   // duplicate: this exact file is already in the repository → skip, point at it
+  // The duplicate check is on BYTES, which is right by default and wrong when a
+  // document was ingested badly and you want to file it again. `supersede` says
+  // exactly that: same bytes, deliberately, as a new version that replaces the
+  // earlier reading — so the bad one becomes history instead of blocking the fix.
   const dup = (await q(`select v.document_id, v.version_no, d.filename from ql_version v join ql_document d on d.id=v.document_id where v.sha256=$1 limit 1`, [sha256])).rows[0];
-  if (dup) return { filename: f.originalname, skipped: "duplicate", of: dup };
+  if (dup && !supersede) return { filename: f.originalname, skipped: "duplicate", of: dup };
 
   // one document, many versions. Identity: the SharePoint item id when we have it
   // (stable across renames/moves), else the filename.
@@ -616,6 +620,20 @@ export function mountQLegal(app, upload) {
   app.post("/api/qlegal/upload", upload.array("files", 50), async (req, res) => {
     const files = req.files || [];
     if (!files.length) return res.status(400).json({ error: "no files" });
+    // POC batch ceiling. Each document is a full derive chain — transcript,
+    // clause layer, key, obligations, registers, vectors — and the request drives
+    // it, so a long batch runs at the mercy of the Cloud Run request timeout.
+    // Three at a time finishes well inside it. Enforced here, not just in the
+    // page, because a limit the browser owns is not a limit.
+    const POC_MAX = 3;
+    if (files.length > POC_MAX) {
+      for (const f of files) { try { rmSync(f.path); } catch { /* ignore */ } }
+      return res.status(400).json({
+        error: `Please upload up to ${POC_MAX} documents at a time for this POC. You sent ${files.length}.`,
+        why: "Each contract runs a full read, clause layer, key, obligations, registers and vectors. Three at a time completes reliably; a larger batch can outrun the request timeout and leave documents half-processed.",
+        poc_max: POC_MAX,
+      });
+    }
     // refuse BEFORE storing anything — a half-built contract in the repository is
     // worse than no contract, because it looks the same as a real one
     const ready = ingestReadiness();
@@ -652,7 +670,8 @@ export function mountQLegal(app, upload) {
     for (const [i, f] of files.entries()) {
       await setItem(i, { stage: "reading" });
       try {
-        const r = await ingestFile(f, { origin: paths[i] || null, actor: req.body?.by || "you" });
+        const r = await ingestFile(f, { origin: paths[i] || null, actor: req.body?.by || "you",
+          supersede: String(req.body?.supersede || "") === "1" });
         results.push(r);
         await setItem(i, {
           stage: "done",

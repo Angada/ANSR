@@ -379,7 +379,15 @@ function renderRegistry() {
     </tr>`;
   }).join("");
   host.innerHTML = `<p class="intro"><b>CONTRACTS</b> — the estate. Filter by Legal Setting, expiry, or anything; click a contract for its page.</p>`
-    + warn + drop + `<div id="qproc"></div><div id="ql-batch"></div>` + strip
+    + warn + drop
+    // Re-uploading a badly-read document used to do nothing: the duplicate check
+    // is on bytes, so the fix was silently skipped. This says "yes, the same file,
+    // on purpose" — it files a NEW version that supersedes the bad reading, and
+    // the earlier one stays as history rather than blocking the correction.
+    + `<label class="supersede"><input type="checkbox" id="sup" onchange="window.__supersede=this.checked">
+         <span>Re-read a document already held — files it as a new version superseding the earlier reading</span></label>`
+    + `<div class="poc-note">POC: please add up to <b>3 documents at a time</b>. Each one runs a full read, clause layer, key, obligations, registers and vectors.</div>`
+    + `<div id="qproc"></div><div id="ql-batch"></div>`
     + (list.length
       ? colfChips(REG_COLS, CST, base) + `<div class="scroll-x reveal"><table class="ctable">${colfHead(REG_COLS, CST)}<tbody>${rows}</tbody></table></div>`
       : DOCS.length ? `<div class="empty">// nothing matches these filters //</div>`
@@ -402,7 +410,7 @@ window.qUpload = async (files) => {
   // per request and keeps going — every batch that completes is already saved, so
   // a failure late in a long upload never costs you the documents that landed.
   const all = [...files];
-  const SIZE = 3;
+  const SIZE = 3   // POC: three at a time — a full derive chain per document, and the request drives it;
   const results = [];
   const host = $("#qproc");
   let done = 0;
@@ -413,6 +421,7 @@ window.qUpload = async (files) => {
         <span>Reading ${done + 1}–${Math.min(done + chunk.length, all.length)} of ${all.length} · transcript, key, standing questions, obligations, family, vectors…</span></div>
       <div class="track"><div class="fill" style="width:${Math.round((done / all.length) * 100)}%"></div></div></div>`;
     const fd = new FormData();
+      if (window.__supersede) fd.append("supersede", "1");
     fd.append("paths", JSON.stringify(chunk.map((f) => f.webkitRelativePath || "")));
     chunk.forEach((f) => fd.append("files", f));
     try {
@@ -450,7 +459,7 @@ window.qUpload = async (files) => {
   const flagged = results.filter((r) => r.gate && !r.gate.blocked && (r.gate.notes || []).length);
   const lines = (r) => (r.gate.notes && r.gate.notes.length ? r.gate.notes : [r.gate.why]).map((n) => `    ${n}`).join("\n");
   let msg = `${ok - blocked.length} of ${all.length} indexed and classified.`;
-  if (dups) msg += ` ${dups} skipped (already in the repository).`;
+  if (dups) msg += ` ${dups} skipped — already in the repository. To re-read one, tick "Re-read a document already held" above and upload it again.`;
   if (errs.length) msg += ` ${errs.length} failed: ${errs.slice(0, 3).map((e) => `${e.filename} — ${e.error}`).join("; ")}${errs.length > 3 ? "…" : ""}`;
   if (blocked.length) msg += `\n\n⚠ ${blocked.length} could NOT be read\n` + blocked.map((r) => `  • ${r.filename}\n${lines(r)}`).join("\n");
   if (flagged.length) msg += `\n\nRead, with gaps\n` + flagged.map((r) => `  • ${r.filename}\n${lines(r)}`).join("\n");
