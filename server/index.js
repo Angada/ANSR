@@ -105,7 +105,11 @@ const loginThrottled = (ip) => {
 };
 
 app.post("/api/login", (req, res) => {
-  const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.ip || "?";
+  // XFF[0] is the CLIENT-supplied end of the chain — GCP's load balancer appends
+  // the real IP rather than replacing the header, so trusting [0] let anyone
+  // reset their own throttle by rotating a made-up value. Take the last hop.
+  const xff = String(req.headers["x-forwarded-for"] || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const ip = xff.length ? xff[xff.length - 1] : (req.ip || "?");
   if (loginThrottled(ip)) return res.status(429).json({ error: "too many attempts — wait a few minutes" });
   const { user, pw } = req.body || {};
   const provided = createHash("sha256").update(`${user}:${pw}:qansr-soft`).digest("hex");
@@ -221,7 +225,20 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
 });
 
 // ---- the "doc x api switch": serve the MD extract, never the original --------
+// Which app owns a docstore namespace. Q-Legal writes under Q-LEGAL; everything
+// else is a Mint customer code. Without this the docstore was a side door around
+// the app gate — a Content account could read Q-Legal contracts and Mint roster
+// PII, because /api/doc/ matches no app prefix and fell through to "allow".
+const docNamespaceApp = (ns) => (String(ns || "").toUpperCase().startsWith("Q-LEGAL") ? "qlegal" : "mint");
+function mayReadDocs(req, ns) {
+  const acct = accountOf(req);
+  if (!acct) return false;
+  if (acct.admin) return true;
+  return (acct.apps || []).includes(docNamespaceApp(ns));
+}
+
 app.get("/api/doc/:customer/:docId", async (req, res) => {
+  if (!mayReadDocs(req, req.params.customer)) return res.status(403).json({ error: "not available on this account" });
   const md = await getExtract(slug(req.params.customer), safeDocId(req.params.docId));
   if (md == null) return res.status(404).send("Document extract not found.");
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -229,6 +246,7 @@ app.get("/api/doc/:customer/:docId", async (req, res) => {
 });
 
 app.get("/api/docs/:customer", async (req, res) => {
+  if (!mayReadDocs(req, req.params.customer)) return res.status(403).json({ error: "not available on this account" });
   res.json({ docs: await listExtracts(slug(req.params.customer)) });
 });
 

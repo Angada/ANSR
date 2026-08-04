@@ -26,6 +26,12 @@ update wh_batch b
 update wh_batch set description = 'Swept across all active themes.'
  where description is null or description = '';
 
--- purge batches that produced nothing — a sweep with no ideas is a failed run
-delete from wh_batch b
- where not exists (select 1 from wh_feed_story s where s.batch_id = b.id and s.status <> 'deleted');
+-- REMOVED. This ran on EVERY boot and was not a "purge of empty batches":
+--   * a batch created but not yet swept (status='draft', zero stories) was
+--     deleted if the container restarted between creating it and sweeping it;
+--   * a batch whose ideas were ALL rejected was deleted too — rejection is a
+--     soft delete (status='deleted'), not emptiness.
+-- It cascaded to wh_feed_story, wh_story_event and wh_seo_input, so a sweep's
+-- entire journey timeline and any attached SEO research went with it.
+-- Retention is a deliberate user action, not a boot-time side effect: the purge
+-- endpoint (server/whisperer.js) previews first and protects accepted work.
