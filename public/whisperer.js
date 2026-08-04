@@ -803,7 +803,12 @@ function gapAnalysis(stories) {
       const g = t.gap / Math.max(1, t.n);
       const [label, tip] = READ[t.type] || ["Measured", "Demand and supply are close — a strong angle matters more than the topic itself."];
       // the real questions, pulled from the comments collected under this theme
-      const asked = [...new Set((FEED_SIGNAL || [])
+      // FEED_SIGNAL is an OBJECT ({kept, dropped, stats}) for any sweep since the
+      // signal snapshot landed, and only an ARRAY for older ones. Calling
+      // .filter() on it directly threw, which killed the whole results render —
+      // the ideas were written and stored, the page just never drew them.
+      const sig = Array.isArray(FEED_SIGNAL) ? FEED_SIGNAL : (FEED_SIGNAL?.kept || []);
+      const asked = [...new Set(sig
         .filter((r) => r.topic === topic)
         .flatMap((r) => r.qs || []))].slice(0, 8);
       return `<div class="ga-r">
