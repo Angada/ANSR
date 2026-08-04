@@ -1231,7 +1231,8 @@ function renderSweepReport() {
   const stories = _RENDER?.stories;
   if (!stories || !stories.length) {
     host.innerHTML = `<p class="intro"><b>SWEEP</b> — what RayDar collected, how it read it, and the evidence behind every idea.</p>
-      <div class="empty">// run a sweep from Demand Setting to see the evidence //</div>`;
+      <div class="empty">${BATCH ? `// this batch has no stored evidence — it predates the sweep report, or it produced no ideas //`
+        : "// run a sweep from Demand Setting to see the evidence //"}</div>`;
     return;
   }
   host.innerHTML = `<p class="intro"><b>SWEEP</b> — the evidence behind this batch: what went in, what the feed returned, and how each theme scored. The ideas themselves are on <b>Content Ideas</b>.</p>`
@@ -1326,7 +1327,15 @@ async function renderBatches() {
       <span class="bm">${fmtDT(b.created_at)}</span>
     </div>`).join("") : `<div class="empty">// no batches yet — run a sweep //</div>`);
 }
-window.openBatch = async (id, name) => { BATCH = { id, name }; FR = "all"; setView("sweep"); await loadIdeas(); toIdeas(); renderBatchPick(); };
+// Opening a saved batch lands on SWEEP — the evidence — same as a fresh run.
+// It also clears the per-batch caches first, so step 2 never renders the
+// previous batch's recap while the new one loads.
+window.openBatch = async (id, name) => {
+  BATCH = { id, name }; FR = "all"; RECAP = null; FEED_SIGNAL = []; _RENDER = null;
+  setView("sweep");
+  await loadIdeas();               // fills _RENDER + RECAP, and renders step 2
+  goStage(2); renderBatchPick();
+};
 
 // batches dropdown on the sweep page — jump straight to any saved batch's ideas
 // Batch picker — the option text now carries the AUTO-WRITTEN description, so
