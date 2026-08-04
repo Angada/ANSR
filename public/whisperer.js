@@ -150,9 +150,9 @@ const BR_FIELDS = {
   trend_spotting: [["topics", "Demand topics per sweep", "n"], ["include_emerging", "Include Emerging", "b"]],
   seo_inputs: [["max_inputs", "Max SEO inputs read", "n"]],
   talentmind: [["tenure_max_years", "Tenure cap (years)", "n"], ["job_seekers_only", "Job seekers only", "b"]],
-  // MASTER FILTER first: it is the widest gate — everything else only narrows
+  // MASTER THEME first: it is the widest gate — everything else only narrows
   // what survives it, so it belongs at the top of the card, not buried.
-  guardrails: [["domain_terms", "★ MASTER FILTER — an item must mention one of these words, or it is dropped (empty = off)", "l"],
+  guardrails: [["domain_terms", "★ MASTER THEME — an item must mention one of these words, or it is dropped (empty = off)", "l"],
     ["languages", "Allowed languages (ISO codes — 'all' disables the filter)", "l"],
     ["audience", "Audience", "t"], ["region", "Region", "t"], ["currency", "Currency", "t"]],
 };
