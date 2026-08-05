@@ -61,7 +61,10 @@ const ACCOUNTS = [
   // explains what the app does and offers to request access. Access itself is still
   // decided by `apps` — a locked app is simply not in it, so the server blocks it
   // exactly as it blocks any other app the account doesn't hold.
-  { user: process.env.LEGAL_USER || "legal", pw: process.env.LEGAL_PW || "legal", role: "Legal", apps: ["qlegal"], locked: ["contra"], admin: false },
+  // Contra is now HELD, not merely seen: the legal team reviews contracts as well
+  // as holding them, so the lock that explained the app and offered to request
+  // access has done its job and is removed.
+  { user: process.env.LEGAL_USER || "legal", pw: process.env.LEGAL_PW || "legal", role: "Legal", apps: ["qlegal", "contra"], admin: false },
 ];
 // which pages + api prefixes belong to each app (everything else is admin-only)
 const APP_ROUTES = {
@@ -91,8 +94,19 @@ function allowedFor(acct, path) {
     const owned = r.pages.includes(path) || r.apis.some((p) => path.startsWith(p));
     if (owned) return acct.apps.includes(app);
   }
-  return true;   // shared assets + shared APIs
+  // DEFAULT-DENY. This used to `return true` — anything not claimed by an app
+  // prefix was allowed for any signed-in account. That is how a Content login
+  // reached the docstore, /api/fx/override (which sets the billing FX rate),
+  // /api/run/:customer/:runNo, /api/clients and a dozen more. Genuinely shared
+  // things are listed explicitly; everything new now fails closed.
+  if (!path.startsWith("/api/")) return true;              // static assets, pages handled above
+  return SHARED_APIS.some((p) => path === p || path.startsWith(p));
 }
+// APIs every signed-in account may use, regardless of role.
+const SHARED_APIS = [
+  "/api/me", "/api/logout", "/api/login", "/api/ops", "/api/access-request",
+  "/api/doc/", "/api/docs/",       // gated separately by docstore namespace owner
+];
 
 // in-memory login throttle (per-IP sliding window) — blunts brute force
 const LOGIN_HITS = new Map();
@@ -162,6 +176,55 @@ app.use(express.static(join(root, "public"), { setHeaders: revalidate }));
 app.use("/brand", express.static(join(root, "brand"), { setHeaders: revalidate })); // tokens.css + logo for the UI
 const MAX_UPLOAD = 25 * 1024 * 1024; // 25 MB
 const upload = multer({ dest: uploads, limits: { fileSize: MAX_UPLOAD } });
+// NOTE: this MUST sit above the app mounts. Express walks layers in
+// registration order and a route handler ends the chain without calling
+// next(), so when this lived below mountContra/mountQLegal it never ran for
+// Mint, Q-Legal or Contra — AUDIT_APP mapped those prefixes but could never
+// match them. Only RayDar was ever actually audited.
+// ---- AUDIT TRAIL ----------------------------------------------------------
+// One row per state-changing request, written automatically. Hand-placed audit
+// calls only ever cover the endpoints someone remembered; this covers all of
+// them, including any added later. Reads (GET) are deliberately NOT logged —
+// they would bury the signal — except Ask/search queries, which ARE actions
+// worth tracing back to a person.
+const AUDIT_APP = [["/api/wh/", "raydar"], ["/api/qlegal/", "qlegal"], ["/api/contra/", "contra"],
+  ["/api/mint/", "mint"], ["/api/atlas/", "mint"], ["/api/roster", "mint"], ["/api/runs", "mint"],
+  ["/api/ruleset", "mint"], ["/api/customers", "mint"], ["/api/integrations", "admin"],
+  ["/api/config", "admin"], ["/api/pipelines", "admin"], ["/api/vault", "admin"], ["/api/audit", "admin"]];
+const auditAppOf = (p) => AUDIT_APP.find(([pre]) => p.startsWith(pre))?.[1] || "core";
+// a query is a GET worth recording — the user asked the system something
+const AUDIT_QUERY = /\/(ask|search|answer|qa)(\/|$|\?)/i;
+// never let a secret reach the log, even if a field is added upstream later
+const AUDIT_REDACT = /(key|token|secret|password|pw|apikey|authorization)/i;
+const auditDetail = (req) => {
+  const out = {};
+  for (const [k, v] of Object.entries(req.body || {})) {
+    if (AUDIT_REDACT.test(k)) { out[k] = "«redacted»"; continue; }
+    const s = typeof v === "string" ? v : JSON.stringify(v);
+    if (s != null) out[k] = String(s).slice(0, 300);
+  }
+  if (req.query && Object.keys(req.query).length) out._query = JSON.stringify(req.query).slice(0, 300);
+  return out;
+};
+app.use((req, res, next) => {
+  const isWrite = req.method !== "GET" && req.method !== "HEAD";
+  const isQuery = req.method === "GET" && AUDIT_QUERY.test(req.path);
+  if (!req.path.startsWith("/api/") || (!isWrite && !isQuery)) return next();
+  const t0 = Date.now();
+  res.on("finish", () => {
+    const acct = accountOf(req);
+    q(`insert into audit_log(actor, role, app, action, method, path, status, ms, ip, object_type, detail)
+       values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+      [acct?.user || "anonymous", acct?.role || null, auditAppOf(req.path),
+       isQuery ? "query" : req.path.split("/").filter(Boolean).slice(-1)[0] || req.method,
+       req.method, req.path, res.statusCode, Date.now() - t0,
+       String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.ip || null,
+       "api", JSON.stringify(auditDetail(req))]
+    ).catch(() => { /* auditing must never break the request it is recording */ });
+  });
+  next();
+});
+
 mountContra(app, upload); // Contra — contract review (archetype maker + review)
 mountQLegal(app, upload); // Q-Legal — legal repository intelligence (registry · search · obligations · rules)
 
@@ -855,50 +918,6 @@ app.post("/api/providers/:provider", (req, res) => {
   if (req.body?.apiKey) cfg.providers[req.params.provider].apiKey = encryptKey(req.body.apiKey);
   saveConfig(cfg);
   res.json({ ok: true });
-});
-
-// ---- AUDIT TRAIL ----------------------------------------------------------
-// One row per state-changing request, written automatically. Hand-placed audit
-// calls only ever cover the endpoints someone remembered; this covers all of
-// them, including any added later. Reads (GET) are deliberately NOT logged —
-// they would bury the signal — except Ask/search queries, which ARE actions
-// worth tracing back to a person.
-const AUDIT_APP = [["/api/wh/", "raydar"], ["/api/qlegal/", "qlegal"], ["/api/contra/", "contra"],
-  ["/api/mint/", "mint"], ["/api/atlas/", "mint"], ["/api/roster", "mint"], ["/api/runs", "mint"],
-  ["/api/ruleset", "mint"], ["/api/customers", "mint"], ["/api/integrations", "admin"],
-  ["/api/config", "admin"], ["/api/pipelines", "admin"], ["/api/vault", "admin"], ["/api/audit", "admin"]];
-const auditAppOf = (p) => AUDIT_APP.find(([pre]) => p.startsWith(pre))?.[1] || "core";
-// a query is a GET worth recording — the user asked the system something
-const AUDIT_QUERY = /\/(ask|search|answer|qa)(\/|$|\?)/i;
-// never let a secret reach the log, even if a field is added upstream later
-const AUDIT_REDACT = /(key|token|secret|password|pw|apikey|authorization)/i;
-const auditDetail = (req) => {
-  const out = {};
-  for (const [k, v] of Object.entries(req.body || {})) {
-    if (AUDIT_REDACT.test(k)) { out[k] = "«redacted»"; continue; }
-    const s = typeof v === "string" ? v : JSON.stringify(v);
-    if (s != null) out[k] = String(s).slice(0, 300);
-  }
-  if (req.query && Object.keys(req.query).length) out._query = JSON.stringify(req.query).slice(0, 300);
-  return out;
-};
-app.use((req, res, next) => {
-  const isWrite = req.method !== "GET" && req.method !== "HEAD";
-  const isQuery = req.method === "GET" && AUDIT_QUERY.test(req.path);
-  if (!req.path.startsWith("/api/") || (!isWrite && !isQuery)) return next();
-  const t0 = Date.now();
-  res.on("finish", () => {
-    const acct = accountOf(req);
-    q(`insert into audit_log(actor, role, app, action, method, path, status, ms, ip, object_type, detail)
-       values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
-      [acct?.user || "anonymous", acct?.role || null, auditAppOf(req.path),
-       isQuery ? "query" : req.path.split("/").filter(Boolean).slice(-1)[0] || req.method,
-       req.method, req.path, res.statusCode, Date.now() - t0,
-       String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.ip || null,
-       "api", JSON.stringify(auditDetail(req))]
-    ).catch(() => { /* auditing must never break the request it is recording */ });
-  });
-  next();
 });
 
 // read the trail — admin only, filterable by app, actor, action and free text
