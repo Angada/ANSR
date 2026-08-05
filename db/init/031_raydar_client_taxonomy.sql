@@ -87,17 +87,19 @@ insert into wh_demand_topic(name, question, definition, description, source, fra
   ('Questions to ask at each stage', 'What should I be asking, and when?',
    'What to ask at each hiring stage', 'What a candidate should be asking at each stage of the hiring process — screening, interview, offer — and why it lands well.',
    'client', 'Interview Lab', '1Up', 'Listicle · short-form', 0.9, 'Supriya, 31-Jul-2026: "...and what questions to ask at each stage"', true)
-on conflict (name) do update set question=excluded.question, definition=excluded.definition,
-  description=excluded.description, franchise=excluded.franchise, series=excluded.series,
-  format_home=excluded.format_home, strategic_weight=excluded.strategic_weight,
-  notes=excluded.notes, source=excluded.source, active=excluded.active;
+on conflict (name) do nothing;   -- seeds are write-once: a boot must never overwrite a human edit
 
 update wh_demand_topic set description = 'Anything that fits none of the named themes — parked here and watched, so a new theme has somewhere to be born.',
        series = '1Up', franchise = 'Emerging'
  where name = 'Emerging' and description is null;
 
 -- retire OUR phrasings (never delete — old batches reference them by name)
+-- One-shot. `series is null` means 036 has not yet remapped these; once it has,
+-- this stops firing. Without the guard every boot re-retired the nine themes
+-- 036 restores, so a theme the team deliberately turned off or back on flipped
+-- state on each restart depending on which file ran last.
 update wh_demand_topic set active = false
- where name in ('Skills to get a new job', 'Keywords and resume', 'Which coding tool to use',
+ where series is null
+   and name in ('Skills to get a new job', 'Keywords and resume', 'Which coding tool to use',
                 'Using AI to get better jobs', 'Landing your dream job',
                 'Career growth in GCCs', 'Switching domains', 'Remote vs hybrid', 'Salary benchmarking');

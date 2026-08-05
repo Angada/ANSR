@@ -17,4 +17,9 @@ update wh_demand_topic set active = true, series = '1Up', franchise = v.fr
     ('Remote vs hybrid',           '1Up'),
     ('Salary benchmarking',        '1Up')
   ) as v(nm, fr)
- where wh_demand_topic.name = v.nm;
+   -- ONE-SHOT. `series is null` means this row has not been mapped yet, so the
+   -- restore runs exactly once on the first boot after this file lands. An
+   -- earlier guard used `active is not true`, which was wrong in the opposite
+   -- direction: it re-enabled any theme the team had deliberately retired.
+ where wh_demand_topic.name = v.nm
+   and wh_demand_topic.series is null;

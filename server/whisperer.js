@@ -822,7 +822,7 @@ export function mountWhisperer(app, slug, upload) {
     if (seoTerms.length && feed.some((f) => f.topic === "__seo__")) {
       topicRows = [...topicRows, { name: "SEO research", franchise: topicRows[0]?.franchise || "Emerging", format_home: "", strategic_weight: 1, question: `high-intent keywords from your SEO upload: ${seoTerms.slice(0, 8).join(", ")}`, terms: seoTerms, __seo: true }];
     }
-    const made = [];
+    const made = []; let failedWrites = 0;
     for (const t of topicRows) {
       const research = await researchTopic(extra ? `${t.name} — ${extra}` : t.name).catch(() => null);
       const pool = (t.__seo
@@ -879,7 +879,8 @@ export function mountWhisperer(app, slug, upload) {
         const r = await wq(`insert into wh_feed_story(batch_id,cohort_id,demand_topic,franchise,platform,one_up,emotional_register,heading,topic_guide,summary,why_now,why_relevant,why_cohort,evidence,contradiction,contradiction_of,source_refs,score,score_breakdown,angle,gap_type,in_library,status)
           values($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19::jsonb,$20,$21,true,'draft') returning id`,
           [bid, cohortId, t.name, t.franchise, s.platform || t.format_home, s.one_up, s.emotional_register, s.heading, JSON.stringify(s.topic_guide || {}), s.summary, s.why_now, s.why_relevant, s.why_cohort, s.evidence || "", !!s.contradiction, s.contradiction_of || null, JSON.stringify(srcRefs), score, JSON.stringify(breakdown), ANGLES[a], gapType]);
-        made.push(r.rows?.[0]?.id);
+        const newId = r.rows?.[0]?.id;
+        if (newId) made.push(newId); else failedWrites++;   // wq() swallows DB errors — an unchecked push counted ideas that were never stored
       }));
     }
     await wq(`update wh_batch set story_count=$2, status='swept', swept_at=now() where id=$1`, [bid, made.length]);
@@ -887,7 +888,7 @@ export function mountWhisperer(app, slug, upload) {
     // indistinguishable from a broken one — the same failure mode as the silent
     // API key, one layer up.
     const diag = { topics: topicRows.length, collected: feed.length, feed_errors: FEED_ERRORS.slice() };
-    res.json({ ok: true, made: made.length, ...diag });
+    res.json({ ok: true, made: made.length, failed: failedWrites, ...diag });
   });
 
   // the results-page "top videos that scored high" block — ranked feed snapshot for this

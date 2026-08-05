@@ -187,6 +187,7 @@ const upload = multer({ dest: uploads, limits: { fileSize: MAX_UPLOAD } });
 // them, including any added later. Reads (GET) are deliberately NOT logged —
 // they would bury the signal — except Ask/search queries, which ARE actions
 // worth tracing back to a person.
+const AUDIT_FAILURES = { count: 0, last: null };   // surfaced on the audit page so a broken log is visible
 const AUDIT_APP = [["/api/wh/", "raydar"], ["/api/qlegal/", "qlegal"], ["/api/contra/", "contra"],
   ["/api/mint/", "mint"], ["/api/atlas/", "mint"], ["/api/roster", "mint"], ["/api/runs", "mint"],
   ["/api/ruleset", "mint"], ["/api/customers", "mint"], ["/api/integrations", "admin"],
@@ -220,7 +221,13 @@ app.use((req, res, next) => {
        req.method, req.path, res.statusCode, Date.now() - t0,
        String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.ip || null,
        "api", JSON.stringify(auditDetail(req))]
-    ).catch(() => { /* auditing must never break the request it is recording */ });
+    ).catch((e) => {
+      // Never break the request being recorded — but never hide it either. A
+      // silently failing audit log looks identical to a quiet one, which is the
+      // worst possible failure mode for a compliance record.
+      console.error("AUDIT WRITE FAILED:", req.method, req.path, "→", String(e?.message || e).slice(0, 200));
+      AUDIT_FAILURES.count++; AUDIT_FAILURES.last = { at: new Date().toISOString(), path: req.path, error: String(e?.message || e).slice(0, 200) };
+    });
   });
   next();
 });
@@ -938,7 +945,7 @@ app.get("/api/audit", async (req, res) => {
         (select coalesce(json_agg(distinct app), '[]') from audit_log where app is not null) as apps,
         (select coalesce(json_agg(distinct actor), '[]') from audit_log where actor is not null) as actors,
         (select count(*) from audit_log) as total`)).rows[0] || {};
-    res.json({ rows, facets });
+    res.json({ rows, facets, health: { write_failures: AUDIT_FAILURES.count, last_failure: AUDIT_FAILURES.last } });
   } catch (e) { res.status(500).json({ error: String(e.message || e).slice(0, 140) }); }
 });
 

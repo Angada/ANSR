@@ -54,7 +54,7 @@ insert into wh_demand_topic(name, question, definition, source, franchise, forma
   ('Using AI to get better jobs','Is this a shortcut or cheating?',   'AI for resumes/portfolio/prep','seed','TrAIbe × Accelor', 'Interactive challenge (Proof of Work)', 1.5, 'HIGHEST strategic value — flag to Product; candidates want permission with an ethical frame'),
   ('Landing your dream job',   'Is it possible for someone like me?', 'FAANG/GCC/switch/remote',    'seed', 'The Hot Seat',     'Long-form narrative',             1.0, 'Lower volume, highest emotional intensity'),
   ('Emerging',                 'What new thing is being born?',       'Fits none of the six — watch','seed','Emerging',          'TBD',                             0.8, 'Where new topics are born — watch closely')
-on conflict (name) do update set question=excluded.question, franchise=excluded.franchise, format_home=excluded.format_home, strategic_weight=excluded.strategic_weight, notes=excluded.notes;
+on conflict (name) do nothing;   -- was: do update … which reset the team's edits on EVERY boot
 
 -- seed the 4 emotional registers (same fresh-DB-only guard as above)
 delete from wh_emotional_register where not exists (select 1 from wh_emotional_register);
