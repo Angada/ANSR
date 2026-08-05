@@ -590,7 +590,7 @@ function mockChips(m) {
 export function mountWhisperer(app, slug, upload) {
   // Content generation and feed sweeps are long, batched work behind a held
   // connection — the same shape as an ingestion, so the same record.
-  mountJobs("raydar", app);
+  mountJobs("wh", app);   // RayDar serves under /api/wh/ — the routes must live inside its own prefix or the role cannot reach them
   const wq = (t, p) => q(t, p).catch(() => ({ rows: [] }));
 
   // seed mock candidates + a ClientMind for each
