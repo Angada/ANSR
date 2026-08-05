@@ -5,7 +5,13 @@
 // Talent = job seeker; TalentMind = parsed profile+chips. AI via gated
 // pipelines with mock fallback. All endpoints preserved from the prior build.
 const $ = (s, r = document) => r.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+// Escapes QUOTES too. Without them every value="${esc(x)}" and onclick="…'${esc(x)}'…"
+// was breakable: a batch name or a published URL could close the attribute and
+// add its own handler, which an Admin then ran with an Admin session.
+const esc = (s) => String(s ?? "").replace(/[&<>"'`]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[m]));
+// Any href built from stored or model-supplied text. Blocks javascript:, data:
+// and everything else that is not a real web link.
+const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : "#");
 // India time (IST) — always show Asia/Kolkata regardless of the viewer's device
 // India format, IST — "29-09-2026 · 2:09 pm" (platform standard)
 const fmtDT = (ts) => { if (!ts) return ""; const p = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }).formatToParts(new Date(ts)).reduce((a, x) => ((a[x.type] = x.value), a), {}); return `${p.day}-${p.month}-${p.year} · ${p.hour}:${p.minute} ${(p.dayPeriod || "").toLowerCase()}`; };
@@ -921,7 +927,7 @@ function sourcesBox(s) {
   const refs = (s.source_refs || []).filter((r) => r && r.url);
   return `<div class="srcbox">
     <div class="srcbox-h">${ic("external")} Sources gathered${refs.length ? ` · ${refs.length}` : ""}</div>
-    ${refs.length ? refs.map((r) => `<a class="srclink" href="${esc(r.url)}" target="_blank" rel="noopener">
+    ${refs.length ? refs.map((r) => `<a class="srclink" href="${esc(safeUrl(r.url))}" target="_blank" rel="noopener">
         <span class="stag${r.via_seo ? " seo" : ""}">${r.via_seo ? "✨ SEO" : esc(r.source || "web")}</span>
         <span class="stt">${esc(r.title || r.url)}${r.via_seo ? ` <span class="svia">via “${esc(r.via_seo)}”</span>` : ""}</span>
         <span class="sgo">open ↗</span></a>`).join("")
@@ -991,7 +997,7 @@ function pipelineTrace(s) {
     ])}
     ${step(6, "Validate — evidence + fact-check", "raydar-contradiction · research APIs", [
       ["Evidence", esc(s.evidence || "—")],
-      ["Sources cited", refs.length ? refs.map((r) => `<a class="src" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.source || "src")} ↗</a>`).join(" ") : `<span class="src src-llm">none — add research keys to ground with citations</span>`],
+      ["Sources cited", refs.length ? refs.map((r) => `<a class="src" href="${esc(safeUrl(r.url))}" target="_blank" rel="noopener">${esc(r.source || "src")} ↗</a>`).join(" ") : `<span class="src src-llm">none — add research keys to ground with citations</span>`],
       ["Contradiction", s.contradiction ? `flags a claim against ${esc(s.contradiction_of || "popular belief")} — raised for a human to verify, never asserted` : "none flagged"],
     ])}
     ${step(7, "Rank — composite score", "raydar-rank", [
@@ -1025,7 +1031,7 @@ function factCheckBadge(s) {
   if (!f) return "";
   const cls = f.score >= 80 ? "fc-good" : f.score >= 60 ? "fc-ok" : f.score >= 40 ? "fc-warn" : "fc-bad";
   const revs = (f.reviews || []).length
-    ? `<div class="fc-revs">${f.reviews.map((r) => `<a class="fc-rev" href="${esc(r.url || "#")}" target="_blank" rel="noopener">${esc(r.publisher || "source")}: “${esc(r.rating || "")}” ↗</a>`).join("")}</div>` : "";
+    ? `<div class="fc-revs">${f.reviews.map((r) => `<a class="fc-rev" href="${esc(safeUrl(r.url || "#"))}" target="_blank" rel="noopener">${esc(r.publisher || "source")}: “${esc(r.rating || "")}” ↗</a>`).join("")}</div>` : "";
   return `<div class="factcheck ${cls}">
     <div class="fc-top"><span class="fc-score">✓ Fact-check ${f.score}<span class="fc-out">/100</span></span><span class="fc-label">${esc(f.label || "")}</span></div>
     ${f.why ? `<div class="fc-why">${esc(f.why)}</div>` : ""}${revs}</div>`;
@@ -1130,12 +1136,12 @@ function feedSignalBlock() {
     return b.join(" · ") || "collected signal";
   };
   const grp = (v) => v.topic === "__seo__" ? "seo" : (v.source || "other");
-  const keptRow = (v, i) => `<a class="fsig-row" data-g="${grp(v)}" href="${esc(v.url)}" target="_blank" rel="noopener" title="open on ${esc(v.source)} ↗">
+  const keptRow = (v, i) => `<a class="fsig-row" data-g="${grp(v)}" href="${esc(safeUrl(v.url))}" target="_blank" rel="noopener" title="open on ${esc(v.source)} ↗">
     <span class="fsig-rank">#${i + 1}</span><span class="fsig-src">${_srcIcon(v.source)}</span>
     <span class="fsig-main"><span class="fsig-title">${esc(v.title || "(untitled)")}</span><span class="fsig-why">${esc(why(v))}${v.topic === "__seo__" && v.term ? ` · <span class="fsig-match">from your SEO “${esc(v.term)}”</span>` : v.match ? ` · <span class="fsig-match">matches “${esc(v.match)}”</span>` : ""}</span></span>
     <span class="fsig-vel"><span class="fsig-bar"><span style="width:${Math.round((v.velocity || 0) * 100)}%"></span></span><b>${(v.velocity || 0).toFixed(2)}</b></span>
     <span class="fsig-ext">↗</span></a>`;
-  const dropRow = (v) => `<a class="fsig-row drop" href="${esc(v.url)}" target="_blank" rel="noopener" title="open ↗">
+  const dropRow = (v) => `<a class="fsig-row drop" href="${esc(safeUrl(v.url))}" target="_blank" rel="noopener" title="open ↗">
     <span class="fsig-src">${_srcIcon(v.source)}</span>
     <span class="fsig-main"><span class="fsig-title">${esc(v.title || "(untitled)")}</span><span class="fsig-why">${_nfmt(v.views)} views · dropped — ${esc(v.reason || "off-topic")}</span></span>
     <span class="fsig-ext">↗</span></a>`;
@@ -1151,7 +1157,7 @@ function feedSignalBlock() {
   </div>` : "";
   const droppedBlock = dropped.length ? `<details class="fsig-dropped" open><summary>▸ ${dropped.length} filtered out — see what &amp; why (Shorts · memes · language · off-topic)</summary>${dropped.map(dropRow).join("")}</details>` : "";
   // items seen in an EARLIER sweep — hidden by default, never removed (first sighting stays the record)
-  const repeatRow = (v) => `<a class="fsig-row drop" href="${esc(v.url)}" target="_blank" rel="noopener" title="open ↗">
+  const repeatRow = (v) => `<a class="fsig-row drop" href="${esc(safeUrl(v.url))}" target="_blank" rel="noopener" title="open ↗">
     <span class="fsig-src">${_srcIcon(v.source)}</span>
     <span class="fsig-main"><span class="fsig-title">${esc(v.title || "(untitled)")}</span><span class="fsig-why">${_nfmt(v.views)} views · already surfaced in an earlier sweep</span></span>
     <span class="fsig-ext">↗</span></a>`;
@@ -1704,7 +1710,7 @@ function stLive(d) {
   if (!rows.length) return `<div class="empty">// nothing published from this batch yet //</div>`;
   return rows.map((s) => `<div class="jrow">
     <div class="jrow-h">${esc(s.heading || "untitled")}
-      <div class="jrow-m">${s.published_url ? `<a href="${esc(s.published_url)}" target="_blank" rel="noopener">${esc(String(s.published_url).slice(0, 60))}</a>` : ""}<a href="#" onclick="jTimeline(${s.id});return false">timeline</a></div>
+      <div class="jrow-m">${s.published_url ? `<a href="${esc(safeUrl(s.published_url))}" target="_blank" rel="noopener">${esc(String(s.published_url).slice(0, 60))}</a>` : ""}<a href="#" onclick="jTimeline(${s.id});return false">timeline</a></div>
     </div></div>`).join("");
 }
 
