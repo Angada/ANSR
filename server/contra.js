@@ -7,6 +7,7 @@ import { extname } from "node:path";
 import { q } from "./db/client.js";
 import { extractFile } from "./extract.js";
 import { runPipeline } from "./ai.js";
+import { mountJobs, startJob, setItem, finishJob } from "./jobs.js";
 import { buildReviewDocx } from "./contra-docx.js";
 import { markupDocx } from "./contra-redline.js";
 
@@ -90,6 +91,9 @@ async function logRun(out, { ref_type, ref_id, rules_applied, input, output } = 
 }
 
 export function mountContra(app, upload) {
+  // Archetype creation and contract review both run for minutes behind a held
+  // connection. Recorded as jobs so a reload stops losing them.
+  mountJobs("contra", app);
   // Upload a sample contract → propose the review sections → persist a draft.
   app.post("/api/contra/archetype/propose", upload.single("file"), async (req, res) => {
     const f = req.file;

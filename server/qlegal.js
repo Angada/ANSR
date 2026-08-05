@@ -14,6 +14,7 @@ import { runPipeline } from "./ai.js";
 import { loadConfig, getApiKey } from "./store.js";
 import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan, listSharePoint, ingestSharePointItem } from "./qlegal-sync.js";
 import { embedVersion, searchVectors, nearestDocs, embedStatus, embedSweep, clauseLibrary, estateMap, docCoverage, embedHealth } from "./qlegal-vectors.js";
+import { mountJobs } from "./jobs.js";
 import { atomize, clauseWiki, clauseEdges, clausesWithRefs, clauseIndex, estateWiki, verifyCitations } from "./qlegal-clauses.js";
 
 const TENANT = "Q-LEGAL"; // ring-fenced storage namespace (vault + docstore)
@@ -1659,6 +1660,8 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
     try { res.json(await embedHealth()); }
     catch (e) { res.json({ ok: false, degraded: true, reason: String(e.message || e) }); }
   });
+
+  mountJobs("qlegal", app);
 
   app.get("/api/qlegal/estate-wiki", async (_req, res) => {
     try { res.json(await estateWiki({})); }

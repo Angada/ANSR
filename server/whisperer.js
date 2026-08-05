@@ -4,6 +4,7 @@
 import { rmSync } from "node:fs";
 import { q } from "./db/client.js";
 import { runPipeline } from "./ai.js";
+import { mountJobs, startJob, setItem, finishJob } from "./jobs.js";
 import { extractFile } from "./extract.js";
 import { getIntegrationKey, publicIntegrations } from "./store.js";
 
@@ -587,6 +588,9 @@ function mockChips(m) {
 }
 
 export function mountWhisperer(app, slug, upload) {
+  // Content generation and feed sweeps are long, batched work behind a held
+  // connection — the same shape as an ingestion, so the same record.
+  mountJobs("raydar", app);
   const wq = (t, p) => q(t, p).catch(() => ({ rows: [] }));
 
   // seed mock candidates + a ClientMind for each
