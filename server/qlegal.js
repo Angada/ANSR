@@ -92,7 +92,7 @@ const RULE_PARAMS = {
   "c1-read":     { max_transcript_chars: 400000, ocr_fallback: true, ocr_when_text_under_chars: 60 },
   "c2-key":      { read_chars: 60000, max_tokens: 24000, classify_confidence_min: 0.7, max_clauses: 400, max_contents: 300 },
   obligations:   { read_chars: 50000, max_tokens: 2500, max_per_contract: 60, default_lead_days: 30 },
-  registers:     { read_chars: 50000, max_tokens: 3000, sweep_batch: 25, keep_corrected: true },
+  registers:     { read_chars: 50000, max_tokens: 8000, questions_per_call: 8, sweep_batch: 25, keep_corrected: true },
   families:      { candidates_considered: 200, lineage_similarity_min: 0.85, require_explicit_reference: true },
   ask:           { documents_read: 4, semantic_candidates: 12, deep_text_chars: 10000, register_answers: 400, history_turns: 4, obligations_horizon_days: 120, max_tokens: 4000 },
   vectors:       { granularities: ["document", "section", "clause"], max_clause_vectors: 240, max_section_vectors: 80, nearest_in_estate: 5, embed_batch: 48 },
@@ -520,25 +520,51 @@ async function runRegisters(docId, { c1, docType } = {}) {
   const regs = (await q(`select id, code, name, question, extract_hint, doc_types from ql_register where status='active' order by id`)).rows;
   const applicable = regs.filter((r) => !(r.doc_types || []).length || (docType && (r.doc_types || []).map(String).some((t) => t.toLowerCase() === String(docType).toLowerCase())));
   if (!applicable.length) return 0;
-  let text = c1;
-  if (!text) text = (await q(`select v.c1_text from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version where d.id=$1`, [docId])).rows[0]?.c1_text;
+  // read from the NEWEST version that actually has a transcript — a later errored
+  // upload must not leave the document permanently unanswerable
+  let text = c1, verId = null;
+  {
+    const v = (await q(`select id, c1_text from ql_version where document_id=$1 and c1_text is not null order by version_no desc limit 1`, [docId])).rows[0];
+    if (!text) text = v?.c1_text;
+    verId = v?.id || null;
+  }
   if (!text) return 0;
-  const verId = (await q(`select v.id from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version where d.id=$1`, [docId])).rows[0]?.id || null;
 
   const RP = await ruleParams("registers");
   const rules = await rulesFor("registers");
-  const out = await runPipeline("qlegal-register", {
-    system: [rules.text, REGISTER_CONTRACT].filter(Boolean).join("\n\n"),
-    user: `Standing questions to answer about this contract:\n${JSON.stringify(applicable.map((r) => ({ code: r.code, question: r.question, value_wanted: r.extract_hint || "" })))}\n\nContract:\n${clip(text, RP.read_chars)}`,
-    maxTokens: RP.max_tokens,
-  });
-  await logRun(out, { ref_type: "document", ref_id: docId, rules: rules.codes, input: `${applicable.length} registers`, output: "register answers" });
-  const parsed = jparse(out.text);
-  if (!parsed?.answers?.length) return 0;
-  const byCode = Object.fromEntries(applicable.map((r) => [r.code, r]));
+  // The register list GROWS (the team keeps asking — 17 already). One call for
+  // all of them overflows any budget on a long contract and a truncated JSON
+  // used to fail the WHOLE document silently. So: batches of a few questions per
+  // call — bounded output forever — plus a salvage parse per batch.
+  const perCall = Math.max(1, Number(RP.questions_per_call) || 8);
+  const answers = [];
+  for (let i = 0; i < applicable.length; i += perCall) {
+    const batch = applicable.slice(i, i + perCall);
+    let out;
+    try {
+      out = await runPipeline("qlegal-register", {
+        system: [rules.text, REGISTER_CONTRACT].filter(Boolean).join("\n\n"),
+        user: `Standing questions to answer about this contract:\n${JSON.stringify(batch.map((r) => ({ code: r.code, question: r.question, value_wanted: r.extract_hint || "" })))}\n\nContract:\n${clip(text, RP.read_chars)}`,
+        maxTokens: RP.max_tokens,
+      });
+    } catch { continue; }   // one failed batch never fails the document
+    await logRun(out, { ref_type: "document", ref_id: docId, rules: rules.codes, input: `${batch.length} registers (batch ${1 + i / perCall})`, output: clip(out.text, 160) });
+    let parsed = jparse(out.text);
+    if (!parsed?.answers?.length) {
+      const found = [...String(out.text || "").matchAll(/\{\s*"code"[\s\S]*?\}(?=\s*[,\]])/g)]
+        .map((m) => { try { return JSON.parse(m[0]); } catch { return null; } }).filter(Boolean);
+      parsed = { answers: found };
+    }
+    answers.push(...(parsed.answers || []));
+  }
+  if (!answers.length) return 0;
+  const parsed = { answers };
+  // tolerant code matching — models garble long codes; normalize both sides
+  const norm = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const byCode = Object.fromEntries(applicable.flatMap((r) => [[r.code, r], [norm(r.code), r], [norm(r.name), r]]));
   let n = 0;
   for (const a of parsed.answers) {
-    const reg = byCode[a?.code];
+    const reg = byCode[a?.code] || byCode[String(a?.code || "").toLowerCase().replace(/[^a-z0-9]+/g, "")];
     if (!reg) continue;
     const present = ["yes", "no", "unclear"].includes(a.present) ? a.present : "unclear";
     // never clobber a human-confirmed/corrected answer (the confirm-don't-guess rule)
