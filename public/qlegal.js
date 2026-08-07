@@ -288,18 +288,25 @@ const idxWhy = (d) => {
 // live list an upload uses — and the row says what it is doing meanwhile.
 window.reindexDoc = async (id, ev) => {
   if (ev) { ev.stopPropagation(); ev.preventDefault(); }
+  // Visible work: the rotating emblem in the row, in the actions cell, and the
+  // global "AI working" badge — a click must never look like nothing happened.
   const cell = document.getElementById(`idx-${id}`);
-  if (cell) cell.innerHTML = `<span class="idx idx--warn">re-indexing…</span>`;
+  if (cell) cell.innerHTML = `<span class="idx idx--warn"><img class="potspin" src="/brand/assets/logos/pot.png" alt="" style="width:12px;height:12px;vertical-align:-2px;margin-right:4px">re-indexing…</span>`;
+  const act = document.querySelector(`[data-act="${id}"]`);
+  if (act) { act.dataset.prev = act.innerHTML; act.innerHTML = `<span class="am" style="display:inline-flex;align-items:center;gap:6px"><img class="potspin" src="/brand/assets/logos/pot.png" alt="" style="width:14px;height:14px">reading…</span>`; }
   document.querySelectorAll(`[data-act="${id}"] button`).forEach((b) => { b.disabled = true; });
+  if (window.aiSpin) window.aiSpin(true, "Re-indexing the contract — transcript → key → clauses → registers…");
   startBatchPoll();
   try {
     const r = await (await fetch(`/api/qlegal/document/${id}/reindex`, { method: "POST" })).json();
+    if (window.aiSpin) window.aiSpin(false);
     stopBatchPoll(); await renderBatch();
     await loadRegistry(); renderRegistry();
     if (r.error) return rdAlert("Re-index failed", r.error);
     rdAlert(r.failed ? "Re-index finished — still failing" : "Re-indexed",
       r.failed ? r.why : `${r.clauses} clauses read. The key, obligations, registers and vectors were rebuilt.`);
   } catch (e) {
+    if (window.aiSpin) window.aiSpin(false);
     stopBatchPoll(); await loadRegistry(); renderRegistry();
     rdAlert("Re-index failed", String(e.message || e));
   }
