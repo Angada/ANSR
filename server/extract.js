@@ -6,7 +6,7 @@ import { readFileSync, copyFileSync, rmSync } from "node:fs";
 import { parseOfficeAsync } from "officeparser";
 import * as XLSX from "xlsx";
 import { useOcr } from "./munshi/flag.js";
-import { ocrPdf, backfillScanned, ocrAvailable } from "./munshi/ocr.js";
+import { ocrPdf, backfillScanned, backfillFigures, ocrImage, ocrAvailable } from "./munshi/ocr.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 const execFileP = promisify(execFile);
@@ -60,10 +60,18 @@ function figuresFrom(pages, imgCounts) {
 
 const SHEET_EXT = new Set([".xlsx", ".xls", ".xlsm", ".csv", ".ods"]);
 const TEXT_EXT = new Set([".txt", ".md", ".markdown", ".json", ".text"]);
+const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
 
 // Returns { kind, text, sheets? } describing the file's content.
 export async function extractFile(path, originalName) {
   const ext = extname(originalName || path).toLowerCase();
+
+  // a photographed / image-scanned contract page → straight to the vision reader
+  if (IMAGE_EXT.has(ext)) {
+    if (!useOcr()) return { kind: "document", text: "", error: "image file — switch Munshi OCR on to read it" };
+    const r = await ocrImage(path, ext);
+    return { kind: "document", text: r.text || "", ocr: r.ocr, pages: 1, mode: r.mode };
+  }
 
   if (SHEET_EXT.has(ext)) {
     // xlsx's ESM build doesn't bind readFile to fs — read the buffer ourselves.
@@ -102,20 +110,27 @@ export async function extractFile(path, originalName) {
       if (pages && pages.length) {
         const imgCounts = await pdfImages(withExt);
         const sparse = pages.filter((p) => p.text.replace(/\s/g, "").length < 40);
-        if (sparse.length && useOcr() && await ocrAvailable()) {
+        const canOcr = useOcr() && await ocrAvailable();
+        let ocrPages = [], figRecovered = [];
+        if (sparse.length && canOcr) {
           const r = await backfillScanned(withExt, pages, { minChars: 40 });
-          const merged = pages.map((p) => p.text).join("\n\n").trim();
-          // figures measured AFTER backfill, so a page OCR recovered isn't blamed
-          if (merged) return { kind: "document", text: merged, ocr: (r.backfilled || []).length > 0,
-            pages: pages.length, ocr_pages: r.backfilled || [],
-            figure_pages: figuresFrom(pages, imgCounts),
-            // an honest gap: sparse pages OCR could not recover
-            unread_pages: sparse.map((p) => p.page_no).filter((n) => !(r.backfilled || []).includes(n)) };
+          ocrPages = r.backfilled || [];
+        }
+        // FIGURE pages too: a heading above a scanned annexure IS the content —
+        // "declared but unread" was exactly the client's scanned-document complaint.
+        const figures = figuresFrom(pages, imgCounts);
+        if (figures.length && canOcr) {
+          const fr = await backfillFigures(withExt, pages, figures);
+          figRecovered = fr.recovered || [];
         }
         const merged = pages.map((p) => p.text).join("\n\n").trim();
-        if (merged.length >= text.replace(/\s/g, "").length) return { kind: "document", text: merged,
-          pages: pages.length, figure_pages: figuresFrom(pages, imgCounts),
-          unread_pages: sparse.map((p) => p.page_no) };
+        if (merged && (sparse.length || figures.length || merged.length >= text.replace(/\s/g, "").length)) {
+          return { kind: "document", text: merged, ocr: ocrPages.length + figRecovered.length > 0,
+            pages: pages.length, ocr_pages: [...ocrPages, ...figRecovered].sort((a, b) => a - b),
+            figure_pages: figures.filter((n) => !figRecovered.includes(n)),
+            // the honest gap, surfaced loudly downstream: pages nothing could read
+            unread_pages: sparse.map((p) => p.page_no).filter((n) => !ocrPages.includes(n)) };
+        }
       }
       // poppler unavailable → the original whole-document fallback
       if (useOcr() && text.replace(/\s/g, "").length < 60) {

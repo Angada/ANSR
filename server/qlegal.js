@@ -426,11 +426,24 @@ export async function ingestFile(f, { source = "upload", spItemId = null, spMeta
     const storagePath = await putOriginal(TENANT, sha256, ext, buf);
     const c1DocId = `ql-${doc.id}-v${versionNo}`;
     await putExtract(TENANT, c1DocId, toMarkdown({ docType: "contract", originalName: f.originalname, sha256, extract }));
-    await q(`update ql_version set storage_path=$2, c1_doc_id=$3, c1_text=$4, ocr=$5 where id=$1`,
-      [ver.id, storagePath, c1DocId, c1, !!extract.ocr]);
+    // the read report: what the reader actually managed, page by page — stored on
+    // the version and surfaced loudly when pages could not be read
+    const readReport = { pages: extract.pages || null, ocr_pages: extract.ocr_pages || [],
+      figure_pages: extract.figure_pages || [], unread_pages: extract.unread_pages || [] };
+    await q(`update ql_version set storage_path=$2, c1_doc_id=$3, c1_text=$4, ocr=$5, read_report=$6::jsonb where id=$1`,
+      [ver.id, storagePath, c1DocId, c1, !!extract.ocr, JSON.stringify(readReport)]);
     // the C1 step is owned + traceable like every other step
     await logRun({ pipeline: "qlegal-c1", mode: extract.ocr ? "vision-ocr" : "deterministic", model: extract.ocr ? "munshi3:read" : null },
-      { ref_type: "version", ref_id: ver.id, input: f.originalname, output: `C1 · ${c1.length} chars${extract.ocr ? ` · ${extract.pages || "?"} pages via vision` : ""}` });
+      { ref_type: "version", ref_id: ver.id, input: f.originalname, output: `C1 · ${c1.length} chars${extract.pages ? ` · ${extract.pages}p` : ""}${(readReport.ocr_pages || []).length ? ` · OCR ${readReport.ocr_pages.length}p` : ""}${(readReport.unread_pages || []).length ? ` · UNREAD ${readReport.unread_pages.join(",")}` : ""}` });
+    // pages nothing could read → a loud confirm, never a silent gap (the client's
+    // scanned-document complaint was exactly this failure mode)
+    if ((readReport.unread_pages || []).length || (readReport.figure_pages || []).length) {
+      const ps = [...(readReport.unread_pages || []), ...(readReport.figure_pages || [])].sort((a, b) => a - b);
+      const open = (await q(`select 1 from ql_confirm where document_id=$1 and kind='unread' and status='open' limit 1`, [doc.id])).rows[0];
+      if (!open) await q(`insert into ql_confirm(kind, document_id, proposal, confidence, why) values('unread',$1,$2::jsonb,1,$3)`,
+        [doc.id, JSON.stringify({ pages: ps }),
+         `page${ps.length === 1 ? "" : "s"} ${ps.join(", ")} could not be fully read (scan/image quality) — review the original for these pages`]).catch(() => {});
+    }
 
     // STEP · derive everything downstream of C1 (C2 key → classification →
     // obligations → registers). Shared with the re-index sweep, so a refresh is
@@ -839,6 +852,35 @@ export function mountQLegal(app, upload) {
   // convenience" ≈ "without cause"); a vector hit is only ever a pointer to a
   // real § — the fused list still opens the actual document.
   const orQuery = (term) => clip(term, 200).split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}-]/gu, "")).filter((w) => w.length > 1).join(" OR ") || "";
+
+  // ---- the concept layer (legal thesaurus) -------------------------------------
+  // One legal idea → every phrasing contracts use for it. A query touching any
+  // phrasing of a concept expands to ALL of them, so "venue" also finds
+  // "exclusive jurisdiction", "seat of arbitration", "construed in accordance
+  // with"… Editable in Taxonomy; cached 60s.
+  let _concepts = { at: 0, rows: [] };
+  async function activeConcepts() {
+    if (Date.now() - _concepts.at > 60000) {
+      _concepts = { at: Date.now(), rows: (await q(`select id, name, terms from ql_concept where status='active'`).catch(() => ({ rows: [] }))).rows };
+    }
+    return _concepts.rows;
+  }
+  const _words = (s) => new Set(String(s || "").toLowerCase().split(/[^\p{L}\p{N}-]+/u).filter((w) => w.length > 3));
+  async function matchedConcepts(term) {
+    const qw = _words(term);
+    if (!qw.size) return [];
+    return (await activeConcepts()).filter((c) =>
+      [...qw].some((w) => c.name.toLowerCase().includes(w)) ||
+      (c.terms || []).some((t) => [..._words(t)].some((w) => qw.has(w))));
+  }
+  // the FTS query string, concept-expanded (vectors keep the raw phrasing —
+  // they're already semantic; this widens the DETERMINISTIC rung)
+  async function expandForFts(term) {
+    const hits = await matchedConcepts(term);
+    if (!hits.length) return term;
+    const extra = [...new Set(hits.flatMap((c) => c.terms || []).flatMap((t) => [..._words(t)]))].slice(0, 40);
+    return `${term} ${extra.join(" ")}`;
+  }
   // reciprocal-rank fusion over per-document ranked lists (k=60, the classic)
   const rrfFuse = (lists) => {
     const score = new Map();
@@ -846,7 +888,7 @@ export function mountQLegal(app, upload) {
     return [...score.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
   };
   async function hybridSearch(term, { ftsLimit = 25, semLimit = 12 } = {}) {
-    const tsq = orQuery(term);
+    const tsq = orQuery(await expandForFts(term));
     const [fts, sem] = await Promise.all([
       tsq ? q(
         `select d.id, d.filename, d.title, d.doc_type, d.party1, d.party2, d.tags, v.version_no,
@@ -883,8 +925,30 @@ export function mountQLegal(app, upload) {
         where filename ilike $1 or title ilike $1 or party1 ilike $1 or party2 ilike $1 or counterparty ilike $1 or tags::text ilike $1
         limit 10`, [`%${term}%`]
     )).rows;
+    // the CLAUSE WIKI: concept-labelled clauses match even when the § never uses
+    // the query's words (the model already labelled "Dispute resolution" etc.)
+    let clauseHits = [];
+    try {
+      const cons = await matchedConcepts(term);
+      const pats = [...new Set([term, ...cons.flatMap((c) => [c.name, ...(c.terms || [])])])].slice(0, 30).map((t) => `%${t}%`);
+      if (pats.length) clauseHits = (await q(
+        `select d.id, d.filename, d.title, d.doc_type, d.party1, d.party2,
+                c->>'ref' as cref, c->>'label' as clabel, c->>'gist' as cgist
+           from ql_document d
+           join ql_version v on v.document_id=d.id and v.version_no=d.latest_version,
+                jsonb_array_elements(coalesce(v.c2->'clauses','[]'::jsonb)) c
+          where coalesce(d.status,'active')<>'inactive'
+            and (c->>'label' ilike any($1) or c->>'gist' ilike any($1))
+          limit 12`, [pats])).rows;
+    } catch { /* clause hits are best-effort */ }
     const seen = new Set(hits.map((h) => Number(h.id)));
-    res.json({ hits: [...hits, ...facts.filter((f) => !seen.has(Number(f.id))).map((f) => ({ ...f, via: "facts" }))] });
+    const clauseByDoc = new Map();
+    for (const c of clauseHits) if (!clauseByDoc.has(Number(c.id))) clauseByDoc.set(Number(c.id), c);
+    const extra = [...clauseByDoc.values()].filter((c) => !seen.has(Number(c.id)))
+      .map((c) => ({ id: c.id, filename: c.filename, title: c.title, doc_type: c.doc_type, party1: c.party1, party2: c.party2,
+        via: "clause wiki", snippet: `<b>${c.cref || ""} ${c.clabel || ""}</b> — ${c.cgist || ""}` }));
+    extra.forEach((c) => seen.add(Number(c.id)));
+    res.json({ hits: [...hits, ...extra, ...facts.filter((f) => !seen.has(Number(f.id))).map((f) => ({ ...f, via: "facts" }))] });
   });
 
   // ---- Ask the repository — the RETRIEVAL LADDER --------------------------------
@@ -1477,6 +1541,39 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
     const tag = clip(decodeURIComponent(req.params.tag), 60);
     await q(`delete from ql_tag_vocab where tag=$1`, [tag]);
     await q(`update ql_document set tags = tags - $1 where tags ? $1`, [tag]).catch(() => {});  // strip from docs too
+    res.json({ ok: true });
+  });
+
+  // ---- legal concepts (the search thesaurus) ------------------------------------
+  app.get("/api/qlegal/concepts", async (_req, res) => {
+    res.json({ concepts: (await q(`select * from ql_concept order by builtin desc, name`)).rows });
+  });
+  app.post("/api/qlegal/concepts", async (req, res) => {
+    const name = clip(req.body?.name, 80).trim();
+    const terms = (Array.isArray(req.body?.terms) ? req.body.terms : String(req.body?.terms || "").split(","))
+      .map((t) => clip(String(t).trim().toLowerCase(), 60)).filter(Boolean).slice(0, 60);
+    if (!name || !terms.length) return res.status(400).json({ error: "name + at least one phrasing" });
+    const rows = (await q(
+      `insert into ql_concept(name, terms) values($1,$2::jsonb)
+       on conflict (name) do update set terms=excluded.terms, status='active' returning *`,
+      [name, JSON.stringify(terms)])).rows;
+    _concepts.at = 0;   // bust the cache
+    res.json({ concept: rows[0] });
+  });
+  app.post("/api/qlegal/concept/:id", async (req, res) => {
+    const terms = req.body?.terms !== undefined
+      ? (Array.isArray(req.body.terms) ? req.body.terms : String(req.body.terms).split(",")).map((t) => clip(String(t).trim().toLowerCase(), 60)).filter(Boolean).slice(0, 60)
+      : null;
+    const status = ["active", "off"].includes(req.body?.status) ? req.body.status : null;
+    const rows = (await q(`update ql_concept set terms=coalesce($2::jsonb, terms), status=coalesce($3, status) where id=$1 returning *`,
+      [Number(req.params.id), terms ? JSON.stringify(terms) : null, status])).rows;
+    if (!rows[0]) return res.status(404).json({ error: "not found" });
+    _concepts.at = 0;
+    res.json({ concept: rows[0] });
+  });
+  app.delete("/api/qlegal/concept/:id", async (req, res) => {
+    await q(`delete from ql_concept where id=$1 and not builtin`, [Number(req.params.id)]);
+    _concepts.at = 0;
     res.json({ ok: true });
   });
 

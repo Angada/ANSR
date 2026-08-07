@@ -80,6 +80,44 @@ export async function ocrPdf(pdfPath, _opts = {}) {
   }
 }
 
+// OCR a single IMAGE file (a photographed/scanned contract page uploaded as
+// png/jpg/webp). Same gated vision skill as PDF pages.
+const IMG_MEDIA = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
+export async function ocrImage(imgPath, ext) {
+  const media = IMG_MEDIA[String(ext || "").toLowerCase()];
+  if (!media) return { text: "", ocr: false, mode: "unsupported" };
+  if (!pickVisionProvider()) return { text: "", ocr: false, mode: "unavailable", error: "no vision key" };
+  const data = readFileSync(imgPath).toString("base64");
+  const r = await runVisionSkill("munshi3:read", [{ media_type: media, data }]);
+  return { text: r.mode === "ai" ? (r.text || "") : "", ocr: r.mode === "ai", mode: r.mode };
+}
+
+// Figure backfill: pages that HAVE some text but whose substance is an image
+// (a heading above a scanned annexure). OCR the page and APPEND what the image
+// says below the existing text — never replace what the text layer gave us.
+export async function backfillFigures(pdfPath, pages, figureNos, { maxPages = 15 } = {}) {
+  const targets = (pages || []).filter((p) => (figureNos || []).includes(p.page_no)).slice(0, maxPages);
+  if (!targets.length) return { recovered: [] };
+  if (!(await ocrAvailable())) return { recovered: [], reason: "no vision key or poppler" };
+  const recovered = [];
+  for (const p of targets) {
+    const dir = mkdtempSync(join(tmpdir(), "munshi-fig-"));
+    try {
+      const imgs = await rasterize(pdfPath, dir, { firstPage: p.page_no, lastPage: p.page_no });
+      if (imgs.length) {
+        const r = await ocrOnePng(imgs[0]);
+        // only append when the image genuinely held more than the text layer did
+        if (r.mode === "ai" && r.text && r.text.trim().length > (p.text?.trim().length ?? 0) + 80) {
+          p.text = `${(p.text || "").trim()}\n\n<!-- OCR of the page image -->\n${r.text.trim()}`;
+          recovered.push(p.page_no);
+        }
+      }
+    } catch { /* per-page best-effort */ }
+    finally { try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ } }
+  }
+  return { recovered };
+}
+
 // Scanned-only backfill: OCR just the pages whose text layer is sparse, mutating
 // each page's text in place. Text-native PDFs → no-op, zero cost.
 export async function backfillScanned(pdfPath, pages, { minChars = 20 } = {}) {

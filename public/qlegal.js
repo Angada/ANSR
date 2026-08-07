@@ -34,6 +34,7 @@ let SP = null;                    // sharepoint settings payload
 let SPF = { folder: "", q: "", data: null, loading: false };   // sharepoint files browser
 let DOCTHREADS = {};              // per-contract Ask threads, keyed by doc id
 let DRAFT = { ask: "", sugg: null, sel: [], out: null, busy: false };   // the drafting journey
+let CONCEPTS = [];                // the legal-concept thesaurus (Taxonomy)
 let DOCASKING = null;
 
 const VIEWS = { chat: "#view-chat", draft: "#view-draft", registers: "#view-registers", contracts: "#view-registry", map: "#view-map", spfiles: "#view-spfiles", obligations: "#view-obligations", confirm: "#view-confirm", sweep: "#view-sweep", taxonomy: "#view-taxonomy", rules: "#view-rules", sharepoint: "#view-sharepoint", log: "#view-log" };
@@ -338,8 +339,8 @@ function renderRegistry() {
       ondragover="dzOver(event)" ondragenter="dzOver(event)" ondragleave="dzLeave(event)" ondrop="dzDrop(event)">
     <span class="ic">⇊</span>
     <div><div class="t">Drop contracts — or select files (up to 20)</div>
-      <div class="s">PDF / DOCX / scans (vision-OCR) · read once into transcript + key + wikis · same filename = a new version · or let the nightly SharePoint scan bring them in</div></div>
-    <input type="file" id="qfile" accept=".pdf,.docx,.doc,.txt,.md" multiple onchange="qUpload(this.files)">
+      <div class="s">PDF / DOCX / scanned PDFs / photos &amp; images (.png .jpg) — all read with vision-OCR where needed · unreadable pages are flagged, never silent · same filename = a new version</div></div>
+    <input type="file" id="qfile" accept=".pdf,.docx,.doc,.txt,.md,.png,.jpg,.jpeg,.webp" multiple onchange="qUpload(this.files)">
   </div>`;
   const gem = (id, label, n, color) => n ? `<span class="fchip touch ${FILTERS.gem === id ? "on" : ""}" ${color && FILTERS.gem !== id ? `style="color:${color}"` : ""} onclick="setGem('${id}')">${label}<span class="n">${n}</span></span>` : "";
   const strip = `<div class="fstrip">
@@ -528,7 +529,8 @@ function wikiView() {
       ${warnDays != null ? `<div class="dd">${warnDays < 0 ? `expired ${-warnDays}d ago` : `in ${warnDays} days`}</div>` : ""}</div>`;
   const reel = (OPEN.versions || []).map((v) => `<div class="vcard touch ${v.is_executed ? "exec" : ""}">
       <div class="vhead"><span class="vno">v${v.version_no}</span>${v.is_executed ? '<span class="ochip o-done">signed</span>' : ""}${v.ocr ? '<span class="am">scan</span>' : ""}</div>
-      <div class="vmeta">${fmtD(v.created_at)}</div>
+      <div class="vmeta">${fmtD(v.created_at)}${v.read_report && v.read_report.pages ? ` · ${v.read_report.pages}p${(v.read_report.ocr_pages || []).length ? ` · OCR ${v.read_report.ocr_pages.length}p` : ""}` : ""}</div>
+      ${v.read_report && ((v.read_report.unread_pages || []).length || (v.read_report.figure_pages || []).length) ? `<div class="vdiff" style="color:var(--red)">⚠ unread p.${esc([...(v.read_report.unread_pages || []), ...(v.read_report.figure_pages || [])].join(", "))} — check the original</div>` : ""}
       ${v.diff_summary ? `<div class="vdiff">${esc(v.diff_summary).slice(0, 160)}</div>` : ""}
       <div class="vlinks"><a class="ref" href="/api/qlegal/original/${v.id}" target="_blank">📄 file</a><a class="ref" href="/api/qlegal/c1/${v.id}" target="_blank">📖 C1</a><a class="ref" href="/api/qlegal/c2/${v.id}" target="_blank">🔑 C2</a></div>
     </div>`).join("");
@@ -896,6 +898,7 @@ function confCard(c, compact) {
     : c.kind === "lineage" ? `the same contract as <b>${esc(c.other_name || ("#" + p.other_id))}</b> (draft ↔ signed)`
     : c.kind === "classification" ? `classify this document${p.doc_type ? ` as <b>${esc(p.doc_type)}</b>` : ""}`
     : c.kind === "removal" ? `mark <b>inactive</b> — the file is gone from SharePoint (record + history kept here)`
+    : c.kind === "unread" ? `<b>pages ${esc(((p.pages || []).join(", ")) || "?")}</b> could not be fully read — review the original for these pages (Accept = acknowledged)`
     : esc(JSON.stringify(p));
   return `<div class="conf reveal" data-k="${esc([c.kind, c.filename, c.title, c.why].join(" ").toLowerCase())}"><div class="conf-h"><span class="kindb">${esc(c.kind)}</span>
       ${compact ? "" : `<b style="cursor:pointer" onclick="openDoc(${c.document_id})">${esc(c.title || c.filename || "#" + c.document_id)}</b>`}
@@ -1267,6 +1270,7 @@ async function renderTaxonomy() {
   host.innerHTML = `<div class="empty">loading…</div>`;
   await loadCats();
   let tags = []; try { tags = ((await (await fetch("/api/qlegal/tags")).json()).tags) || []; } catch { /* empty */ }
+  try { CONCEPTS = ((await (await fetch("/api/qlegal/concepts")).json()).concepts) || []; } catch { CONCEPTS = []; }
   const catRow = (c) => `<div data-k="${esc(c.name.toLowerCase())}" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)">
       <span class="typebadge">${esc(c.name)}</span>
       <span class="am">${c.docs} contract${Number(c.docs) === 1 ? "" : "s"} · ${esc(c.source)}</span>
@@ -1283,6 +1287,17 @@ async function renderTaxonomy() {
     <div class="wikicard reveal"><div class="rsec-lbl">Tag vocabulary (${tags.length})</div>
       <div class="cfilter" style="margin-bottom:8px"><input placeholder="filter tags…" oninput="filterCards('taglist',this.value)"></div>
       <div id="taglist" style="display:flex;flex-wrap:wrap;gap:7px">${tags.map((t) => `<span data-k="${esc(t.tag.toLowerCase())}" class="tagchip" style="font-size:11.5px;padding:4px 10px">${esc(t.tag)} · ${t.docs} <a style="cursor:pointer;color:var(--red);margin-left:4px" title="remove this tag everywhere" onclick="delTag('${esc(t.tag).replace(/'/g, "&#39;")}')">×</a></span>`).join("") || '<span class="am">no tags yet</span>'}</div>
+    </div>
+    <div class="wikicard reveal"><div class="rsec-lbl">Legal concepts · the search thesaurus (${CONCEPTS.length})</div>
+      <p class="rsummary" style="margin-bottom:10px">One legal idea → every phrasing contracts use for it. A search or question touching any phrasing finds them <b>all</b> — "venue" also surfaces "exclusive jurisdiction", "seat of arbitration", "construed in accordance with"… Add your own; the AI's clause labels are matched too.</p>
+      <div class="cfilter" style="margin-bottom:8px"><input placeholder="filter concepts…" oninput="filterCards('conlist',this.value)"><button class="btn btn--primary small touch" style="margin-left:auto" onclick="addConcept()">+ Add concept</button></div>
+      <div id="conlist">${CONCEPTS.map((c) => `<div data-k="${esc((c.name + " " + (c.terms || []).join(" ")).toLowerCase())}" style="padding:9px 0;border-bottom:1px solid var(--line)">
+        <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap"><b style="font-size:13.5px">${esc(c.name)}</b>${c.builtin ? '<span class="tagchip">built-in</span>' : ""}${c.status === "off" ? '<span class="ochip o-dismissed">off</span>' : ""}
+          <span style="margin-left:auto"></span>
+          <button class="btn small touch" onclick="editConcept(${c.id})">Edit phrasings</button>
+          ${c.builtin ? `<button class="btn small touch" onclick="conToggle(${c.id},'${c.status === "active" ? "off" : "active"}')">${c.status === "active" ? "Off" : "On"}</button>` : `<button class="btn small touch" onclick="delConcept(${c.id},'${esc(c.name).replace(/'/g, "&#39;")}')">✕</button>`}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px">${(c.terms || []).map((t) => `<span class="tagchip">${esc(t)}</span>`).join("")}</div>
+      </div>`).join("")}</div>
     </div>`;
   sequenceReveal(host, ".reveal", 120, 50);
 }
@@ -1290,6 +1305,26 @@ window.catToggle = async (id, status) => { await fetch(`/api/qlegal/category/${i
 window.delTag = (tag) => rdConfirm("Remove tag everywhere?", `“${tag}” will be removed from the vocabulary and from every contract carrying it.`, async () => {
   await fetch(`/api/qlegal/tag/${encodeURIComponent(tag)}`, { method: "DELETE" }); await loadRegistry(); renderTaxonomy();
 });
+window.addConcept = () => conceptForm("Add a legal concept", {}, async (o) => {
+  if (!o.name || !o.terms) return;
+  await fetch("/api/qlegal/concepts", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(o) });
+  renderTaxonomy();
+});
+window.editConcept = (id) => { const c = CONCEPTS.find((x) => Number(x.id) === Number(id)); if (!c) return;
+  conceptForm(`Edit · ${c.name}`, { name: c.name, terms: (c.terms || []).join(", "), lockName: true }, async (o) => {
+    await fetch(`/api/qlegal/concept/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ terms: o.terms }) });
+    renderTaxonomy();
+  }); };
+window.conToggle = async (id, status) => { await fetch(`/api/qlegal/concept/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) }); renderTaxonomy(); };
+window.delConcept = (id, name) => rdConfirm("Delete concept?", `“${name}” will stop expanding searches.`, async () => { await fetch(`/api/qlegal/concept/${id}`, { method: "DELETE" }); renderTaxonomy(); });
+function conceptForm(title, c, onOk) {
+  const { ov, close } = _ov(`<h3>${esc(title)}</h3>
+    <label style="font-size:12.5px;color:var(--dim)">Concept</label><input data-k="name" value="${esc(c.name || "")}" ${c.lockName ? "disabled" : ""} placeholder="e.g. Exclusivity">
+    <label style="font-size:12.5px;color:var(--dim)">Every phrasing that means it (comma-separated)</label><textarea data-k="terms" rows="4" placeholder="exclusive, exclusivity, sole provider, right of first refusal, rofr">${esc(c.terms || "")}</textarea>
+    <div class="row"><button class="btn" data-x>Cancel</button><button class="btn btn--primary" data-ok>Save</button></div>`);
+  ov.querySelector("[data-x]").onclick = close;
+  ov.querySelector("[data-ok]").onclick = () => { const o = {}; ov.querySelectorAll("[data-k]").forEach((el) => (o[el.dataset.k] = el.value.trim())); close(); onOk(o); };
+}
 window.filterCards = (cid, v) => {
   const term = (v || "").toLowerCase().trim();
   document.querySelectorAll(`#${cid} [data-k]`).forEach((el) => { el.style.display = !term || (el.dataset.k || "").includes(term) ? "" : "none"; });

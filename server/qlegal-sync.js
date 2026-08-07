@@ -12,7 +12,7 @@ import { q } from "./db/client.js";
 import { encryptKey, decryptKey } from "./store.js";
 
 const clip = (s, n) => String(s || "").slice(0, n);
-const CONTRACT_EXT = /\.(pdf|docx?|txt|md)$/i;
+const CONTRACT_EXT = /\.(pdf|docx?|txt|md|png|jpe?g|webp)$/i;
 
 // ---- config (singleton row; secret encrypted at rest) ------------------------
 export async function getSyncRow() {
