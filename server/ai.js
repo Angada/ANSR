@@ -32,6 +32,14 @@ function stubReply(id, user) {
 // rule's custom model dropdown) run this pipeline on a different model/provider.
 // images (optional): [{ media_type, data(base64) }] — sent as vision content
 // blocks alongside the user text (Anthropic-compatible vision, e.g. Claude).
+// OpenAI-compatible chat endpoints, mirroring vision.js so both transports agree.
+const OPENAI_BASE = {
+  openai: "https://api.openai.com/v1",
+  google: "https://generativelanguage.googleapis.com/v1beta/openai",
+  xai: "https://api.x.ai/v1",
+  deepseek: "https://api.deepseek.com",
+};
+
 export async function runPipeline(pipelineId, opts = {}) {
   // A positional call — runPipeline(id, "", text, 1600) — used to destructure a
   // STRING silently: no throw, just user:"" and an empty prompt, so the API
@@ -50,9 +58,49 @@ export async function runPipeline(pipelineId, opts = {}) {
   const useProvider = provider || p.provider, useModel = model || p.model;
   const prov = cfg.providers[useProvider] || {};
   const key = getApiKey(useProvider);
+  // Transport. This used to accept ONLY Anthropic-compatible providers and
+  // silently return a fabricated stub for anything else — so every OpenAI-routed
+  // pipeline looked enabled in Admin, logged as if it ran, and produced invented
+  // text. A configured provider must either work or say why, never pretend.
   const anthropicCompat = useProvider === "anthropic" || !!prov.baseURL;
-  if (!key || !anthropicCompat) {
-    return { mode: "stub", pipeline: p.id, provider: useProvider, model: useModel, text: stubReply(p.id, user) };
+  if (!key) {
+    return { mode: "stub", pipeline: p.id, provider: useProvider, model: useModel,
+      text: stubReply(p.id, user), why: `no API key for ${useProvider} — add one in Admin → Vault` };
+  }
+  if (!anthropicCompat) {
+    const base = OPENAI_BASE[useProvider];
+    if (!base) {
+      return { mode: "error", pipeline: p.id, provider: useProvider, model: useModel,
+        text: `AI error: no transport for provider "${useProvider}" — route this pipeline to a supported provider in Admin → AI Pipelines`,
+        fallback: stubReply(p.id, user) };
+    }
+    try {
+      const content = images.length
+        ? [...(user ? [{ type: "text", text: user }] : []),
+           ...images.map((im) => ({ type: "image_url", image_url: { url: `data:${im.media_type || "image/png"};base64,${im.data}` } }))]
+        : (user || "");
+      const sys = [p.prompt || "", system].filter(Boolean).join("\n\n");
+      const body = { model: useModel, messages: [...(sys ? [{ role: "system", content: sys }] : []), { role: "user", content }] };
+      // newer OpenAI models reject max_tokens and require max_completion_tokens
+      body[/^(gpt-5|o[1-9])/.test(String(useModel)) ? "max_completion_tokens" : "max_tokens"] = maxTokens;
+      const r = await fetch(base + "/chat/completions", {
+        method: "POST",
+        headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(240000),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        return { mode: "error", pipeline: p.id, provider: useProvider, model: useModel,
+          text: `AI error: ${useProvider}:${useModel} ${r.status} — ${String(j?.error?.message || JSON.stringify(j)).slice(0, 160)}`,
+          fallback: stubReply(p.id, user) };
+      }
+      const text = String(j.choices?.[0]?.message?.content || "").trim();
+      return { mode: "ai", pipeline: p.id, provider: useProvider, model: useModel, text };
+    } catch (e) {
+      return { mode: "error", pipeline: p.id, provider: useProvider, model: useModel,
+        text: `AI error: ${String(e.message || e).slice(0, 140)}`, fallback: stubReply(p.id, user) };
+    }
   }
   try {
     const client = new Anthropic({ apiKey: key, baseURL: prov.baseURL || undefined });
