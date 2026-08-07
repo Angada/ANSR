@@ -837,11 +837,20 @@ app.post("/api/pipelines/default", (req, res) => {
   if (!provider) return res.status(400).json({ error: "provider required" });
   const cfg = loadConfig();
   let applied = 0;
+  const skipped = [];
   for (const [pid, p] of Object.entries(cfg.pipelines)) {
-    if (p.kind !== "deterministic") { cfg.pipelines[pid] = { ...p, provider, ...(model && { model }) }; applied++; }
+    if (p.kind === "deterministic") continue;
+    // "Apply to all" must never do what a direct edit is forbidden to do: a chat
+    // model blanket-applied over the embedding and vision steps silently destroyed
+    // the semantic index and the page reader. Role-specific steps keep their model.
+    const bad = pipelineRoleError(pid, provider, model || p.model);
+    if (bad) { skipped.push({ id: pid, why: bad.error }); continue; }
+    cfg.pipelines[pid] = { ...p, provider, ...(model && { model }) };
+    applied++;
   }
   saveConfig(cfg);
-  res.json({ ok: true, applied });
+  res.json({ ok: true, applied, skipped,
+    note: skipped.length ? `${skipped.length} role-specific pipeline(s) kept their own model — embeddings and vision cannot run a chat model.` : undefined });
 });
 
 // Embedding pipelines are NOT free-form. A chat model cannot embed, Anthropic has
@@ -855,25 +864,46 @@ const EMBED_ALLOWED = {
   openai: ["text-embedding-3-small", "text-embedding-3-large"],
 };
 
+// The same law for VISION. Reading a scanned page needs a model that can see; a
+// text-only model cannot, and pointing a vision step at one produces empty pages
+// that look like a bad scan rather than a bad setting. Kept as an allow-list of
+// models actually confirmed to accept images.
+const VISION_PIPELINES = new Set(["munshi3:read", "munshi-ocr", "qlegal-c1"]);
+const VISION_ALLOWED = {
+  anthropic: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
+  openai: ["gpt-4o", "gpt-4.1"],
+  google: ["gemini-2.5-pro", "gemini-2.5-flash"],
+  zai: ["glm-4.5v"],
+  xai: ["grok-4"],
+};
+
+// One validator, used by the single-pipeline save AND by apply-to-all, so a
+// blanket change can never do what a direct change is forbidden to do.
+function pipelineRoleError(pid, wantP, wantM) {
+  const check = (allowed, role, why) => {
+    const ok = allowed[wantP] && allowed[wantP].includes(wantM);
+    if (!ok) return { error: `${wantP}:${wantM} cannot be used for ${role}. Allowed: ${Object.entries(allowed).map(([k, v]) => v.map((m) => `${k}:${m}`).join(", ")).join(", ")}.`, why };
+    if (!getApiKey(wantP)) return { error: `No API key saved for ${wantP}. Add it in Admin → Vault before pointing ${role} at it.` };
+    return null;
+  };
+  if (EMBED_PIPELINES.has(pid)) return check(EMBED_ALLOWED, "embeddings",
+    "Z.AI rejects its own documented embedding model names, Anthropic has no embeddings endpoint, and a chat model cannot embed at all — each falls back to key-free hash vectors that look like success while making semantic search keyword-grade.");
+  if (VISION_PIPELINES.has(pid)) return check(VISION_ALLOWED, "vision / OCR",
+    "A text-only model cannot read a page image. Pointing the reader at one returns empty pages, which reads as a bad scan rather than a bad setting.");
+  return null;
+}
+
 app.post("/api/pipelines/:id", (req, res) => {
   const cfg = loadConfig();
   const p = cfg.pipelines[req.params.id];
   if (!p) return res.status(404).json({ error: "unknown pipeline" });
   const { provider, model, enabled, prompt } = req.body || {};
 
-  if (EMBED_PIPELINES.has(req.params.id) && (provider !== undefined || model !== undefined)) {
-    const wantP = provider !== undefined ? provider : p.provider;
-    const wantM = model !== undefined ? model : p.model;
-    const ok = EMBED_ALLOWED[wantP] && EMBED_ALLOWED[wantP].includes(wantM);
-    if (!ok) return res.status(400).json({
-      error: `${wantP}:${wantM} cannot be used for embeddings. Allowed: ${Object.entries(EMBED_ALLOWED).map(([k, v]) => v.map((m) => `${k}:${m}`).join(", ")).join(", ")}.`,
-      why: "Z.AI rejects its own documented embedding model names, Anthropic has no embeddings endpoint, and a chat model cannot embed at all — each of those falls back to key-free hash vectors that look like success while making semantic search keyword-grade.",
-    });
-    // A model with no key is not a working choice — it is the same silent
-    // degradation wearing a valid name.
-    if (!getApiKey(wantP)) return res.status(400).json({
-      error: `No API key saved for ${wantP}. Add it in Admin → Vault before pointing embeddings at it.`,
-    });
+  if (provider !== undefined || model !== undefined) {
+    const bad = pipelineRoleError(req.params.id,
+      provider !== undefined ? provider : p.provider,
+      model !== undefined ? model : p.model);
+    if (bad) return res.status(400).json(bad);
   }
   cfg.pipelines[req.params.id] = { ...p, ...(provider !== undefined && { provider }), ...(model !== undefined && { model }), ...(enabled !== undefined && { enabled: !!enabled }), ...(prompt !== undefined && { prompt }) };
   saveConfig(cfg);
