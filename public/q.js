@@ -172,12 +172,34 @@ window.aiSpin = (on, label) => {
 
 // Auto-show the spinner for AI-backed endpoints — covers every page, no per-call
 // wiring needed. Deterministic endpoints (compute, runs, config) are excluded.
-const _AI_RE = /\/api\/(box\/[^/]+\/chat|mint\/(clarify|roster\/map|run)\b|qlegal\/(upload|ask|registers\/run)\b|ai\/)/;
+// Every AI-backed endpoint, not a hand-picked few. Listing them one by one meant
+// each new action shipped without a spinner and looked like a dead button; the
+// rule is now "anything that thinks, shows it", with the deterministic reads
+// (registry, config, log, status polls) explicitly excluded below.
+const _AI_RE = /\/api\/(box\/[^/]+\/chat|mint\/(clarify|roster\/map|run)\b|ai\/|qlegal\/(upload|ask|reindex|registers?\/|register\/[^/]+\/(hits|run)|sweep\/(refresh|families|registers)|document\/[^/]+\/(ask|reindex|category)|draft\/|sharepoint\/(scan|ingest)|embed))/;
+// deterministic — never raise the "AI working" badge for a plain read
+const _AI_SKIP = /\/api\/qlegal\/(registry|registers$|batch|batches|log|sweep\/status|confirms|categories|tags|concepts|rules|obligations|document\/[0-9]+$|search\?)/;
+// what the badge says, so "AI working" names the actual job
+function _aiLabel(u) {
+  if (/upload/.test(u)) return "Reading the document — transcript, key, clauses…";
+  if (/reindex/.test(u)) return "Re-indexing — re-reading the original, rebuilding the key…";
+  if (/sweep\/refresh/.test(u)) return "Re-deriving keys across the estate…";
+  if (/sweep\/families/.test(u)) return "Proposing families & dependencies…";
+  if (/registers?\/run|register\/[^/]+\/run/.test(u)) return "Answering standing questions across the estate…";
+  if (/document\/[^/]+\/ask/.test(u)) return "Reading this contract…";
+  if (/qlegal\/ask/.test(u)) return "Reading the estate — registers, wikis, transcripts…";
+  if (/draft\/suggest/.test(u)) return "Finding the best contracts to model on…";
+  if (/draft\/run/.test(u)) return "Drafting from your model contracts…";
+  if (/sharepoint\/scan/.test(u)) return "Scanning the SharePoint library…";
+  if (/sharepoint\/ingest/.test(u)) return "Pulling the file in and reading it…";
+  if (/embed/.test(u)) return "Building the semantic index…";
+  return "AI working…";
+}
 const _origFetch = window.fetch.bind(window);
 window.fetch = (...args) => {
   const url = typeof args[0] === "string" ? args[0] : (args[0] && args[0].url) || "";
-  const isAI = _AI_RE.test(url);
-  if (isAI) window.aiSpin(true);
+  const isAI = _AI_RE.test(url) && !_AI_SKIP.test(url);
+  if (isAI) window.aiSpin(true, _aiLabel(url));
   const p = _origFetch(...args);
   if (isAI) p.finally(() => window.aiSpin(false));
   return p;
