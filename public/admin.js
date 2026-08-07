@@ -14,11 +14,24 @@ async function load() {
 function renderDefaultAll() {
   const sel = document.getElementById("defAll"); if (!sel || !CFG) return;
   sel.innerHTML = Object.entries(CFG.providers).flatMap(([id, p]) => (p.models || []).map((m) => `<option value="${id}::${m}">${esc(p.label)} · ${m}</option>`)).join("");
+  // which app to re-route — applying to every product at once is rarely what
+  // anyone means by "apply to all"
+  const host = document.getElementById("defProd");
+  if (host) {
+    const counts = {};
+    Object.values(CFG.pipelines || {}).forEach((p) => { if (p.kind !== "deterministic") counts[p.product || "—"] = (counts[p.product || "—"] || 0) + 1; });
+    host.innerHTML = `<option value="">Every product · ${Object.values(counts).reduce((a, b) => a + b, 0)} skills</option>`
+      + Object.entries(counts).sort().map(([prod, n]) => `<option value="${esc(prod)}">${esc(prod)} · ${n} skills</option>`).join("");
+  }
 }
 window.applyAllDefault = async () => {
   const [provider, model] = (document.getElementById("defAll").value || "").split("::");
-  const r = await (await fetch("/api/pipelines/default", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider, model }) })).json();
-  document.getElementById("defMsg").textContent = `applied to ${r.applied ?? 0} skills ✓`;
+  const product = (document.getElementById("defProd") || {}).value || "";
+  const r = await (await fetch("/api/pipelines/default", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider, model, product }) })).json();
+  const skipped = (r.skipped || []).length;
+  document.getElementById("defMsg").textContent =
+    `applied to ${r.applied ?? 0} skill${r.applied === 1 ? "" : "s"} in ${r.product} ✓`
+    + (skipped ? ` · ${skipped} kept their own model (vision & embeddings cannot run a chat model)` : "");
   CFG = await (await fetch("/api/config")).json(); renderProducts();
 };
 

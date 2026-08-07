@@ -833,13 +833,17 @@ app.get("/api/pipelines", (_req, res) => res.json({ pipelines: loadConfig().pipe
 // make a provider+model the default across all (non-deterministic) journeys.
 // MUST be declared before /api/pipelines/:id so "default" isn't read as an id.
 app.post("/api/pipelines/default", (req, res) => {
-  const { provider, model } = req.body || {};
+  // Scoped by PRODUCT. "Apply to all" used to mean all 36 skills across every
+  // app, so re-routing RayDar silently re-routed Q-Legal and Mint with it.
+  // Pass product to touch only that app's skills; omit it for the whole estate.
+  const { provider, model, product } = req.body || {};
   if (!provider) return res.status(400).json({ error: "provider required" });
   const cfg = loadConfig();
   let applied = 0;
   const skipped = [];
   for (const [pid, p] of Object.entries(cfg.pipelines)) {
     if (p.kind === "deterministic") continue;
+    if (product && String(p.product || "") !== String(product)) continue;
     // "Apply to all" must never do what a direct edit is forbidden to do: a chat
     // model blanket-applied over the embedding and vision steps silently destroyed
     // the semantic index and the page reader. Role-specific steps keep their model.
@@ -849,7 +853,7 @@ app.post("/api/pipelines/default", (req, res) => {
     applied++;
   }
   saveConfig(cfg);
-  res.json({ ok: true, applied, skipped,
+  res.json({ ok: true, applied, skipped, product: product || "all products",
     note: skipped.length ? `${skipped.length} role-specific pipeline(s) kept their own model — embeddings and vision cannot run a chat model.` : undefined });
 });
 

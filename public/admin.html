@@ -29,9 +29,11 @@
     <div id="pane-ai" class="pane" hidden>
       <div id="skillFilter" class="skill-filter"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 8px">
-        <label class="lbl">Default provider · model — apply to every skill</label>
+        <label class="lbl">Route</label>
+        <select id="defProd" style="min-width:170px"></select>
+        <label class="lbl">to</label>
         <select id="defAll" style="min-width:190px"></select>
-        <button class="btn btn--ghost" onclick="applyAllDefault()">Apply to all</button>
+        <button class="btn btn--ghost" onclick="applyAllDefault()">Apply</button>
         <span id="defMsg" class="lbl"></span>
       </div>
       <div id="products"></div>
