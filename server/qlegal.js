@@ -549,13 +549,28 @@ async function runRegisters(docId, { c1, docType } = {}) {
       });
     } catch { continue; }   // one failed batch never fails the document
     await logRun(out, { ref_type: "document", ref_id: docId, rules: rules.codes, input: `${batch.length} registers (batch ${1 + i / perCall})`, output: clip(out.text, 160) });
-    let parsed = jparse(out.text);
-    if (!parsed?.answers?.length) {
-      const found = [...String(out.text || "").matchAll(/\{\s*"code"[\s\S]*?\}(?=\s*[,\]])/g)]
+    const salvage = (t) => {
+      const j = jparse(t);
+      if (j?.answers?.length) return j.answers;
+      return [...String(t || "").matchAll(/\{\s*"code"[\s\S]*?\}(?=\s*[,\]])/g)]
         .map((m) => { try { return JSON.parse(m[0]); } catch { return null; } }).filter(Boolean);
-      parsed = { answers: found };
+    };
+    let got = salvage(out.text);
+    if (!got.length) {
+      // some contracts (odd OCR glyphs, instruction-like text) make the model echo
+      // the DOCUMENT instead of answering. Retry once with the questions AFTER the
+      // contract — recency wins — and an explicit JSON-only reminder.
+      try {
+        const retry = await runPipeline("qlegal-register", {
+          system: [rules.text, REGISTER_CONTRACT].filter(Boolean).join("\n\n"),
+          user: `Contract:\n${clip(text, RP.read_chars)}\n\n---\nNow answer these standing questions about the contract above:\n${JSON.stringify(batch.map((r) => ({ code: r.code, question: r.question, value_wanted: r.extract_hint || "" })))}\n\nReturn ONLY the JSON object — no contract text, no prose.`,
+          maxTokens: RP.max_tokens,
+        });
+        await logRun(retry, { ref_type: "document", ref_id: docId, rules: rules.codes, input: `${batch.length} registers (batch ${1 + i / perCall} RETRY)`, output: clip(retry.text, 160) });
+        got = salvage(retry.text);
+      } catch { /* still nothing — this batch is skipped, others proceed */ }
     }
-    answers.push(...(parsed.answers || []));
+    answers.push(...got);
   }
   if (!answers.length) return 0;
   const parsed = { answers };
