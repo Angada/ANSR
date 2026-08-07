@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { q } from "./db/client.js";
 import { extractFile, toMarkdown } from "./extract.js";
-import { putOriginal, putExtract, getExtract, getOriginal } from "./storage.js";
+import { putOriginal, putExtract, getExtract, getOriginal, removeOriginal } from "./storage.js";
 import { runPipeline } from "./ai.js";
 import { loadConfig, getApiKey } from "./store.js";
 import { getSyncRow, saveSyncConfig, publicSyncConfig, testSharePoint, scanSharePoint, scheduleNightlyScan, listSharePoint, ingestSharePointItem } from "./qlegal-sync.js";
@@ -896,9 +896,22 @@ export function mountQLegal(app, upload) {
     const nearest = await nearestDocs(id, 5).catch(() => []);
     res.json({ document: doc, versions, c2, obligations, children, parent, confirms, registers, nearest });
   });
+  // Delete is a PURGE and says so. The cascade takes versions (C1/C2), vectors,
+  // register answers, obligations, clauses and confirms; the vault original is
+  // removed explicitly, because a cascade cannot reach a file. What went is
+  // counted and returned rather than assumed.
   app.delete("/api/qlegal/document/:id", async (req, res) => {
-    await q(`delete from ql_document where id=$1`, [Number(req.params.id)]); // cascades versions/obligations/confirms
-    res.json({ ok: true });
+    const id = Number(req.params.id);
+    const vers = (await q(`select id, storage_path from ql_version where document_id=$1`, [id])).rows;
+    let files = 0;
+    for (const v of vers) { if (v.storage_path && await removeOriginal(v.storage_path).catch(() => false)) files++; }
+    const counts = {};
+    for (const [k, t] of [["versions", "ql_version"], ["vectors", "ql_vector"], ["register_answers", "ql_register_hit"],
+                          ["obligations", "ql_obligation"], ["confirmations", "ql_confirm"]]) {
+      counts[k] = Number((await q("select count(*) c from " + t + " where document_id=$1", [id]).catch(() => ({ rows: [{ c: 0 }] }))).rows[0].c);
+    }
+    await q(`delete from ql_document where id=$1`, [id]);   // cascades every child table
+    res.json({ ok: true, purged: { ...counts, vault_files: files } });
   });
 
   // The three ways into a document, from any screen:

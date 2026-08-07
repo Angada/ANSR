@@ -4,7 +4,7 @@
 // Two backends, chosen by env: local disk (dev) or a Supabase Storage bucket
 // (prod — Cloud Run disk is ephemeral, so persisted docs MUST live in a bucket).
 // Interface is async + backend-agnostic; callers pass an already-slugged customer.
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -66,6 +66,25 @@ export async function getOriginal(storagePath) {
     return Buffer.from(await data.arrayBuffer());
   }
   return existsSync(p) ? readFileSync(p) : null;
+}
+
+// Remove a vault original. Deleting a contract used to drop every database row
+// and leave the file itself behind, so "purged" was true of the index and false
+// of the bytes — a privacy answer nobody could give honestly.
+export async function removeOriginal(storagePath) {
+  const p = String(storagePath || "");
+  if (!p) return false;
+  if (p.startsWith("bucket:")) {
+    const c = await client();
+    if (!c) return false;
+    const rest = p.slice("bucket:".length);
+    const bucket = rest.slice(0, rest.indexOf("/"));
+    const key = rest.slice(rest.indexOf("/") + 1);
+    const { error } = await c.storage.from(bucket).remove([key]);
+    return !error;
+  }
+  try { if (existsSync(p)) { unlinkSync(p); return true; } } catch { /* best-effort */ }
+  return false;
 }
 
 // ---- T2 markdown extracts ---------------------------------------------------

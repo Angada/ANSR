@@ -646,7 +646,7 @@ function wikiView() {
           ? `<div class="am" style="margin-top:6px"><span class="srcpill sp">SharePoint</span> the source of truth — kept in step by the nightly scan${f.sp_web_url ? ` · <a class="ref" href="${esc(f.sp_web_url)}" target="_blank">open in SharePoint ↗</a>` : ""}</div>`
           : `<div class="am" style="margin-top:6px"><span class="srcpill dev">device upload</span> ${esc(d.source_location || d.filename)}${(d.source_detail || {}).by ? ` · added by ${esc(d.source_detail.by)}` : ""}${(d.source_detail || {}).at ? ` · ${fmtD(d.source_detail.at)}` : ""} — <b>not</b> governed by the SharePoint scan; there is no original to re-fetch, so the vault snapshot is the only copy</div>`}
       </div>
-      <button class="btn small touch" onclick="delDoc(${d.id})" title="remove from the derived layer only">✕</button>
+      <button class="btn small touch" onclick="delDoc(${d.id}, this.dataset.n)" data-n="${esc(d.title || d.filename)}" title="purge this contract and everything indexed from it">✕ Purge</button>
     </div>`;
   // ---- COVERAGE: what the semantic search can actually match on for this contract
   const cv = COVER;
@@ -697,10 +697,14 @@ window.fixFact = (field, current) => rdForm(`Correct · ${field.replace(/_/g, " 
   await fetch("/api/qlegal/feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ surface: "fact", document_id: OPEN.document.id, field, was: current, corrected: o.v }) });
   await loadRegistry(); openDoc(OPEN.document.id);
 });
-window.delDoc = (id) => rdConfirm("Remove from the repository?", "Only the derived layer is removed — the original in the source of truth is untouched.", async () => {
-  await fetch(`/api/qlegal/document/${id}`, { method: "DELETE" });
-  OPEN = null; await loadRegistry(); loadCats(); renderNav(); renderRegistry();
-});
+window.delDoc = (id, name) => rdConfirm("Purge this contract?",
+  `This permanently removes EVERYTHING Q-Legal holds for ${name || "this contract"}: the vault copy of the file, the C1 transcript and C2 key, every clause, the semantic index, all standing-question answers, obligations, confirmations and family links. Ask and Search will no longer find it, and it cannot be undone here — only re-uploading the file (or the next SharePoint scan, if it came from there) restores it.`,
+  async () => {
+    const r = await (await fetch(`/api/qlegal/document/${id}`, { method: "DELETE" })).json();
+    OPEN = null; await loadRegistry(); loadCats(); renderNav(); renderRegistry();
+    const p = r.purged || {};
+    rdAlert("Purged", `Removed ${p.versions || 0} version(s), ${p.vectors || 0} index vectors, ${p.register_answers || 0} standing answers, ${p.obligations || 0} obligations and ${p.vault_files || 0} vault file(s).`);
+  }, "Purge everything", true);
 
 // ==========================================================================
 // Standing questions (registers)
@@ -1581,7 +1585,7 @@ function _ov(inner) { const ov = document.createElement("div"); ov.className = "
 // a paragraph those lines become an unreadable run-on, and a gap you can't read
 // is a gap you don't act on.
 function rdAlert(title, msg) { const { ov, close } = _ov(`<h3>${esc(title)}</h3>${msg ? `<p style="white-space:pre-wrap;max-height:52vh;overflow:auto">${esc(msg)}</p>` : ""}<div class="row"><button class="btn btn--primary" data-ok>OK</button></div>`); ov.querySelector("[data-ok]").onclick = close; }
-function rdConfirm(title, msg, onOk) { const { ov, close } = _ov(`<h3>${esc(title)}</h3><p>${esc(msg)}</p><div class="row"><button class="btn" data-x>Cancel</button><button class="btn btn--org" data-ok>Confirm</button></div>`); ov.querySelector("[data-x]").onclick = close; ov.querySelector("[data-ok]").onclick = () => { close(); onOk && onOk(); }; }
+function rdConfirm(title, msg, onOk, okLabel, danger) { const { ov, close } = _ov(`<h3>${esc(title)}</h3><p>${esc(msg)}</p><div class="row"><button class="btn" data-x>Cancel</button><button class="btn ${danger ? "" : "btn--org"}" data-ok ${danger ? `style="background:#B3261E;border-color:#B3261E;color:#fff"` : ""}>${esc(okLabel || "Confirm")}</button></div>`); ov.querySelector("[data-x]").onclick = close; ov.querySelector("[data-ok]").onclick = () => { close(); onOk && onOk(); }; }
 function rdForm(title, fields, onOk) {
   const body = fields.map((f) => `<label style="font-size:12.5px;color:var(--dim)">${esc(f.label)}</label><input data-k="${f.k}" placeholder="${esc(f.ph || "")}" value="${esc(f.v || "")}">`).join("");
   const { ov, close } = _ov(`<h3>${esc(title)}</h3>${body}<div class="row"><button class="btn" data-x>Cancel</button><button class="btn btn--primary" data-ok>Save</button></div>`);
