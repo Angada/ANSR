@@ -11,8 +11,8 @@ import { runVisionSkill, pickVisionProvider } from "../vision.js";
 
 const DPI = Number(process.env.MUNSHI_OCR_DPI || 170);          // munshi3 default
 const SCALE_TO = Number(process.env.MUNSHI_OCR_SCALE || 1700);  // cap longest edge (no sharp needed)
-const MAX_PAGES = Number(process.env.MUNSHI_OCR_MAX_PAGES || 30);
-const CONCURRENCY = Number(process.env.MUNSHI_OCR_CONCURRENCY || 3);
+const MAX_PAGES = Number(process.env.MUNSHI_OCR_MAX_PAGES || 120);
+const CONCURRENCY = Number(process.env.MUNSHI_OCR_CONCURRENCY || 6);
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -95,12 +95,12 @@ export async function ocrImage(imgPath, ext) {
 // Figure backfill: pages that HAVE some text but whose substance is an image
 // (a heading above a scanned annexure). OCR the page and APPEND what the image
 // says below the existing text — never replace what the text layer gave us.
-export async function backfillFigures(pdfPath, pages, figureNos, { maxPages = 15 } = {}) {
+export async function backfillFigures(pdfPath, pages, figureNos, { maxPages = 60 } = {}) {
   const targets = (pages || []).filter((p) => (figureNos || []).includes(p.page_no)).slice(0, maxPages);
   if (!targets.length) return { recovered: [] };
   if (!(await ocrAvailable())) return { recovered: [], reason: "no vision key or poppler" };
   const recovered = [];
-  for (const p of targets) {
+  await mapLimit(targets, CONCURRENCY, async (p) => {
     const dir = mkdtempSync(join(tmpdir(), "munshi-fig-"));
     try {
       const imgs = await rasterize(pdfPath, dir, { firstPage: p.page_no, lastPage: p.page_no });
@@ -114,7 +114,8 @@ export async function backfillFigures(pdfPath, pages, figureNos, { maxPages = 15
       }
     } catch { /* per-page best-effort */ }
     finally { try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ } }
-  }
+  });
+  recovered.sort((a, b) => a - b);
   return { recovered };
 }
 
@@ -124,8 +125,10 @@ export async function backfillScanned(pdfPath, pages, { minChars = 20 } = {}) {
   const sparse = (pages || []).filter((p) => (p.text?.trim().length ?? 0) < minChars);
   if (!sparse.length) return { scanned: 0, backfilled: [] };
   if (!(await ocrAvailable())) return { scanned: sparse.length, backfilled: [], reason: "no vision key or poppler" };
+  // Pages run CONCURRENTLY. Sequentially, a 38-page scan needed ~10 minutes and
+  // died against the request timeout with two thirds of the document unread.
   const backfilled = [];
-  for (const p of sparse) {
+  await mapLimit(sparse, CONCURRENCY, async (p) => {
     const dir = mkdtempSync(join(tmpdir(), "munshi-bf-"));
     try {
       const imgs = await rasterize(pdfPath, dir, { firstPage: p.page_no, lastPage: p.page_no });
@@ -135,6 +138,7 @@ export async function backfillScanned(pdfPath, pages, { minChars = 20 } = {}) {
       }
     } catch { /* per-page best-effort */ }
     finally { try { rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ } }
-  }
+  });
+  backfilled.sort((a, b) => a - b);
   return { scanned: sparse.length, backfilled };
 }

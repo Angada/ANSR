@@ -16,7 +16,10 @@ export const VISION_MODEL = {
   zai: "glm-4.5v",
   xai: "grok-4",
 };
-export const VISION_PREF = ["zai", "anthropic", "google", "openai", "xai"];
+// Preference order for the FALLBACK path. Anthropic first: a provider that has a
+// key but no balance answers 429 "insufficient balance", and that used to lose
+// pages silently — the reader must prefer the account that can actually pay.
+export const VISION_PREF = ["anthropic", "openai", "google", "zai", "xai"];
 
 // OpenAI-compatible chat endpoints per provider (for the image_url path).
 const OPENAI_BASE = {
@@ -79,17 +82,32 @@ export async function runVisionSkill(skillId, images, { userText = "", prefer } 
   } else if (!model || model === p.model && !isVisionModel(provider, model)) {
     model = VISION_MODEL[provider]; // pin a vision model if the routed one is text-only
   }
-  const key = getApiKey(provider);
   const system = p.prompt || "Transcribe this document page image to faithful Markdown. Reproduce all text and tables exactly; never summarise. Output only the Markdown.";
-  try {
-    const text = await Promise.race([
-      callVision(provider, key, model, system, userText || "Document parsing — transcribe this page fully and faithfully into Markdown.", images),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("vision timed out (240s)")), 240000)),
-    ]);
-    return { text, provider, model, mode: "ai" };
-  } catch (e) {
-    return { text: "", provider, model, mode: "error", error: String(e.message || e).slice(0, 160) };
+  const prompt = userText || "Document parsing — transcribe this page fully and faithfully into Markdown.";
+
+  // FAILOVER. One provider being rate-limited or out of balance must never cost a
+  // page: 24 pages of a 38-page lease were lost to a single 429 "insufficient
+  // balance". Try the routed provider, then every other keyed vision provider.
+  const chain = [[provider, model], ...VISION_PREF
+    .filter((alt) => alt !== provider && VISION_MODEL[alt] && getApiKey(alt))
+    .map((alt) => [alt, VISION_MODEL[alt]])];
+  let lastErr = "";
+  for (const [prov, mdl] of chain) {
+    const key = getApiKey(prov);
+    if (!key) continue;
+    try {
+      const text = await Promise.race([
+        callVision(prov, key, mdl, system, prompt, images),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("vision timed out (240s)")), 240000)),
+      ]);
+      if (String(text || "").trim()) return { text, provider: prov, model: mdl, mode: "ai", fellBack: prov !== provider };
+      lastErr = `${prov} returned nothing`;
+    } catch (e) {
+      lastErr = `${prov}: ${String(e.message || e).slice(0, 120)}`;
+      // a hard auth/quota failure on this provider — move to the next one
+    }
   }
+  return { text: "", provider, model, mode: "error", error: lastErr.slice(0, 200) };
 }
 
 // crude check: is `model` a plausible vision model id for the provider?
