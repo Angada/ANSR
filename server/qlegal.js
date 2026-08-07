@@ -785,10 +785,16 @@ export function mountQLegal(app, upload) {
   app.post("/api/qlegal/document/:id/reindex", async (req, res) => {
     try {
       const id = Number(req.params.id);
+      // The NEWEST version that actually holds a transcript — not the one
+      // latest_version points at. When the key step failed, latest_version was
+      // never promoted off 0, so this lookup found nothing and re-index answered
+      // "not found": the one document that most needed rebuilding was the one
+      // document that could not be rebuilt.
       const row = (await q(
         `select v.id ver_id, v.version_no, v.c1_text, v.ocr, d.filename
-           from ql_version v join ql_document d on d.id=v.document_id and v.version_no=d.latest_version
-          where d.id=$1`, [id])).rows[0];
+           from ql_version v join ql_document d on d.id=v.document_id
+          where d.id=$1 and v.c1_text is not null
+          order by v.version_no desc limit 1`, [id])).rows[0];
       if (!row) return res.status(404).json({ error: "not found" });
       if (!row.c1_text) return res.status(400).json({ error: "no transcript stored — re-upload the file" });
 
