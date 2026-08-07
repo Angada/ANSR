@@ -364,7 +364,7 @@ function renderRegistry() {
     return `<tr class="clk touch ${dev ? "srcdev" : ""}" data-k="1" onclick="openDoc(${d.id})"
         title="${dev ? "Uploaded from a device — not governed by the SharePoint scan" : "From SharePoint — kept in step by the nightly scan"}">
       <td><b>${esc(d.title || d.filename)}</b>${d.title ? `<div class="am">${esc(d.filename)}</div>` : ""}</td>
-      <td>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>${conf}` : "<span class='am'>—</span>"}</td>
+      <td>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>${conf}` : "<span class='am'>—</span>"}${d.scanned ? ' <span class="tagchip" title="read from a scan/image via vision-OCR" style="color:#8a5a10;background:#FBF1E2;border-color:#EAD3AE">📷 scanned</span>' : ""}</td>
       <td>${esc([d.party1, d.party2].filter(Boolean).join(" ⟷ ")) || "<span class='am'>—</span>"}</td>
       <td>${[f.effective_date, f.expiry_date].filter(Boolean).map(fmtNice).join(" → ") || "<span class='am'>—</span>"}</td>
       <td><span class="srcpill ${dev ? "dev" : "sp"}">${dev ? "device" : "SharePoint"}</span></td>
@@ -629,7 +629,7 @@ function wikiView() {
     <div class="chead reveal">
       <div class="chead-emb">Q</div>
       <div class="chead-body">
-        <div class="chead-titlerow"><span class="chead-title">${esc(d.title || d.filename)}</span>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>` : ""}${(d.tags || []).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ")}</div>
+        <div class="chead-titlerow"><span class="chead-title">${esc(d.title || d.filename)}</span>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>` : ""}${(OPEN.versions || []).some((v) => v.ocr) ? '<span class="tagchip" title="read from a scan/image via vision-OCR" style="color:#8a5a10;background:#FBF1E2;border-color:#EAD3AE">📷 scanned / image source</span>' : ""}${(d.tags || []).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ")}</div>
         ${(d.party1 || d.party2) ? `<div class="chead-parties">${esc(d.party1 || "?")}<span class="vs">⟷</span>${esc(d.party2 || "?")}</div>` : ""}
         ${d.source === "sharepoint"
           ? `<div class="am" style="margin-top:6px"><span class="srcpill sp">SharePoint</span> the source of truth — kept in step by the nightly scan${f.sp_web_url ? ` · <a class="ref" href="${esc(f.sp_web_url)}" target="_blank">open in SharePoint ↗</a>` : ""}</div>`
