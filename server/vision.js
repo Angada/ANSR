@@ -72,15 +72,21 @@ export async function runVisionSkill(skillId, images, { userText = "", prefer } 
   const p = cfg.pipelines[skillId] || {};
   if (p.enabled === false) return { text: "", provider: "", model: "", mode: "disabled" };
 
+  // THE OPERATOR'S CHOICE IS THE CHOICE. This used to second-guess the configured
+  // model against a hardcoded table and silently substitute one — set glm-4.6 in
+  // the Vault and the call quietly went out as glm-4.5v, so the pipeline screen
+  // and reality disagreed. The registered provider/model is now used verbatim;
+  // the table is consulted ONLY when nothing is configured, or as a named
+  // fallback after a real failure (reported, never silent).
   let provider = prefer || p.provider;
   let model = p.model;
-  // if the routed provider can't do vision here (no key / no vision model), fall back
-  if (!provider || !VISION_MODEL[provider] || !getApiKey(provider)) {
+  if (!provider || !getApiKey(provider)) {
     const alt = pickVisionProvider(provider);
     if (!alt) return { text: "", provider: "", model: "", mode: "stub" };
     provider = alt; model = VISION_MODEL[alt];
-  } else if (!model || model === p.model && !isVisionModel(provider, model)) {
-    model = VISION_MODEL[provider]; // pin a vision model if the routed one is text-only
+  } else if (!model) {
+    model = VISION_MODEL[provider] || "";     // nothing configured → a sane default
+    if (!model) return { text: "", provider, model: "", mode: "stub" };
   }
   const system = p.prompt || "Transcribe this document page image to faithful Markdown. Reproduce all text and tables exactly; never summarise. Output only the Markdown.";
   const prompt = userText || "Document parsing — transcribe this page fully and faithfully into Markdown.";
@@ -92,7 +98,9 @@ export async function runVisionSkill(skillId, images, { userText = "", prefer } 
     .filter((alt) => alt !== provider && VISION_MODEL[alt] && getApiKey(alt))
     .map((alt) => [alt, VISION_MODEL[alt]])];
   let lastErr = "";
+  const tried = [];
   for (const [prov, mdl] of chain) {
+    tried.push(`${prov}:${mdl}`);
     const key = getApiKey(prov);
     if (!key) continue;
     try {
@@ -107,11 +115,7 @@ export async function runVisionSkill(skillId, images, { userText = "", prefer } 
       // a hard auth/quota failure on this provider — move to the next one
     }
   }
-  return { text: "", provider, model, mode: "error", error: lastErr.slice(0, 200) };
+  return { text: "", provider, model, mode: "error", tried, error: `${lastErr} (tried ${tried.join(", ")})`.slice(0, 240) };
 }
 
-// crude check: is `model` a plausible vision model id for the provider?
-function isVisionModel(provider, model) {
-  const m = String(model || "").toLowerCase();
-  return m.includes("4.5v") || m.includes("gpt-4o") || m.includes("gemini") || m.includes("sonnet") || m.includes("opus") || m.includes("grok") || m === (VISION_MODEL[provider] || "").toLowerCase();
-}
+
