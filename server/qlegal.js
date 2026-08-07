@@ -4,8 +4,9 @@
 // the confirm queue, editable business rules, and the learning-loop feedback store.
 // Every AI step is a named gated pipeline (qlegal-*) with scope-matched business
 // rules injected at call time; every call is logged append-only to ql_log.
-import { readFileSync, rmSync } from "node:fs";
-import { extname } from "node:path";
+import { readFileSync, rmSync, writeFileSync, mkdtempSync } from "node:fs";
+import { extname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { q } from "./db/client.js";
 import { extractFile, toMarkdown } from "./extract.js";
@@ -791,6 +792,42 @@ export function mountQLegal(app, upload) {
       if (!row) return res.status(404).json({ error: "not found" });
       if (!row.c1_text) return res.status(400).json({ error: "no transcript stored — re-upload the file" });
 
+      // RE-READ when the transcript is incomplete. A re-index used to rebuild only
+      // what sits DOWNSTREAM of C1, so a contract whose pages never OCR'd (an empty
+      // provider balance, a timeout) could be re-indexed forever and never gain the
+      // missing pages — the text simply was not there. If the read report shows
+      // unread or figure pages, fetch the original back out of the vault and read
+      // it again first; OCR now fails over across providers and runs concurrently.
+      const rr = (await q(`select read_report, storage_path from ql_version where id=$1`, [row.ver_id])).rows[0] || {};
+      const gaps = [...((rr.read_report || {}).unread_pages || []), ...((rr.read_report || {}).figure_pages || [])];
+      let reread = null;
+      if (gaps.length && rr.storage_path) {
+        const buf = await getOriginal(rr.storage_path).catch(() => null);
+        if (buf) {
+          const tmpDir = mkdtempSync(join(tmpdir(), "qlre-"));
+          const tmpFile = join(tmpDir, row.filename.replace(/[^\w.-]/g, "_"));
+          try {
+            writeFileSync(tmpFile, buf);
+            const ex = await extractFile(tmpFile, row.filename);
+            const text = clip(ex.text, 400000);
+            if (text.trim() && text.length > (row.c1_text || "").length) {
+              const report = { pages: ex.pages || null, ocr_pages: ex.ocr_pages || [],
+                figure_pages: ex.figure_pages || [], unread_pages: ex.unread_pages || [] };
+              await q(`update ql_version set c1_text=$2, ocr=$3, read_report=$4::jsonb where id=$1`,
+                [row.ver_id, text, !!ex.ocr, JSON.stringify(report)]);
+              row.c1_text = text;
+              reread = { before: gaps.length, after: (report.unread_pages || []).length + (report.figure_pages || []).length, pages: report.pages };
+              await logRun({ pipeline: "qlegal-c1", mode: ex.ocr ? "vision-ocr" : "deterministic" },
+                { ref_type: "version", ref_id: row.ver_id, input: `re-read ${row.filename}`,
+                  output: `${text.length} chars · ${report.pages || "?"}p · recovered ${gaps.length - reread.after} of ${gaps.length} unread pages` });
+              // the old "could not read" flag is stale once the pages come back
+              if (!reread.after) await q(`update ql_confirm set status='accepted', resolved_by='re-index', resolved_at=now() where document_id=$1 and kind='unread' and status='open'`, [id]).catch(() => {});
+            }
+          } catch { /* re-read is best-effort — the rebuild below still runs */ }
+          finally { try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } }
+        }
+      }
+
       // A re-index takes a couple of minutes and used to report nothing at all
       // until it finished, which is indistinguishable from not running. It is a
       // batch of one, so it is recorded as one — the panel already on this page
@@ -811,7 +848,7 @@ export function mountQLegal(app, upload) {
         [b.id, failed ? "blocked" : "ok",
          failed ? out.keyFailed : `${out.atom?.clauses || 0} clauses · key, obligations, registers and vectors rebuilt`]).catch(() => {});
       await q(`update ql_batch set status='done', updated_at=now() where id=$1`, [b.id]).catch(() => {});
-      res.json({ ok: true, batch_id: b.id, mode: out.mode, clauses: out.atom?.clauses || 0, failed, why: out.keyFailed || null });
+      res.json({ ok: true, batch_id: b.id, mode: out.mode, clauses: out.atom?.clauses || 0, failed, why: out.keyFailed || null, reread });
     } catch (e) { res.status(500).json({ error: String(e.message || e) }); }
   });
 

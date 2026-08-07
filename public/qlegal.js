@@ -303,8 +303,12 @@ window.reindexDoc = async (id, ev) => {
     stopBatchPoll(); await renderBatch();
     await loadRegistry(); renderRegistry();
     if (r.error) return rdAlert("Re-index failed", r.error);
+    const rr = r.reread
+      ? (r.reread.after ? `Re-read the original: ${r.reread.before - r.reread.after} of ${r.reread.before} unread pages recovered, ${r.reread.after} still unreadable. `
+                        : `Re-read the original: all ${r.reread.before} previously unread pages recovered. `)
+      : "";
     rdAlert(r.failed ? "Re-index finished — still failing" : "Re-indexed",
-      r.failed ? r.why : `${r.clauses} clauses read. The key, obligations, registers and vectors were rebuilt.`);
+      r.failed ? rr + r.why : `${rr}${r.clauses} clauses read. The key, obligations, registers and vectors were rebuilt.`);
   } catch (e) {
     if (window.aiSpin) window.aiSpin(false);
     stopBatchPoll(); await loadRegistry(); renderRegistry();
