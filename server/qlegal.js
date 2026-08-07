@@ -846,8 +846,11 @@ export function mountQLegal(app, upload) {
 
       const out = await deriveFromC1({ docId: id, verId: row.ver_id, versionNo: row.version_no,
         c1: row.c1_text, filename: row.filename, ocr: !!row.ocr });
+      // deriveFromC1 has ALREADY embedded this version, with the real C2 in hand.
+      // Embedding a second time here with c2:null found no clause bodies and wrote
+      // a single document vector OVER the 107 just built — the index read 0 clauses
+      // immediately after a successful re-index, every time.
       await stage("embedding");
-      try { await embedVersion({ docId: id, verId: row.ver_id, c2: null, filename: row.filename }); } catch { /* vectors are best-effort */ }
 
       const failed = out.mode === "key-failed";
       await q(`update ql_batch_item set stage='done', status=$2, note=$3, updated_at=now() where batch_id=$1`,
