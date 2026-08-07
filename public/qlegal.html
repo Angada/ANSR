@@ -59,11 +59,18 @@
   /* The estate table scrolls sideways, and anything appended to the right edge is
      invisible until you think to scroll — which is the same as not shipping it.
      Index and the row actions are pinned so they are always reachable. */
-  .ctable th:last-child, .ctable td:last-child{position:sticky;right:0;background:var(--panel);z-index:2;box-shadow:-8px 0 10px -8px rgba(0,0,0,.16)}
+  /* Only the ACTIONS column pins. Pinning a second column at a hard-coded 148px
+     offset assumed a fixed width for the first — when the actions grew, the two
+     overlapped and ate the headers beside them. One pinned column, measured by
+     its own content, cannot collide. */
+  .ctable th:last-child, .ctable td:last-child{position:sticky;right:0;background:var(--panel);z-index:3;
+    box-shadow:-8px 0 10px -8px rgba(0,0,0,.16);width:1%;white-space:nowrap}
   .ctable tr:hover td:last-child{background:var(--tint,#FFF7F1)}
-  .ctable th:nth-last-child(2), .ctable td:nth-last-child(2){position:sticky;right:148px;background:var(--panel);z-index:2}
-  .ctable tr:hover td:nth-last-child(2){background:var(--tint,#FFF7F1)}
-  .rowact .btn{padding:2px 7px;font-size:11.5px}
+  .ctable th{position:sticky;top:0;z-index:2}
+  .ctable th:last-child{z-index:4}
+  /* the actions stay on ONE line — stacked buttons made rows three times as tall */
+  .rowact{display:inline-flex;gap:5px;flex-wrap:nowrap;white-space:nowrap}
+  .rowact .btn{padding:2px 7px;font-size:11.5px;white-space:nowrap}
   .supersede{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;color:var(--dim);margin:0 0 8px;cursor:pointer;line-height:1.45}
   .supersede input{margin-top:2px;flex:0 0 auto}
   .pocnote-x{border:1px solid var(--line2);border-radius:8px;padding:9px 12px;margin:0 0 16px;background:var(--panel)}
@@ -78,7 +85,6 @@
   .idx--ok{background:#E9F6EE;color:#1C6B3D}
   .idx--warn{background:#FDF3E0;color:#8A5A00}
   .idx--bad{background:#FCEBEA;color:#9B2C22}
-  .rowact{display:inline-flex;gap:5px;flex-wrap:wrap}
   /* the persistent ingestion batch — the list IS the progress meter */
   .qlb{border:1px solid var(--line2);border-radius:var(--r);background:var(--panel);margin:0 0 18px;overflow:hidden}
   .qlb-head{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line2);font-size:13.5px}
