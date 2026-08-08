@@ -867,7 +867,9 @@ const EMBED_PIPELINES = new Set(["qlegal-embed", "atlas-embed"]);
 const EMBED_ALLOWED = {
   openai: ["text-embedding-3-small", "text-embedding-3-large"],
   google: ["gemini-embedding-001"],
-  zai: ["embedding-3", "embedding-2"],   // wallet key required; verify with the embed health probe after switching
+  // Z.AI is deliberately absent: even on a funded key its own documented
+  // embedding names return 1211 "Unknown Model". Offering them would invite the
+  // silent hash-vector downgrade this guard exists to prevent.
 };
 
 // The same law for VISION. Reading a scanned page needs a model that can see; a
