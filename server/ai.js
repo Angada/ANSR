@@ -39,6 +39,7 @@ const OPENAI_BASE = {
   xai: "https://api.x.ai/v1",
   deepseek: "https://api.deepseek.com",
   moonshot: "https://api.moonshot.ai/v1", // Kimi — OpenAI-compatible /chat/completions
+  zai: "https://api.z.ai/api/paas/v4", // Z.AI direct wallet API (OpenAI-compatible) — NOT the /api/anthropic Coding-Plan endpoint
 };
 
 export async function runPipeline(pipelineId, opts = {}) {

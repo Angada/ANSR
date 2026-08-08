@@ -68,7 +68,7 @@ const DEFAULT_CONFIG = {
     anthropic: { label: "Claude", apiKey: "", models: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"] },
     openai:    { label: "OpenAI", apiKey: "", models: ["gpt-5.1", "gpt-5.1-mini", "gpt-4.1", "gpt-4o", "text-embedding-3-small", "text-embedding-3-large"] },
     google:    { label: "Gemini", apiKey: "", models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-embedding-001"] },
-    zai:       { label: "Z.AI", apiKey: "", models: ["glm-5.1", "glm-5", "glm-4.6", "glm-4.6-air", "glm-4.5", "glm-4.5v", "glm-4.5-x", "glm-4.5-air", "glm-4.5-airx", "glm-4.5-flash", "glm-z1-air", "glm-z1-flash", "glm-z1-rumination", "glm-4-plus", "glm-4-long", "embedding-3", "embedding-2"], baseURL: "https://api.z.ai/api/anthropic" },
+    zai:       { label: "Z.AI", apiKey: "", models: ["glm-5.1", "glm-5", "glm-4.6", "glm-4.6-air", "glm-4.5", "glm-4.5v", "glm-4.5-x", "glm-4.5-air", "glm-4.5-airx", "glm-4.5-flash", "glm-z1-air", "glm-z1-flash", "glm-z1-rumination", "glm-4-plus", "glm-4-long", "embedding-3", "embedding-2"] }, // standard wallet API → OPENAI_BASE (paas/v4); the /api/anthropic endpoint needs a Coding Plan, not wallet balance
     xai:       { label: "x.AI", apiKey: "", models: ["grok-4", "grok-3", "grok-3-mini"] },
     deepseek:  { label: "DeepSeek", apiKey: "", models: ["deepseek-chat", "deepseek-reasoner"] },
     moonshot:  { label: "Kimi (Moonshot)", apiKey: "", models: ["kimi-k3", "kimi-k2.6", "kimi-k2.7-code"] }, // OpenAI-compatible → OPENAI_BASE in ai.js (no baseURL)
@@ -300,7 +300,7 @@ function mergeDefaults(cfg) {
   const providers = { ...DEFAULT_CONFIG.providers };
   // model lists are code-defined (not user data) — always take the latest from
   // DEFAULT so new models appear even over a saved config; keep saved apiKey/baseURL.
-  for (const [id, p] of Object.entries(cfg.providers || {})) providers[id] = { ...DEFAULT_CONFIG.providers[id], ...p, models: DEFAULT_CONFIG.providers[id]?.models || p.models };
+  for (const [id, p] of Object.entries(cfg.providers || {})) providers[id] = { ...DEFAULT_CONFIG.providers[id], ...p, models: DEFAULT_CONFIG.providers[id]?.models || p.models, baseURL: DEFAULT_CONFIG.providers[id]?.baseURL }; // baseURL is code-defined (never persisted-override) — so endpoint changes take effect
   const pipelines = { ...DEFAULT_CONFIG.pipelines };
   for (const [id, p] of Object.entries(cfg.pipelines || {})) {
     const d = DEFAULT_CONFIG.pipelines[id] || {};
