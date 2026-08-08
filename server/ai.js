@@ -33,7 +33,7 @@ function stubReply(id, user) {
 // images (optional): [{ media_type, data(base64) }] — sent as vision content
 // blocks alongside the user text (Anthropic-compatible vision, e.g. Claude).
 // OpenAI-compatible chat endpoints, mirroring vision.js so both transports agree.
-const OPENAI_BASE = {
+export const OPENAI_BASE = {
   openai: "https://api.openai.com/v1",
   google: "https://generativelanguage.googleapis.com/v1beta/openai",
   xai: "https://api.x.ai/v1",

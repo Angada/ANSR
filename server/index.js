@@ -16,7 +16,7 @@ import { putOriginal, putExtract, getExtract, listExtracts, usingBucket } from "
 import { stubRun, stubOps, stubContracts, stubContract, stubRuns, stubAnalysis, stubInvoice } from "./stub.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { inferMapping, detectIssues, summarizeIssues, CANONICAL } from "./roster.js";
-import { runPipeline, aiMap, buildContext } from "./ai.js";
+import { runPipeline, aiMap, buildContext, OPENAI_BASE } from "./ai.js";
 import { saveLedger, computeAndPersist, getRuleBook, runWorkedExamples, federation, epidemiology } from "./engine/run.js";
 import { parseDate } from "./engine/normalize.js";
 import { mountWhisperer } from "./whisperer.js";
@@ -946,6 +946,19 @@ app.post("/api/providers/:id/test", async (req, res) => {
       const emb = names.filter((n) => n.includes("embedding"));
       return res.json({ ok: true, ms: Date.now() - t0,
         detail: `live ok · ${names.length} models${emb.length ? ` · embeddings: ${emb.slice(0, 3).join(", ")}` : ""}` });
+    }
+    // generic OpenAI-compatible providers (zai, moonshot, xai, deepseek) — their OWN direct
+    // endpoint; a tiny chat ping proves key + model + balance (never via Anthropic).
+    const base = OPENAI_BASE[id];
+    if (base) {
+      const r = await fetch(base + "/chat/completions", {
+        method: "POST", headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+        body: JSON.stringify({ model, max_tokens: 1, messages: [{ role: "user", content: "ping" }] }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return res.json({ ok: false, detail: `HTTP ${r.status}: ${String(j?.error?.message || JSON.stringify(j)).slice(0, 140)}` });
+      return res.json({ ok: true, detail: `live ok · ${model}`, ms: Date.now() - t0 });
     }
     return res.json({ ok: true, detail: "key present (live test not wired for this provider)" });
   } catch (e) {
