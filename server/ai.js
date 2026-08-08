@@ -38,6 +38,7 @@ const OPENAI_BASE = {
   google: "https://generativelanguage.googleapis.com/v1beta/openai",
   xai: "https://api.x.ai/v1",
   deepseek: "https://api.deepseek.com",
+  moonshot: "https://api.moonshot.ai/v1", // Kimi — OpenAI-compatible /chat/completions
 };
 
 export async function runPipeline(pipelineId, opts = {}) {

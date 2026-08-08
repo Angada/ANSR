@@ -71,6 +71,7 @@ const DEFAULT_CONFIG = {
     zai:       { label: "Z.AI", apiKey: "", models: ["glm-5.1", "glm-5", "glm-4.6", "glm-4.6-air", "glm-4.5", "glm-4.5v", "glm-4.5-x", "glm-4.5-air", "glm-4.5-airx", "glm-4.5-flash", "glm-z1-air", "glm-z1-flash", "glm-z1-rumination", "glm-4-plus", "glm-4-long", "embedding-3", "embedding-2"], baseURL: "https://api.z.ai/api/anthropic" },
     xai:       { label: "x.AI", apiKey: "", models: ["grok-4", "grok-3", "grok-3-mini"] },
     deepseek:  { label: "DeepSeek", apiKey: "", models: ["deepseek-chat", "deepseek-reasoner"] },
+    moonshot:  { label: "Kimi (Moonshot)", apiKey: "", models: ["kimi-k3", "kimi-k2.6", "kimi-k2.7-code"] }, // OpenAI-compatible → OPENAI_BASE in ai.js (no baseURL)
   },
   // Q&ANSR AI-pipeline registry, grouped by product. kind: deterministic | llm | hybrid.
   // Only enabled llm/hybrid pipelines may call a provider. Each carries an editable prompt.
