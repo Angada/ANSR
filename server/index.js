@@ -866,6 +866,8 @@ app.post("/api/pipelines/default", (req, res) => {
 const EMBED_PIPELINES = new Set(["qlegal-embed", "atlas-embed"]);
 const EMBED_ALLOWED = {
   openai: ["text-embedding-3-small", "text-embedding-3-large"],
+  google: ["gemini-embedding-001"],
+  zai: ["embedding-3", "embedding-2"],   // wallet key required; verify with the embed health probe after switching
 };
 
 // The same law for VISION. Reading a scanned page needs a model that can see; a
