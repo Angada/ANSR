@@ -517,9 +517,15 @@ export async function ingestFile(f, { source = "upload", spItemId = null, spMeta
 // ---- registers: answer every active standing question for one document ------
 // One gated call per document covering all registers (cheap + consistent).
 // Persisted per document, so a sweep over the estate is resumable.
-async function runRegisters(docId, { c1, docType } = {}) {
-  const regs = (await q(`select id, code, name, question, extract_hint, doc_types from ql_register where status='active' order by id`)).rows;
-  const applicable = regs.filter((r) => !(r.doc_types || []).length || (docType && (r.doc_types || []).map(String).some((t) => t.toLowerCase() === String(docType).toLowerCase())));
+async function runRegisters(docId, { c1, docType, setName = null, ignoreScope = false } = {}) {
+  const regs = (await q(`select id, code, name, question, extract_hint, doc_types, set_name from ql_register where status='active' order by id`)).rows;
+  // Scope: a question runs when it is estate-wide, or its doc_types match this
+  // contract. A reviewer who explicitly picks a SET overrides that — asking a
+  // lease's questions of an unclassified scan is a legitimate thing to want.
+  const inSet = (r) => !setName || String(r.set_name || "Estate-wide") === setName;
+  const applicable = regs.filter((r) => inSet(r) && (
+    (setName && ignoreScope) || !(r.doc_types || []).length ||
+    (docType && (r.doc_types || []).map(String).some((t) => t.toLowerCase() === String(docType).toLowerCase()))));
   if (!applicable.length) return 0;
   // read from the NEWEST version that actually has a transcript — a later errored
   // upload must not leave the document permanently unanswerable
@@ -888,7 +894,7 @@ export function mountQLegal(app, upload) {
     const confirms = (await q(`select * from ql_confirm where document_id=$1 and status='open' order by id`, [id])).rows;
     // this document's answer to every standing question the team has defined
     const registers = (await q(
-      `select h.id, h.present, h.answer, h.value, h.refs, h.status, r.id as register_id, r.name, r.question
+      `select h.id, h.present, h.answer, h.value, h.refs, h.status, r.id as register_id, r.name, r.question, coalesce(r.set_name,'Estate-wide') as set_name
          from ql_register_hit h join ql_register r on r.id=h.register_id
         where h.document_id=$1 and r.status='active' order by r.builtin desc, r.id`, [id]
     )).rows;
@@ -1369,6 +1375,48 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
   });
 
   // ---- Registers — the open-ended layer: whatever the legal team asks ----------
+  // The SETS a reviewer can run: which contract types each targets, how many
+  // questions it holds, and — for one document — whether it fits that contract.
+  app.get("/api/qlegal/register-sets", async (req, res) => {
+    const docId = req.query.document_id ? Number(req.query.document_id) : null;
+    const docType = docId
+      ? (await q(`select doc_type from ql_document where id=$1`, [docId])).rows[0]?.doc_type || null
+      : null;
+    const rows = (await q(
+      `select coalesce(set_name,'Estate-wide') as set_name, count(*)::int as questions,
+              coalesce(jsonb_agg(distinct t) filter (where t is not null), '[]'::jsonb) as doc_types
+         from ql_register r left join lateral jsonb_array_elements_text(coalesce(r.doc_types,'[]'::jsonb)) t on true
+        where r.status='active' group by 1 order by (coalesce(set_name,'Estate-wide')='Estate-wide') desc, 1`
+    )).rows;
+    const sets = rows.map((r) => {
+      const types = (r.doc_types || []).map(String);
+      const fits = !types.length || (docType && types.some((t) => t.toLowerCase() === String(docType).toLowerCase()));
+      return { ...r, doc_types: types, recommended: !!(docType && fits && types.length), fits };
+    });
+    let answered = {};
+    if (docId) {
+      const a = (await q(
+        `select coalesce(r.set_name,'Estate-wide') s, count(*)::int c
+           from ql_register_hit h join ql_register r on r.id=h.register_id
+          where h.document_id=$1 group by 1`, [docId])).rows;
+      answered = Object.fromEntries(a.map((x) => [x.s, x.c]));
+    }
+    res.json({ sets: sets.map((x) => ({ ...x, answered: answered[x.set_name] || 0 })), doc_type: docType });
+  });
+
+  // Run ONE set against ONE contract — the reviewer's "answer these for this
+  // contract" action, rather than sweeping the estate.
+  app.post("/api/qlegal/document/:id/registers/run", async (req, res) => {
+    const id = Number(req.params.id);
+    const set = clip(req.body?.set, 80).trim();
+    try {
+      const d = (await q(`select doc_type from ql_document where id=$1`, [id])).rows[0];
+      if (!d) return res.status(404).json({ error: "not found" });
+      const n = await runRegisters(id, { docType: d.doc_type, setName: set || null, ignoreScope: true });
+      res.json({ ok: true, answered: n, set: set || "all applicable" });
+    } catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
+  });
+
   app.get("/api/qlegal/registers", async (_req, res) => {
     const registers = (await q(
       `select r.*,

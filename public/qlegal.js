@@ -333,7 +333,7 @@ window.viewLayer = async (id, which, ev) => {
 };
 function renderRegistry() {
   const host = $("#view-registry");
-  if (OPEN) { host.innerHTML = wikiView(); sequenceReveal(host, ".reveal", 120, 50); return; }
+  if (OPEN) { host.innerHTML = wikiView(); sequenceReveal(host, ".reveal", 120, 50); loadSetPicker(OPEN.document.id); return; }
   const notReady = READY && READY.ready === false;
   const warn = notReady ? `<div class="wikicard reveal" style="border-left:3px solid var(--red);margin-bottom:16px">
       <div class="rsec-lbl" style="color:var(--red)">Can't ingest contracts right now</div>
@@ -591,13 +591,26 @@ function wikiView() {
   // registers · notice · obligations · family · wikis (importance order)
   const P = { yes: "due-ok", no: "due-none", unclear: "due-soon" };
   const regs = (OPEN.registers || []);
-  const regCard = regs.length ? `<div class="wikicard reveal"><div class="rsec-lbl">Standing questions · this contract's answers</div>
-      ${regs.map((r) => `<div style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)">
-        <span class="duechip ${P[r.present] || "due-none"}">${esc(r.present)}</span>
-        <span style="flex:1;min-width:220px;font-size:13px;line-height:1.5"><b>${esc(r.name)}</b>${r.value ? ` · ${esc(r.value)}` : ""}<div class="am" style="margin-top:2px">${esc(r.answer || "")}</div></span>
-        ${(r.refs || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" ")}
-        <button class="btn small touch" onclick="fixHit(${r.id},'${esc(r.present)}','${esc(r.answer || "").replace(/'/g, "&#39;")}','${esc(r.value || "").replace(/'/g, "&#39;")}')">Correct</button>
-      </div>`).join("")}</div>` : "";
+  // Grouped by SET, with the sets that fit this contract type offered to run.
+  // A reviewer opening an NDA wants the NDA questions, not a flat list of
+  // everything the estate happens to ask.
+  const bySet = {};
+  regs.forEach((r) => { (bySet[r.set_name || "Estate-wide"] = bySet[r.set_name || "Estate-wide"] || []).push(r); });
+  const answerRow = (r) => `<div style="display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line)">
+      <span class="duechip ${P[r.present] || "due-none"}">${esc(r.present)}</span>
+      <span style="flex:1;min-width:220px;font-size:13px;line-height:1.5"><b>${esc(r.name)}</b>${r.value ? ` · ${esc(r.value)}` : ""}<div class="am" style="margin-top:2px">${esc(r.answer || "")}</div></span>
+      ${(r.refs || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" ")}
+      <button class="btn small touch" onclick="fixHit(${r.id},'${esc(r.present)}','${esc(r.answer || "").replace(/'/g, "&#39;")}','${esc(r.value || "").replace(/'/g, "&#39;")}')">Correct</button>
+    </div>`;
+  const setPicker = `<div id="setpick" class="am">loading question sets…</div>`;
+  const regCard = `<div class="wikicard reveal"><div class="rsec-lbl">Standing questions · this contract's answers</div>
+      ${setPicker}
+      ${Object.entries(bySet).map(([set, items]) => `
+        <div style="margin-top:14px">
+          <div class="am" style="font-weight:600;color:var(--txt);margin-bottom:4px">${esc(set)} · ${items.length}</div>
+          ${items.map(answerRow).join("")}
+        </div>`).join("") || '<div class="am" style="margin-top:8px">No answers yet — run a question set above.</div>'}
+    </div>`;
   const notice = c2.notice || {};
   // Obligations & notifications — grouped by WHAT YOU MUST DO, with the deadline
   // as the first thing you read. A flat bullet list buried the number that matters.
@@ -683,6 +696,32 @@ window.reindexDoc = async (id) => {
   if (j.error) return rdAlert("Re-index failed", j.error);
   openDoc(id);
 };
+// The question sets available for this contract: the ones matching its type are
+// recommended, the rest are still offered — a reviewer may deliberately ask a
+// lease's questions of an unclassified scan.
+async function loadSetPicker(docId) {
+  const host = document.getElementById("setpick"); if (!host) return;
+  let j; try { j = await (await fetch(`/api/qlegal/register-sets?document_id=${docId}`)).json(); } catch { host.textContent = ""; return; }
+  const sets = j.sets || [];
+  host.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:7px;align-items:center">
+    <span class="am">Run a question set:</span>
+    ${sets.map((x) => `<button class="fchip touch ${x.recommended ? "on" : ""}"
+        title="${esc(x.doc_types.length ? "for " + x.doc_types.join(", ") : "applies to every contract")}${x.answered ? ` · ${x.answered} already answered` : ""}"
+        onclick="runDocSet(${docId},'${esc(x.set_name).replace(/'/g, "&#39;")}')">${x.recommended ? "★ " : ""}${esc(x.set_name)}<span class="n">${x.answered ? x.answered + "/" : ""}${x.questions}</span></button>`).join("")}
+  </div>${j.doc_type ? `<div class="am" style="margin-top:5px">★ recommended for a <b>${esc(j.doc_type)}</b>. Answers are added, never replaced — your corrections stay.</div>`
+    : `<div class="am" style="margin-top:5px">Classify this contract (Legal setting, above) and the matching set is recommended automatically.</div>`}`;
+}
+window.runDocSet = async (docId, set) => {
+  const host = document.getElementById("setpick");
+  if (host) host.innerHTML = `<div class="cmstep now"><span class="cmi"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""></span><span>answering the ${esc(set)} questions for this contract…</span></div>`;
+  try {
+    const r = await (await fetch(`/api/qlegal/document/${docId}/registers/run`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ set }) })).json();
+    if (r.error) { rdAlert("Could not run the set", r.error); return openDoc(docId); }
+    await openDoc(docId);
+    rdAlert("Answered", `${r.answered} question${r.answered === 1 ? "" : "s"} from “${set}” answered for this contract.`);
+  } catch (e) { rdAlert("Could not run the set", String(e.message || e)); openDoc(docId); }
+};
+
 window.setDocCategory = async (id, name) => {
   await fetch(`/api/qlegal/document/${id}/category`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ doc_type: name }) });
   await loadRegistry(); await loadCats(); loadConfirmCount().then(renderNav); openDoc(id);
