@@ -97,7 +97,23 @@ export async function runPipeline(pipelineId, opts = {}) {
           text: `AI error: ${useProvider}:${useModel} ${r.status} — ${String(j?.error?.message || JSON.stringify(j)).slice(0, 160)}`,
           fallback: stubReply(p.id, user) };
       }
-      const text = String(j.choices?.[0]?.message?.content || "").trim();
+      // content is usually a string, but some OpenAI-compatible gateways (and
+      // "thinking" variants) return it as an array of parts — coalesce both.
+      const msg = j.choices?.[0]?.message || {};
+      const text = String(
+        typeof msg.content === "string" ? msg.content
+          : Array.isArray(msg.content) ? msg.content.map((c) => c?.text || c?.content || "").join("")
+          : ""
+      ).trim();
+      // A 200 with empty content is a SILENT failure — a reasoning/thinking model
+      // that spent its whole token budget before answering, or a truncation. RayDar
+      // read that blank as "0 ideas" and the provider looked broken. Say what happened.
+      if (!text) {
+        const finish = j.choices?.[0]?.finish_reason;
+        return { mode: "error", pipeline: p.id, provider: useProvider, model: useModel,
+          text: `AI error: ${useProvider}:${useModel} returned empty content${finish ? ` (finish_reason: ${finish})` : ""}${finish === "length" ? " — raise maxTokens for this pipeline" : ""}`,
+          fallback: stubReply(p.id, user) };
+      }
       return { mode: "ai", pipeline: p.id, provider: useProvider, model: useModel, text };
     } catch (e) {
       return { mode: "error", pipeline: p.id, provider: useProvider, model: useModel,
