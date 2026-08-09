@@ -39,7 +39,7 @@ export const OPENAI_BASE = {
   xai: "https://api.x.ai/v1",
   deepseek: "https://api.deepseek.com",
   moonshot: "https://api.moonshot.ai/v1", // Kimi — OpenAI-compatible /chat/completions
-  zai: "https://api.z.ai/api/paas/v4", // Z.AI direct wallet API (OpenAI-compatible) — NOT the /api/anthropic Coding-Plan endpoint
+  zai: "https://api.z.ai/api/paas/v4", // Z.AI pay-as-you-go wallet (OpenAI-compatible). Only used if the zai provider's baseURL is cleared; by DEFAULT zai carries baseURL=api.z.ai/api/anthropic (its Coding-Plan endpoint, where this account's balance lives) and takes the Anthropic-SDK path instead.
 };
 
 export async function runPipeline(pipelineId, opts = {}) {
