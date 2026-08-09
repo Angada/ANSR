@@ -33,6 +33,10 @@ function stubReply(id, user) {
 // images (optional): [{ media_type, data(base64) }] — sent as vision content
 // blocks alongside the user text (Anthropic-compatible vision, e.g. Claude).
 // OpenAI-compatible chat endpoints, mirroring vision.js so both transports agree.
+// Appended to the system prompt when a pipeline wants JSON. Claude infers this;
+// GLM/Kimi need it spelled out or they wrap the JSON in prose / code fences.
+const JSON_ONLY = "Output ONLY a single valid JSON value — no markdown, no code fences, no commentary before or after.";
+
 export const OPENAI_BASE = {
   openai: "https://api.openai.com/v1",
   google: "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -50,12 +54,26 @@ export async function runPipeline(pipelineId, opts = {}) {
   // Fail loudly instead of pretending to run.
   if (typeof opts !== "object" || opts === null || Array.isArray(opts))
     return { mode: "error", pipeline: pipelineId, text: `runPipeline("${pipelineId}") was called with a ${typeof opts}, not an options object — expected { system, user, maxTokens }` };
-  const { system = "", user = "", images = [], maxTokens = 800, provider, model } = opts;
+  const { system = "", user = "", images = [], maxTokens, provider, model, temperature, json } = opts;
   const cfg = loadConfig();
   const p = cfg.pipelines[pipelineId];
   if (!p) return { mode: "error", text: `unknown pipeline: ${pipelineId}` };
   if (p.kind === "deterministic") return { mode: "deterministic", pipeline: p.id, text: "" };
   if (!p.enabled) return { mode: "disabled", pipeline: p.id, text: "This AI step is disabled in Admin." };
+
+  // Tuning knobs (resolved opts > pipeline-config > sensible default). These help
+  // weaker/cheaper models the most: Claude follows loose prompts at high temp fine,
+  // but GLM/Kimi wander and pad without a low temperature + a strict-JSON nudge.
+  //  · temperature 0.3 default keeps extraction/analysis steps consistent across
+  //    providers; creative steps (e.g. idea generation) set their own higher value.
+  //  · json=true appends a "JSON only" instruction and, on OpenAI-compatible
+  //    providers, sets response_format:json_object (the anthropic path — where GLM
+  //    now rides — has no such param, so JSON discipline there is prompt-driven).
+  //  · effective token cap is max(caller, pipeline floor): raises budgets for the
+  //    chattier models on truncation-prone steps without lowering any caller value.
+  const wantJson = json ?? p.json ?? false;
+  const temp = temperature ?? p.temperature ?? 0.3;
+  const cap = Math.max(Number(maxTokens) || 0, Number(p.maxTokens) || 0) || 800;
 
   const useProvider = provider || p.provider, useModel = model || p.model;
   const prov = cfg.providers[useProvider] || {};
@@ -81,10 +99,12 @@ export async function runPipeline(pipelineId, opts = {}) {
         ? [...(user ? [{ type: "text", text: user }] : []),
            ...images.map((im) => ({ type: "image_url", image_url: { url: `data:${im.media_type || "image/png"};base64,${im.data}` } }))]
         : (user || "");
-      const sys = [p.prompt || "", system].filter(Boolean).join("\n\n");
+      const sys = [p.prompt || "", system, wantJson ? JSON_ONLY : ""].filter(Boolean).join("\n\n");
+      const reasoning = /^(gpt-5|o[1-9])/.test(String(useModel)); // reasoning models reject temperature + use max_completion_tokens
       const body = { model: useModel, messages: [...(sys ? [{ role: "system", content: sys }] : []), { role: "user", content }] };
-      // newer OpenAI models reject max_tokens and require max_completion_tokens
-      body[/^(gpt-5|o[1-9])/.test(String(useModel)) ? "max_completion_tokens" : "max_tokens"] = maxTokens;
+      if (!reasoning && temp != null) body.temperature = temp;
+      if (wantJson) body.response_format = { type: "json_object" };
+      body[reasoning ? "max_completion_tokens" : "max_tokens"] = cap;
       const r = await fetch(base + "/chat/completions", {
         method: "POST",
         headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
@@ -129,8 +149,9 @@ export async function runPipeline(pipelineId, opts = {}) {
         ]
       : (user || "");
     const r = await client.messages.create({
-      model: useModel, max_tokens: maxTokens,
-      system: [p.prompt || "", system].filter(Boolean).join("\n\n"),
+      model: useModel, max_tokens: cap,
+      ...(temp != null ? { temperature: temp } : {}),
+      system: [p.prompt || "", system, wantJson ? JSON_ONLY : ""].filter(Boolean).join("\n\n"),
       messages: [{ role: "user", content }],
     });
     const text = (r.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();

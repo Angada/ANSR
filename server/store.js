@@ -242,7 +242,7 @@ const DEFAULT_CONFIG = {
       prompt: "Given an idea and research results, return STRICT JSON {\"evidence\":[{\"claim\":\"...\",\"source\":\"url\"}],\"contradictions\":[{\"claim\":\"...\",\"conflict\":\"...\"}]}. Only cite what the sources support." },
     "feedstory-generate": { id: "feedstory-generate", product: "RayDar", name: "Idea Generation", kind: "llm",
       description: "Turn a matched (demand × trend) into a content idea: a HEADING + a TOPIC GUIDE (brief) routed to a 1Up franchise — never finished content. Classified + justified.",
-      provider: "anthropic", model: "claude-opus-4-8", skills: ["raydar"], enabled: true,
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["raydar"], enabled: true, json: true, temperature: 0.6, // JSON output but needs creative justifications — mid temperature keeps variety without breaking the JSON
       prompt: "Produce a content idea as STRICT JSON {\"title\":\"a short, punchy, SEO-optimized title, <=60 chars, no clickbait\",\"heading\":\"the full headline / hook for the piece\",\"summary\":\"...\",\"topic_guide\":{\"take\":\"...\",\"beats\":[\"...\"],\"proof\":[\"...\"]},\"why_now\":\"...\",\"why_relevant\":\"...\",\"why_cohort\":\"...\",\"one_up\":\"...\",\"emotional_framework\":\"...\",\"emotional_register\":\"a SHORT label only, e.g. Anxiety / FOMO / Optimism / Ambition — never a sentence\"}. 'title' and 'heading' are the key deliverables: title is the tight optimized title, heading is the fuller headline. The output is a title + headline + brief for a writer — do NOT write the finished piece. Be scientific AND creative in the justifications." },
 
     "raydar-theme-compile": { id: "raydar-theme-compile", product: "RayDar", name: "Theme Compiler", kind: "llm",
@@ -307,7 +307,9 @@ function mergeDefaults(cfg) {
     // user keeps runtime choices (provider/model/enabled/prompt); code-defined
     // descriptive fields (name/description/skills/kind) always take the latest
     // from DEFAULT so registry edits propagate over a saved config.
-    pipelines[id] = { ...d, ...p, product: d.product ?? p.product, name: d.name ?? p.name, description: d.description ?? p.description, skills: d.skills ?? p.skills, kind: d.kind ?? p.kind };
+    // temperature/json/maxTokens are tuning knobs owned by code (like name/skills),
+    // so registry-level tuning always takes the latest default over a saved config.
+    pipelines[id] = { ...d, ...p, product: d.product ?? p.product, name: d.name ?? p.name, description: d.description ?? p.description, skills: d.skills ?? p.skills, kind: d.kind ?? p.kind, temperature: d.temperature ?? p.temperature, json: d.json ?? p.json, maxTokens: d.maxTokens ?? p.maxTokens };
   }
   return { ...DEFAULT_CONFIG, ...cfg, providers, pipelines, integrations: { ...(cfg.integrations || {}) } };
 }
