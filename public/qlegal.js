@@ -751,6 +751,12 @@ window.delDoc = (id, name) => rdConfirm("Purge this contract?",
 const QST = colfState();
 const REGQ_COLS = [
   { key: "name", label: "Standing question", get: (r) => r.name, noFilter: true },
+  // A set is the bundle a reviewer runs; applies-to is which contract types it
+  // is offered for. Both are filter headers, so "show me the Lease questions"
+  // is a click rather than a scroll.
+  { key: "set", label: "Set", get: (r) => r.set_name || "Estate-wide" },
+  { key: "types", label: "Applies to", get: (r) => ((r.doc_types || []).length ? r.doc_types.map(String) : ["Every contract"]),
+    hint: "Contract types this question is asked of" },
   { key: "builtin", label: "Origin", get: (r) => (r.builtin ? "built-in" : "yours") },
   { key: "yes", label: "Yes", num: true, get: (r) => Number(r.yes_count) || 0, sortLabels: ["Fewest yes", "Most yes"] },
   { key: "unclear", label: "Unclear", num: true, get: (r) => Number(r.unclear_count) || 0, sortLabels: ["Fewest unclear", "Most unclear"] },
@@ -768,9 +774,11 @@ async function renderRegisters() {
   const QROWS = colfSort(REGQ_COLS, QST, colfRows(REGQ_COLS, QST, REGISTERS));
   const rows = QROWS.map((r) => {
     const answered = Number(r.answered), pending = Math.max(0, REG_TOTAL - answered);
-    return `<tr class="clk touch" data-k="${esc((r.name + " " + r.question).toLowerCase())}" onclick="openRegister(${r.id})">
+    return `<tr class="clk touch" data-k="${esc((r.name + " " + r.question + " " + (r.set_name || "estate-wide") + " " + (r.doc_types || []).join(" ")).toLowerCase())}" onclick="openRegister(${r.id})">
       <td><b>${esc(r.name)}</b>${r.builtin ? ' <span class="tagchip">built-in</span>' : ""}
         <div class="am" style="max-width:60ch;margin-top:3px">${esc(r.question)}</div></td>
+      <td><span class="typebadge">${esc(r.set_name || "Estate-wide")}</span></td>
+      <td>${((r.doc_types || []).length ? r.doc_types : ["Every contract"]).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ")}</td>
       <td><span class="duechip due-ok">${r.yes_count} yes</span></td>
       <td>${Number(r.unclear_count) ? `<span class="duechip due-soon">${r.unclear_count} unclear</span>` : "<span class='am'>—</span>"}</td>
       <td class="am">${answered}/${REG_TOTAL}${pending ? ` <span style="color:var(--amber)">· ${pending} pending</span>` : ""}</td>
@@ -780,6 +788,15 @@ async function renderRegisters() {
   }).join("");
   const pendingAny = REGISTERS.some((r) => Number(r.answered) < REG_TOTAL);
   host.innerHTML = `<p class="intro"><b>STANDING QUESTIONS</b> — write a question once, in plain English; it is answered for <b>every contract</b> (now and future) with § evidence. An infinite set of "which of our contracts…" becomes instant, filterable columns.</p>
+    ${(() => {
+      const bySet = {};
+      REGISTERS.forEach((r) => { const k = r.set_name || "Estate-wide"; bySet[k] = (bySet[k] || 0) + 1; });
+      const active = (QST.sel.set && QST.sel.set.size) ? [...QST.sel.set] : [];
+      return Object.keys(bySet).length > 1 ? `<div class="fstrip" style="margin-bottom:12px">
+        <span class="fchip touch ${active.length ? "" : "on"}" onclick="pickSet(null)">All sets<span class="n">${REGISTERS.length}</span></span>
+        ${Object.entries(bySet).sort().map(([k, n]) => `<span class="fchip touch ${active.includes(k) ? "on" : ""}" onclick="pickSet('${esc(k).replace(/'/g, "&#39;")}')">${esc(k)}<span class="n">${n}</span></span>`).join("")}
+      </div>` : "";
+    })()}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
       <button class="btn btn--primary touch" onclick="addRegister()">+ Ask a standing question</button>
       ${pendingAny ? `<button class="btn btn--org touch" onclick="runRegisterSweep(null)">Answer across the estate ▸</button>` : ""}
@@ -791,6 +808,14 @@ async function renderRegisters() {
   if (REGISTERS.length) colfWire(REGQ_COLS, QST, REGISTERS, renderRegisters);
   sequenceReveal(host, ".reveal", 120, 60);
 }
+// The set chips and the Set column header drive ONE filter state, so the strip
+// and the header can never disagree about what is being shown.
+window.pickSet = (set) => {
+  const sel = QST.sel.set || (QST.sel.set = new Set());
+  sel.clear();
+  if (set) sel.add(set);
+  renderRegisters();
+};
 window.openRegister = async (id) => {
   try { REG_OPEN = await (await fetch(`/api/qlegal/register/${id}/hits`)).json(); } catch { return; }
   renderRegisters(); window.scrollTo({ top: 0, behavior: "smooth" });
