@@ -864,13 +864,15 @@ app.post("/api/pipelines/default", (req, res) => {
 // choice is restricted to what is known to work, and the restriction lives on the
 // SERVER: a dropdown that only offers valid options is a suggestion, not a gate.
 const EMBED_PIPELINES = new Set(["qlegal-embed", "atlas-embed"]);
-const EMBED_ALLOWED = {
-  openai: ["text-embedding-3-small", "text-embedding-3-large"],
-  google: ["gemini-embedding-001"],
-  // Z.AI is deliberately absent: even on a funded key its own documented
-  // embedding names return 1211 "Unknown Model". Offering them would invite the
-  // silent hash-vector downgrade this guard exists to prevent.
-};
+// Embeddings are LOCKED, not merely restricted. Two reasons, both learned here:
+// Z.AI answers 1211 "Unknown Model" for its own documented embedding names even
+// on a funded key, and — the deeper one — swapping an embedding model silently
+// invalidates every vector already stored, because a different model is a
+// different vector space. The estate would keep answering, with quietly
+// meaningless similarity. The only safe change is a deliberate re-embed of the
+// whole corpus, which is not something a dropdown should be able to start.
+const EMBED_LOCK = { provider: "openai", model: "text-embedding-3-small" };
+const EMBED_ALLOWED = { openai: [EMBED_LOCK.model] };
 
 // The same law for VISION. Reading a scanned page needs a model that can see; a
 // text-only model cannot, and pointing a vision step at one produces empty pages
@@ -894,8 +896,14 @@ function pipelineRoleError(pid, wantP, wantM) {
     if (!getApiKey(wantP)) return { error: `No API key saved for ${wantP}. Add it in Admin → Vault before pointing ${role} at it.` };
     return null;
   };
-  if (EMBED_PIPELINES.has(pid)) return check(EMBED_ALLOWED, "embeddings",
+  if (EMBED_PIPELINES.has(pid)) {
+    if (wantP !== EMBED_LOCK.provider || wantM !== EMBED_LOCK.model) return {
+      error: `Embeddings are locked to ${EMBED_LOCK.provider}:${EMBED_LOCK.model} and cannot be swapped.`,
+      why: "Every stored vector lives in this model's vector space. Pointing the step at another model does not re-embed anything — it leaves the estate answering with quietly meaningless similarity. Changing it safely means re-embedding the whole corpus deliberately, not switching a dropdown.",
+    };
+    return check(EMBED_ALLOWED, "embeddings",
     "Z.AI rejects its own documented embedding model names, Anthropic has no embeddings endpoint, and a chat model cannot embed at all — each falls back to key-free hash vectors that look like success while making semantic search keyword-grade.");
+  }
   if (VISION_PIPELINES.has(pid)) return check(VISION_ALLOWED, "vision / OCR",
     "A text-only model cannot read a page image. Pointing the reader at one returns empty pages, which reads as a bad scan rather than a bad setting.");
   return null;

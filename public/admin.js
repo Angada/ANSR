@@ -248,6 +248,7 @@ window.makeDefault = async (id) => {
 // ---- pipelines grouped by product ----
 // AI Skills — grouped by product; each skill a card with capability · routing ·
 // prompt · gate (TKB "AI Skills" design). Every pipeline behind the app appears.
+const LOCKED_PIPELINES = new Set(["qlegal-embed", "atlas-embed"]);
 const CAP_COLOR = { deterministic: "#8a8a8a", llm: "#c0392b", hybrid: "#0a7d78" };
 let SKILL_FILTER = "All";
 const PROD_ORDER = ["RayDar", "Mint", "Atlas"];
@@ -282,6 +283,9 @@ function skillCard(p) {
   const det = p.kind === "deterministic";
   const prov = CFG.providers[p.provider] || {};
   const cap = CAP_COLOR[p.kind] || "#888";
+  // The embedding step is not routable: see the server's EMBED_LOCK. Offering a
+  // dropdown the server will refuse is worse than showing the lock.
+  const locked = LOCKED_PIPELINES.has(p.id);
   const provOpts = Object.entries(CFG.providers).map(([id, pr]) => `<option value="${id}" ${p.provider === id ? "selected" : ""}>${esc(pr.label)}${pr.hasKey ? "" : " · no key"}</option>`).join("");
   const modelOpts = (prov.models || []).map((m) => `<option ${p.model === m ? "selected" : ""}>${m}</option>`).join("");
   const resolved = det ? "deterministic — no model call"
@@ -295,7 +299,9 @@ function skillCard(p) {
         <div class="lbl" style="margin-top:2px">${esc(p.description || "")}</div>
         <div class="lbl" style="margin-top:2px">${resolved}</div>
       </div>
-      ${det ? "" : `
+      ${det ? "" : locked ? `
+        <span class="chip" title="Every stored vector lives in this model's space. Swapping the model does not re-embed anything — it leaves the estate answering with meaningless similarity. Changing it safely means a deliberate re-embed of the whole corpus."
+          style="background:#EEF1F4;color:#44505C;font-weight:600">🔒 locked · ${esc(p.provider)} · ${esc(p.model)}</span>` : `
         <select class="sk-prov" style="max-width:160px" onchange="skSync('${p.id}')">${provOpts}</select>
         <select class="sk-model" style="max-width:180px">${modelOpts}</select>
         <a class="lbl sk-pe" style="cursor:pointer;font-weight:600;color:var(--ansr-orange)" onclick="skPrompt('${p.id}')">prompt ▾</a>`}
@@ -315,9 +321,16 @@ window.skPrompt = (id) => { const w = document.getElementById(`pw-${id}`); w.sty
 window.savePipeline = async (id, det) => {
   const card = document.querySelector(`[data-skl="${id}"]`);
   const body = { enabled: document.getElementById(`en-${id}`).checked };
-  if (!det) { body.provider = card.querySelector(".sk-prov").value; body.model = card.querySelector(".sk-model").value; body.prompt = document.getElementById(`prompt-${id}`)?.value ?? ""; }
+  // A locked step (embeddings) renders no selectors — read them and this throws,
+  // and sending its provider/model would be refused anyway. Only the gate saves.
+  if (!det && !LOCKED_PIPELINES.has(id)) {
+    body.provider = card.querySelector(".sk-prov").value;
+    body.model = card.querySelector(".sk-model").value;
+    body.prompt = document.getElementById(`prompt-${id}`)?.value ?? "";
+  }
   const r = await fetch(`/api/pipelines/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  document.getElementById(`msg-${id}`).textContent = r.ok ? "saved ✓" : "error";
+  const j = await r.json().catch(() => ({}));
+  document.getElementById(`msg-${id}`).textContent = r.ok ? "saved ✓" : (j.error || "error");
   CFG = await (await fetch("/api/config")).json(); renderProducts();
 };
 
