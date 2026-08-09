@@ -24,9 +24,6 @@ let BATCH = null, FR = "all";
 let STAGE = 1;          // 1 hunger · 2 sweeping · 3 ideas
 let VIEW = "sweep";     // sweep | batches | library
 let FRANCHISES = [];
-// NOOB view — a lean "just the ideas" output. Opt-in only (?view=noob or
-// localStorage), so PRO stays pixel-identical until we wire a real switch.
-let MODE = (new URLSearchParams(location.search).get("view") === "noob" || localStorage.getItem("raydar_mode") === "noob") ? "noob" : "pro";
 let EDIT_CONCEPTS = false;
 let GUARD = null;       // guardrails (audience · language · region) from business rules
 let SWEEP_PROMPT = "";  // the user's free-text "anything more to add?" brief
@@ -204,31 +201,11 @@ async function renderBizRules() {
       </div>
     </div>`;
   const byCat = {}; for (const [id, r] of Object.entries(BR)) (byCat[r.category || "other"] ||= []).push([id, r]);
-  host.innerHTML = modeSwitchCard() + `<p class="intro"><b>BUSINESS RULES</b> — RayDar's own dials. Nothing here is generic: these are the actual parameters of your sweep, the actual prompts each source runs through, and the filter that decides what gets dropped. Saved rules apply to the very next sweep.</p>`
+  host.innerHTML = `<p class="intro"><b>BUSINESS RULES</b> — RayDar's own dials. Nothing here is generic: these are the actual parameters of your sweep, the actual prompts each source runs through, and the filter that decides what gets dropped. Saved rules apply to the very next sweep.</p>`
     + BR_GROUPS.filter(([c]) => byCat[c]).map(([c, title, sub]) =>
       `<div style="margin:20px 0 4px"><b style="color:var(--grn);font-size:13px;letter-spacing:.06em;text-transform:uppercase">${esc(title)}</b>
         <p style="font-size:12px;color:var(--dim2);margin:3px 0 10px">${esc(sub)}</p></div>` + byCat[c].map(([id, r]) => card(id, r)).join("")).join("");
 }
-// View mode switch (Settings) — PRO leaves every screen exactly as it is; NOOB
-// only changes the post-sweep results (a small idea card per summary).
-function modeSwitchCard() {
-  const b = (m, label, sub) => `<button onclick="setViewMode('${m}')" style="flex:1;min-width:190px;text-align:left;padding:12px 14px;border-radius:10px;border:1px solid ${MODE === m ? "var(--grn)" : "var(--line)"};background:${MODE === m ? "rgba(206,69,2,.08)" : "var(--panel)"};cursor:pointer">
-      <div style="font-weight:700;font-size:13px;color:${MODE === m ? "var(--grn)" : "var(--txt)"}">${MODE === m ? "● " : "○ "}${label}</div>
-      <div style="font-size:11.5px;color:var(--dim);margin-top:2px">${sub}</div></button>`;
-  return `<div class="brcard" style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:16px">
-    <b style="font-size:14.5px">View mode</b>
-    <p style="font-size:12.5px;color:var(--dim);margin:6px 0 10px">How RayDar shows results after a sweep. The sweep page is identical either way — <b>PRO stays exactly as it is.</b></p>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">${b("pro", "PRO", "Full detail — story boards, score, why, evidence.")}${b("noob", "NOOB", "Just the ideas — a small card per summary.")}</div>
-  </div>`;
-}
-window.setViewMode = (m) => {
-  MODE = (m === "noob") ? "noob" : "pro";
-  localStorage.setItem("raydar_mode", MODE);
-  renderModeToggle();        // update the top-right header switch
-  if (VIEW === "settings") renderBizRules();   // update the Settings switch state
-  if (BATCH) loadIdeas();    // re-render the results in the new mode
-};
-
 // plain English → a PROPOSED change (params + instruction), shown as a diff you confirm
 window.askBizRule = async (id) => {
   const el = document.querySelector(`[data-rule="${id}"]`); if (!el) return;
@@ -271,15 +248,7 @@ window.saveBizRule = async (id) => {
   BR = null; GUARD = null;
 };
 
-// top-right PRO/NOOB switch (mirrors Settings › View mode)
-function renderModeToggle() {
-  const host = $("#modeToggle"); if (!host) return;
-  const b = (m, l) => `<button class="mbtn ${MODE === m ? "on" : ""}" onclick="setViewMode('${m}')">${l}</button>`;
-  host.innerHTML = b("pro", "PRO") + b("noob", "NOOB");
-}
-
 async function init() {
-  renderModeToggle();
   renderSubnav(); rail(); renderBatchPick();
   ALL_TOPICS = (await (await fetch("/api/wh/topics")).json()).topics || [];
   FRANCHISES = ((await (await fetch("/api/wh/franchises")).json()).franchises) || [];
@@ -1217,7 +1186,6 @@ window.fsigTab = (btn, t) => {
 function renderIdeas(stories, franchises) {
   const host = $("#stageIdeas");
   if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each concept becomes a <b>story board</b>: a lead idea plus alternative angles, all ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
-  if (MODE === "noob") return renderIdeasNoob(stories, franchises);   // lean output; PRO path below is untouched
   _RENDER = { stories, franchises };
   TOPIC_Q = Object.fromEntries((ALL_TOPICS || []).map((t) => [t.name, t.question]));
   // ONCE YOU'VE JUDGED SOMETHING IT LEAVES THE LIST. The working list only
@@ -1267,41 +1235,6 @@ function renderIdeas(stories, franchises) {
   host.innerHTML = `<p class="intro"><b>CONTENT IDEAS</b> — each concept becomes a story board: a title, the angle, and the justification behind it. Mark each one <b>Used</b>, <b>Save</b> or <b>Reject</b> and it drops out of this list into the done drawer below, so the list shrinks as you go. Everything stays findable in the <b>Library</b>.</p>` +
     filter + (boards.length ? `<div class="boards">${boards.map((b, i) => storyBoard(b, i, franchises)).join("")}</div>` : emptyMsg) + doneDrawer;
   renderSweepReport();     // keep step 2 in sync with the same data
-}
-
-// ---- NOOB output — a small idea card per summary, straight -------------------
-// One compact card per idea: series + theme + title + summary + Used/Save/Reject.
-// No boards, no score, no "why", no evidence. PRO's renderIdeas above is untouched.
-function renderIdeasNoob(stories, franchises) {
-  const host = $("#stageIdeas");
-  _RENDER = { stories, franchises };
-  const pending = stories.filter((s) => !s.feedback).sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
-  const done = stories.filter((s) => s.feedback);
-  const shown = SHOW_DONE ? [...pending, ...done] : pending;
-  const doneDrawer = (!SHOW_DONE && done.length) ? `<details class="donedrawer"><summary>${done.length} idea${done.length === 1 ? "" : "s"} you've already judged — ${["used", "saved", "rejected"].map((k) => `${done.filter((s) => s.feedback === k).length} ${k}`).join(" · ")}</summary><div class="noobgrid" style="margin-top:12px">${done.map((s) => noobIdeaCard(s, franchises)).join("")}</div></details>` : "";
-  host.innerHTML = `<p class="intro"><b>CONTENT IDEAS</b> — the ideas, straight. Mark each <b>Used</b>, <b>Save</b> or <b>Reject</b>.</p>`
-    + (shown.length ? `<div class="noobgrid">${shown.map((s) => noobIdeaCard(s, franchises)).join("")}</div>`
-      : `<div class="empty">// ${done.length ? "all judged — nothing left" : "no ideas"} //</div>`)
-    + doneDrawer;
-  renderSweepReport();
-}
-function noobIdeaCard(s, franchises) {
-  const fb = s.feedback;
-  const tag = FR_TAG[frIndexIn(franchises, s.franchise) % FR_TAG.length];
-  return `<article class="noobcard ${fb || ""}" id="ncard-${s.id}">
-    <div class="nc-chips">
-      <span class="chip ${tag}" style="cursor:default">${ic("target")} ${esc(s.franchise)}</span>
-      ${s.demand_topic ? `<span class="chip" style="cursor:default">${esc(s.demand_topic)}</span>` : ""}
-      ${fb ? `<span class="chip ${fb === "used" ? "tag-grn" : fb === "saved" ? "tag-amber" : "tag-mag"}" style="cursor:default">${esc(fb)}</span>` : ""}
-    </div>
-    <h4 class="nc-title">${esc(s.heading)}</h4>
-    <p class="nc-sum">${esc(s.summary || "")}</p>
-    <div class="acts">
-      <button class="btn small" onclick="idea(${s.id},'used')">${ic("check")} Used</button>
-      <button class="btn small" onclick="idea(${s.id},'saved')">${ic("save")} Save</button>
-      <button class="btn small" onclick="rejectIdea(${s.id})">${ic("x")} Reject</button>
-    </div>
-  </article>`;
 }
 
 // ---- STEP 02 · SWEEP — the evidence, not the ideas -------------------------
