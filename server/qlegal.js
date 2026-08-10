@@ -1216,7 +1216,7 @@ ${ctx}${history.length ? `\n\nTHE CONVERSATION SO FAR (the question may be a fol
       catch { /* verification is a safety net, never a reason to withhold an answer */ }
 
       res.json({
-        answer: out.mode === "ai" ? out.text : "(no answer — point the Q-Legal pipelines at a keyed model in AI Skills & Pipelines)",
+        answer: out.mode === "ai" ? out.text : (out.mode === "error" ? out.text : "(no answer — point the Q-Legal pipelines at a keyed model in AI Skills & Pipelines)"),
         citations,
         mode: out.mode, rungs, sources: hits.map((h) => ({ id: h.id, name: h.title || h.filename })),
       });
@@ -1250,7 +1250,7 @@ ${clip(d.c1_text, 55000)}${history.length ? `\n\nTHE CONVERSATION SO FAR (the qu
         maxTokens: 4000,
       });
       await logRun(out, { ref_type: "document", ref_id: id, rules: rules.codes, input: question, output: clip(out.text, 400) });
-      res.json({ answer: out.mode === "ai" ? out.text : "(no answer — point the Q-Legal pipelines at a keyed model in AI Skills & Pipelines)", mode: out.mode });
+      res.json({ answer: out.mode === "ai" ? out.text : (out.mode === "error" ? out.text : "(no answer — point the Q-Legal pipelines at a keyed model in AI Skills & Pipelines)"), mode: out.mode });
     } catch (e) { res.status(500).json({ error: clip(e.message, 200) }); }
   });
 

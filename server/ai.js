@@ -148,16 +148,24 @@ export async function runPipeline(pipelineId, opts = {}) {
           ...(user ? [{ type: "text", text: user }] : []),
         ]
       : (user || "");
+    // Newer Anthropic models REJECT temperature outright ("`temperature` is
+    // deprecated for this model", HTTP 400) — the knob that steadies GLM/Kimi
+    // broke every Claude call. Send it only where it is accepted.
+    const noTemp = /^claude-(opus-[5-9]|opus-4-[89]|sonnet-4-[6-9]|haiku-4-[5-9])/.test(String(useModel));
     const r = await client.messages.create({
       model: useModel, max_tokens: cap,
-      ...(temp != null ? { temperature: temp } : {}),
+      ...(temp != null && !noTemp ? { temperature: temp } : {}),
       system: [p.prompt || "", system, wantJson ? JSON_ONLY : ""].filter(Boolean).join("\n\n"),
       messages: [{ role: "user", content }],
     });
     const text = (r.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
     return { mode: "ai", pipeline: p.id, provider: useProvider, model: useModel, text };
   } catch (e) {
-    return { mode: "error", pipeline: p.id, provider: p.provider, model: p.model, text: `AI error: ${String(e.message || e).slice(0, 140)}`, fallback: stubReply(p.id, user) };
+    // Carry the provider's own words up: "no keyed model" sent an operator to the
+    // Vault when the truth was a rejected parameter on a perfectly good key.
+    return { mode: "error", pipeline: p.id, provider: useProvider, model: useModel,
+      text: `AI error: ${useProvider}:${useModel} — ${String(e.message || e).slice(0, 180)}`,
+      error: String(e.message || e).slice(0, 300), fallback: stubReply(p.id, user) };
   }
 }
 
