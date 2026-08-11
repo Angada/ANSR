@@ -309,6 +309,51 @@ function relevanceMatch(row) {
   for (const k of keys) if (hay.includes(k)) return k;
   return null;
 }
+// Fix 1a — high-confidence off-domain NOISE. YouTube's view-count sort surfaces
+// viral sport/celebrity/gaming clips for any loose word match ("mistake",
+// "turned", "career"). These markers never appear in a genuine India-tech career
+// story, so a hit is a HARD drop (still logged in the audit trail).
+const NOISE_TERMS = [
+  "football", "soccer", "nfl", "nba", "mlb", "nhl", "ufc", "mma", "boxing", "boxer", "knockout", "cricket", "ipl", "fifa", "wwe", "wrestling",
+  "formula 1", "grand prix", "verstappen", "perez", "hamilton", "red bull racing", "liverpool", "arsenal", "chelsea", "barcelona",
+  "messi", "ronaldo", "ronaldinho", "neymar", "mbappe", "cristiano", "lebron", "cooper flag",
+  "bollywood", "hollywood", "tollywood", "actor", "actress", "movie", "cinema", "trailer", "rapper", "eminem", "50 cent",
+  "kardashian", "spider-man", "spiderman", "marvel", "bigg boss",
+  "roblox", "minecraft", "fortnite", "valorant", "free fire", "pubg", "gameplay", "speedrun", "mother-in-law",
+];
+function noiseReason(title, body) {
+  const hay = `${title || ""} ${String(body || "").slice(0, 200)}`.toLowerCase();
+  const hit = NOISE_TERMS.find((t) => hay.includes(t));
+  return hit ? `off-domain noise ("${hit}") — sport/celebrity/gaming, not a career story` : null;
+}
+function markNoise(feed) {
+  for (const it of (feed || [])) if (!it.drop_reason) { const n = noiseReason(it.title, it.body); if (n) it.drop_reason = n; }
+}
+// Fix 1b — keyword STRENGTH, used only as a fallback when the AI relevance
+// verdict is unavailable: a single generic word ("career") is not enough — need
+// ≥2 distinct topic/term keywords in the title, or a 2-word phrase from the term.
+function relevanceStrength(row) {
+  const keys = [...new Set([...kwOf(row.topic), ...kwOf(row.term)])];
+  const hay = (row.title || "").toLowerCase();
+  const hits = keys.filter((k) => hay.includes(k)).length;
+  const tw = kwOf(row.term);
+  const phrase = tw.length >= 2 && tw.slice(0, -1).some((w, i) => hay.includes(`${w} ${tw[i + 1]}`));
+  return phrase ? 2 : hits;                 // a matched phrase counts as strong
+}
+// Fix 2 — apply the AI relevance verdict (classifyFeed sets tags.on_topic) plus
+// the keyword fallback. Sets drop_reason on off-topic items so BOTH the evidence
+// page AND the idea's cited sources exclude them (no more junk citations).
+function gateRelevance(feed) {
+  for (const it of (feed || [])) {
+    if (it.drop_reason) continue;                          // already noise-dropped
+    const t = it.tags;
+    if (t && typeof t.on_topic === "boolean") {            // the AI judged it
+      if (!t.on_topic) it.drop_reason = `off-topic — ${String(t.why || "not a working professional's career").slice(0, 80)}`;
+      continue;                                            // on_topic → trust the AI, keep
+    }
+    if (relevanceStrength(it) < 2) it.drop_reason = "weak match — one generic keyword only";  // no AI verdict → strict keyword
+  }
+}
 // Regional-language guard: the audience is India-English (guardrails mark
 // Hindi/regional content out of scope). Drop titles in an Indic script OR tagged
 // with a regional-language name. Returns the detected language, or null if English.
@@ -395,6 +440,7 @@ function rankFeedSignal(items, allowedLangs = ["en"], domainTerms = DOMAIN_TERMS
       // when you can read what people are asking and nobody is answering
       qs: comments.filter(isQuestion).map((c) => String(c).replace(/<[^>]+>/g, " ").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/\s+/g, " ").trim()).filter((c) => c.length > 12 && c.length < 220).slice(0, 6),
       audioLang: m.audioLang || null, drop_reason: f.drop_reason || null, repeat: !!f.repeat,
+      on_topic: (f.tags && typeof f.tags.on_topic === "boolean") ? f.tags.on_topic : null,  // AI relevance verdict
       body: f.body || "",   // the master-theme filter reads this; without it only the title was ever checked
       velocity: Math.round(velocity * 100) / 100 };
   }).filter((x) => x.views > 0 || x.comments > 0 || x.source === "reddit")
@@ -406,11 +452,16 @@ function rankFeedSignal(items, allowedLangs = ["en"], domainTerms = DOMAIN_TERMS
     if (r.drop_reason) { dropped.push({ ...r, reason: r.drop_reason, hard: true }); continue; }
     const langReason = langExcludeReason(r.title, allowedLangs, { audioLang: r.audioLang });
     if (langReason) { dropped.push({ ...r, reason: langReason, hard: true }); continue; } // rule-driven hard drop, never promoted back
-    const domReason = offDomainReason(r.title, r.body, DOMAIN_TERMS);
-    if (domReason) { dropped.push({ ...r, reason: domReason, hard: true }); continue; }   // master theme — never promoted back
-    const m = relevanceMatch(r);
-    if (m === null) { dropped.push({ ...r, reason: "no topic-keyword match" }); continue; }
-    r.match = m || null;
+    // AI said this IS about a working professional's career → trust it over the
+    // keyword gates below (a real story like "IIT Delhi → Samsung Korea" has no
+    // literal "job/career" word yet is exactly on-topic).
+    if (r.on_topic !== true) {
+      const domReason = offDomainReason(r.title, r.body, DOMAIN_TERMS);
+      if (domReason) { dropped.push({ ...r, reason: domReason, hard: true }); continue; }   // master theme — never promoted back
+      const m = relevanceMatch(r);
+      if (m === null) { dropped.push({ ...r, reason: "no topic-keyword match" }); continue; }
+      r.match = m || null;
+    } else { r.match = "ai"; }
     // seen in a previous sweep → HIDDEN as a repeat (never removed; first sighting stays the record)
     if (r.repeat) repeats.push(r); else kept.push(r);
   }
@@ -515,7 +566,7 @@ function scoreFactCheck(s, srcRefs, research, fc) {
 // channelled through the editable prompts. No-op in mock mode (empty feed).
 async function classifyFeed(items) {
   const bySrc = {};
-  for (const it of (items || [])) (bySrc[it.source] ||= []).push(it);
+  for (const it of (items || [])) if (!it.drop_reason) (bySrc[it.source] ||= []).push(it);  // don't spend tokens on noise
   for (const [src, arr] of Object.entries(bySrc)) {
     const rule = await getRule(src);
     if (!arr.length) continue;
@@ -526,7 +577,7 @@ async function classifyFeed(items) {
     try {
       const payload = JSON.stringify(arr.map((x, i) => ({ i, title: x.title, body: (x.body || "").slice(0, 300) }))).slice(0, 6000);
       const out = await runPipeline("raydar-classify", {
-        system: `${rule.prompt}\nReturn STRICT JSON {"items":[{"i":<index>,"topic":"1..6|Emerging","franchise":"...","registers":{"FOMO":0-1,"Anxiety":0-1,"Optimism":0-1,"Ambition":0-1},"question":"..."}]}.`,
+        system: `${rule.prompt}\nALSO judge RELEVANCE for an India-English tech / GCC professional audience: set "on_topic":false for anything NOT about a working professional's job, career, hiring, pay, skills or workplace — e.g. sport, celebrity, gaming, movies, school-exam / medical / other-domain content, or generic motivation — with a short "why".\nReturn STRICT JSON {"items":[{"i":<index>,"topic":"1..6|Emerging","franchise":"...","registers":{"FOMO":0-1,"Anxiety":0-1,"Optimism":0-1,"Ambition":0-1},"question":"...","on_topic":true|false,"why":"..."}]}.`,
         user: payload, maxTokens: 1500,
       });
       if (out.mode === "ai" && out.text) {
@@ -816,7 +867,9 @@ export function mountWhisperer(app, slug, upload) {
       if (seoTerms.length) feedTopics.push({ name: "__seo__", terms: seoTerms.slice(0, 8) });
     }
     const feed = await collectFeed(feedTopics).catch(() => []);
-    await classifyFeed(feed).catch(() => {});            // Stage 2 — channel through each source's rule prompt
+    markNoise(feed);                                     // Fix 1 — hard-drop sport/celebrity/gaming noise
+    await classifyFeed(feed).catch(() => {});            // Stage 2 — channel through each source's rule prompt (+ relevance verdict)
+    gateRelevance(feed);                                 // Fix 2 — apply AI on_topic verdict + strict-keyword fallback → drop_reason
     await wq(`update wh_batch set feed_signal=$2::jsonb where id=$1`, [bid, JSON.stringify(rankFeedSignal(feed, allowedLangs, (guard.collection || {}).domain_terms))]).catch(() => {}); // results-page "top videos" snapshot
     // SEO gets its OWN idea board, grounded ONLY in the SEO feed → visible in the output with ✨-tagged sources
     if (seoTerms.length && feed.some((f) => f.topic === "__seo__")) {
