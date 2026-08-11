@@ -120,12 +120,14 @@ window.setView = (v) => {
 // carries the app's operating parameters + the instruction, nothing else.
 let BR = null, BRCFG = null;
 const BR_GROUPS = [
+  ["relevance", "Levers — what counts as relevant", "The dials that decide which feed items survive the sweep to become evidence and an idea's sources: an AI relevance gate for your audience, a sport/celebrity/gaming blocklist, and a keyword-strictness fallback. Tune these when the sweep surfaces off-topic videos."],
   ["guardrails", "Guardrails — who this is for", "Applied to EVERY idea prompt and enforced in code on the feed: items outside the allowed languages are dropped from the sweep, with the reason shown."],
   ["journey", "The sweep, step by step", "The dials of your hunger sweep — what gets swept when you start from Trend Spotting, whether SEO steers it (optional per batch), and who counts as the cohort."],
   ["integration", "Sources — how each API is called", "Per source: the exact query parameters, the prompt every batch of its items runs through, its model override and its on/off gate."],
   ["scoring", "Scoring — how ideas get ranked", "score = gap·w₁ + velocity·w₂ + strategic·w₃ + historical·w₄. Change the weights, change the ordering of every board."],
 ];
 const BR_EXPLAIN = {
+  relevance: "The relevance levers. RayDar was surfacing viral-but-irrelevant clips (boxing, football, Roblox) because one word like 'career' counted as a match. These dials decide what survives to become evidence AND an idea's sources: the AI relevance gate judges each item for your audience (edit the exact criteria in the instruction box below), the blocklist hard-drops sport/celebrity/gaming, and keyword strictness sets the fallback bar for when the AI gate is off.",
   guardrails: "The audience contract: India-English job seekers, INR, Indian workplace idiom. Languages here are ENFORCED — a Tamil/Kannada/Hinglish video is dropped at collection (reason shown in the sweep's dropped list), not just discouraged in the prompt.",
   trend_spotting: "Your INITIAL HUNGER SWEEP — starting from Trend Spotting, this frames the cohort's hunger and picks the demand topics that get swept.",
   seo_inputs: "The OPTIONAL SEO route. When a batch includes SEO, your pasted/uploaded research becomes real YouTube/Reddit search queries (and gets its own ✨ idea board). Not in the batch = not used.",
@@ -145,6 +147,10 @@ const BR_EXPLAIN = {
 };
 // the labelled quick-fields per rule (k = key in collection). type: n(umber) | t(ext) | b(ool) | l(ist, comma-joined)
 const BR_FIELDS = {
+  relevance: [["ai_relevance", "★ AI relevance gate — drop items the model judges off-topic for your audience", "b"],
+    ["noise_filter", "Noise blocklist ON — hard-drop sport / celebrity / gaming", "b"],
+    ["noise_terms", "Blocklist terms — a title containing any of these is dropped", "l"],
+    ["min_keywords", "Keyword strictness — min topic keywords when the AI gate is off (2 = strict, 1 = loose)", "n"]],
   youtube: [["publishedDays", "Look-back (days)", "n"], ["maxResults", "Videos per term", "n"], ["regionCode", "Region", "t"], ["commentsTopVideos", "Read comments from top-N", "n"], ["commentsPerVideo", "Comments per video", "n"],
     ["excludeShorts", "Drop Shorts", "b"], ["minDurationSec", "Min duration (sec)", "n"],
     ["minViews", "Min views (drop below)", "n"], ["minComments", "Min comments (drop below)", "n"],

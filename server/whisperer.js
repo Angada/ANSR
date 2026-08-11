@@ -89,6 +89,21 @@ Object.assign(RULE_DEFAULTS, {
     collection: { weights: { gap: 0.35, velocity: 0.25, strategic: 0.20, historical: 0.20 },
       gap_map: { "Keywords and resume": 0.9, "Salary negotiation": 0.85, "Using AI to get better jobs": 0.82, "Landing your dream job": 0.7, "Skills to get a new job": 0.6, "Which coding tool to use": 0.6, "Emerging": 0.75 } },
     prompt: "Composite rank = Σ(weight × signal). Signals: gap (demand ÷ supply quality), velocity (views ÷ days), strategic (topic weight), historical (Used acceptance per franchise)." },
+  // ---- LEVERS — the relevance dials (user-editable; default matches the code) --
+  relevance: { app: "RayDar", category: "relevance", pipeline: "raydar-classify",
+    collection: {
+      ai_relevance: true,       // drop items the model marks off-topic for the audience
+      min_keywords: 2,          // fallback strictness when no AI verdict — ≥N distinct keywords (or a 2-word phrase)
+      noise_filter: true,       // enable the sport/celebrity/gaming blocklist
+      // hard-drop blocklist — these never appear in a genuine India-tech career story
+      noise_terms: ["football", "soccer", "nfl", "nba", "mlb", "nhl", "ufc", "mma", "boxing", "boxer", "knockout", "cricket", "ipl", "fifa", "wwe", "wrestling",
+        "formula 1", "grand prix", "verstappen", "perez", "hamilton", "red bull racing", "liverpool", "arsenal", "chelsea", "barcelona",
+        "messi", "ronaldo", "ronaldinho", "neymar", "mbappe", "cristiano", "lebron", "cooper flag",
+        "bollywood", "hollywood", "tollywood", "actor", "actress", "movie", "cinema", "trailer", "rapper", "eminem", "50 cent",
+        "kardashian", "spider-man", "spiderman", "marvel", "bigg boss",
+        "roblox", "minecraft", "fortnite", "valorant", "free fire", "pubg", "gameplay", "speedrun", "mother-in-law"],
+    },
+    prompt: "Judge RELEVANCE for an India-English tech / GCC professional audience: set on_topic=false for anything NOT about a working professional's job, career, hiring, pay, skills or workplace — e.g. sport, celebrity, gaming, movies, school-exam / medical / other-domain content, or generic motivation. Give a short why." },
   // ---- guardrails (from the Talent500 brief — prepended to every idea prompt) ----
   guardrails: { app: "RayDar", category: "guardrails", pipeline: "feedstory-generate",
     collection: {
@@ -313,21 +328,18 @@ function relevanceMatch(row) {
 // viral sport/celebrity/gaming clips for any loose word match ("mistake",
 // "turned", "career"). These markers never appear in a genuine India-tech career
 // story, so a hit is a HARD drop (still logged in the audit trail).
-const NOISE_TERMS = [
-  "football", "soccer", "nfl", "nba", "mlb", "nhl", "ufc", "mma", "boxing", "boxer", "knockout", "cricket", "ipl", "fifa", "wwe", "wrestling",
-  "formula 1", "grand prix", "verstappen", "perez", "hamilton", "red bull racing", "liverpool", "arsenal", "chelsea", "barcelona",
-  "messi", "ronaldo", "ronaldinho", "neymar", "mbappe", "cristiano", "lebron", "cooper flag",
-  "bollywood", "hollywood", "tollywood", "actor", "actress", "movie", "cinema", "trailer", "rapper", "eminem", "50 cent",
-  "kardashian", "spider-man", "spiderman", "marvel", "bigg boss",
-  "roblox", "minecraft", "fortnite", "valorant", "free fire", "pubg", "gameplay", "speedrun", "mother-in-law",
-];
-function noiseReason(title, body) {
+// single source of truth — the editable default list lives on the `relevance` rule
+const NOISE_TERMS = RULE_DEFAULTS.relevance.collection.noise_terms;
+function noiseReason(title, body, terms = NOISE_TERMS) {
   const hay = `${title || ""} ${String(body || "").slice(0, 200)}`.toLowerCase();
-  const hit = NOISE_TERMS.find((t) => hay.includes(t));
+  const hit = (terms || []).map((t) => String(t).toLowerCase()).find((t) => t && hay.includes(t));
   return hit ? `off-domain noise ("${hit}") — sport/celebrity/gaming, not a career story` : null;
 }
-function markNoise(feed) {
-  for (const it of (feed || [])) if (!it.drop_reason) { const n = noiseReason(it.title, it.body); if (n) it.drop_reason = n; }
+// lev = the `relevance` rule's collection (user-editable in Settings → Levers)
+function markNoise(feed, lev = {}) {
+  if (lev.noise_filter === false) return;               // blocklist turned off in Settings
+  const terms = (Array.isArray(lev.noise_terms) && lev.noise_terms.length) ? lev.noise_terms : NOISE_TERMS;
+  for (const it of (feed || [])) if (!it.drop_reason) { const n = noiseReason(it.title, it.body, terms); if (n) it.drop_reason = n; }
 }
 // Fix 1b — keyword STRENGTH, used only as a fallback when the AI relevance
 // verdict is unavailable: a single generic word ("career") is not enough — need
@@ -343,15 +355,17 @@ function relevanceStrength(row) {
 // Fix 2 — apply the AI relevance verdict (classifyFeed sets tags.on_topic) plus
 // the keyword fallback. Sets drop_reason on off-topic items so BOTH the evidence
 // page AND the idea's cited sources exclude them (no more junk citations).
-function gateRelevance(feed) {
+function gateRelevance(feed, lev = {}) {
+  const aiOn = lev.ai_relevance !== false;                  // AI relevance gate (Settings → Levers)
+  const minKw = Math.max(1, Number(lev.min_keywords) || 2); // fallback strictness
   for (const it of (feed || [])) {
     if (it.drop_reason) continue;                          // already noise-dropped
     const t = it.tags;
-    if (t && typeof t.on_topic === "boolean") {            // the AI judged it
+    if (aiOn && t && typeof t.on_topic === "boolean") {    // the AI judged it
       if (!t.on_topic) it.drop_reason = `off-topic — ${String(t.why || "not a working professional's career").slice(0, 80)}`;
       continue;                                            // on_topic → trust the AI, keep
     }
-    if (relevanceStrength(it) < 2) it.drop_reason = "weak match — one generic keyword only";  // no AI verdict → strict keyword
+    if (relevanceStrength(it) < minKw) it.drop_reason = `weak match — under ${minKw} topic keywords`;  // no/OFF AI verdict → strict keyword
   }
 }
 // Regional-language guard: the audience is India-English (guardrails mark
@@ -567,6 +581,7 @@ function scoreFactCheck(s, srcRefs, research, fc) {
 async function classifyFeed(items) {
   const bySrc = {};
   for (const it of (items || [])) if (!it.drop_reason) (bySrc[it.source] ||= []).push(it);  // don't spend tokens on noise
+  const relPrompt = ((await getRule("relevance")).prompt || "").trim();   // editable relevance criteria (Settings → Levers)
   for (const [src, arr] of Object.entries(bySrc)) {
     const rule = await getRule(src);
     if (!arr.length) continue;
@@ -577,7 +592,7 @@ async function classifyFeed(items) {
     try {
       const payload = JSON.stringify(arr.map((x, i) => ({ i, title: x.title, body: (x.body || "").slice(0, 300) }))).slice(0, 6000);
       const out = await runPipeline("raydar-classify", {
-        system: `${rule.prompt}\nALSO judge RELEVANCE for an India-English tech / GCC professional audience: set "on_topic":false for anything NOT about a working professional's job, career, hiring, pay, skills or workplace — e.g. sport, celebrity, gaming, movies, school-exam / medical / other-domain content, or generic motivation — with a short "why".\nReturn STRICT JSON {"items":[{"i":<index>,"topic":"1..6|Emerging","franchise":"...","registers":{"FOMO":0-1,"Anxiety":0-1,"Optimism":0-1,"Ambition":0-1},"question":"...","on_topic":true|false,"why":"..."}]}.`,
+        system: `${rule.prompt}\n${relPrompt ? relPrompt + "\n" : ""}Return STRICT JSON {"items":[{"i":<index>,"topic":"1..6|Emerging","franchise":"...","registers":{"FOMO":0-1,"Anxiety":0-1,"Optimism":0-1,"Ambition":0-1},"question":"...","on_topic":true|false,"why":"..."}]}.`,
         user: payload, maxTokens: 1500,
       });
       if (out.mode === "ai" && out.text) {
@@ -866,10 +881,11 @@ export function mountWhisperer(app, slug, upload) {
       seoTerms = extractSeoTerms(seoText);
       if (seoTerms.length) feedTopics.push({ name: "__seo__", terms: seoTerms.slice(0, 8) });
     }
+    const lev = (await getRule("relevance")).collection || {};  // user-editable relevance levers (Settings → Levers)
     const feed = await collectFeed(feedTopics).catch(() => []);
-    markNoise(feed);                                     // Fix 1 — hard-drop sport/celebrity/gaming noise
+    markNoise(feed, lev);                                // Fix 1 — hard-drop sport/celebrity/gaming noise (editable blocklist)
     await classifyFeed(feed).catch(() => {});            // Stage 2 — channel through each source's rule prompt (+ relevance verdict)
-    gateRelevance(feed);                                 // Fix 2 — apply AI on_topic verdict + strict-keyword fallback → drop_reason
+    gateRelevance(feed, lev);                            // Fix 2 — apply AI on_topic verdict + strict-keyword fallback → drop_reason
     await wq(`update wh_batch set feed_signal=$2::jsonb where id=$1`, [bid, JSON.stringify(rankFeedSignal(feed, allowedLangs, (guard.collection || {}).domain_terms))]).catch(() => {}); // results-page "top videos" snapshot
     // SEO gets its OWN idea board, grounded ONLY in the SEO feed → visible in the output with ✨-tagged sources
     if (seoTerms.length && feed.some((f) => f.topic === "__seo__")) {
