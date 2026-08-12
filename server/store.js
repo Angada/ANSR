@@ -115,6 +115,40 @@ const DEFAULT_CONFIG = {
     // ---- Q-Legal — legal-repository intelligence (SharePoint = source of truth) ----
     // The layered read: C1 (comprehensive) → C2 (concise key + contents/clause wikis)
     // → Registers (whatever the team asks) → Ask (the retrieval ladder over all three).
+    // ---- Bellwether — hiring signal as a buying signal --------------------
+    // The original pipeline was seven stages of Python with its judgement
+    // hardcoded: a keyword list decided what a "frontline role" was, marker
+    // regexes decided which ATS a site used, and nothing explained itself. Each
+    // stage that involves a JUDGEMENT is a registered pipeline here; the stages
+    // that are pure fetching stay deterministic, because a model adds nothing to
+    // an HTTP GET and would only add cost and doubt.
+    "bw-resolve": { id: "bw-resolve", product: "Bellwether", name: "1 · Resolve the careers platform", kind: "hybrid",
+      description: "Given a company website, work out which ATS it runs (Greenhouse, Lever, Workday…) and the board slug. Deterministic markers first — they are free and certain; the model is asked only when the markers disagree or find nothing, which is where the original silently gave up and dropped the company.",
+      provider: "zai", model: "glm-5.1", skills: ["bellwether"], enabled: true,
+      prompt: "From the page content, identify the applicant-tracking system this company uses and its board identifier. STRICT JSON only: {\"platform\":\"greenhouse|lever|workday|ashby|smartrecruiters|workable|icims|jazzhr|taleo|cornerstone|eightfold|ultipro|other|none\",\"slug\":\"\",\"careers_url\":\"\",\"confidence\":0-1,\"why\":\"one line\"}. Return none rather than guessing — a wrong platform wastes a paid fetch." },
+    "bw-classify": { id: "bw-classify", product: "Bellwether", name: "3 · Classify the role", kind: "llm",
+      description: "Decide whether a posting is the kind of role being watched. Replaces a hardcoded keyword list that could not tell 'General Manager, Restaurant' from 'General Manager, Corporate Strategy' and matched both. Judges the posting, and says WHICH criterion it met so the count is explainable.",
+      provider: "zai", model: "glm-5.1", skills: ["bellwether"], enabled: true,
+      prompt: "Given the watched role definitions and a job posting, decide whether the posting is one of them. STRICT JSON only: {\"match\":true|false,\"role\":\"the matched role, or \\\"\\\"\",\"seniority\":\"frontline|manager|director|exec\",\"confidence\":0-1,\"why\":\"one line\"}. Judge the ACTUAL job, not the words in its title — a title can flatter a role or bury it." },
+    "bw-normalize": { id: "bw-normalize", product: "Bellwether", name: "4 · Normalise for dedup", kind: "hybrid",
+      description: "The same vacancy appears at once on Greenhouse, LinkedIn and Indeed with three different titles and three location formats. Normalises title, location and employment type into a stable fingerprint so one job is counted once. Deterministic rules first; the model resolves only the pairs the rules cannot.",
+      provider: "zai", model: "glm-5.1", skills: ["bellwether"], enabled: true,
+      prompt: "Are these two postings the SAME vacancy re-listed, or two different roles? STRICT JSON only: {\"same\":true|false,\"confidence\":0-1,\"why\":\"one line\"}. Two openings for the same title at the same site are DIFFERENT vacancies; the same opening syndicated to another board is the SAME one." },
+    "bw-signal": { id: "bw-signal", product: "Bellwether", name: "5 · Read the signal", kind: "llm",
+      description: "Turns counts into meaning. Twelve open store-manager roles is a number; twelve where there were two last month, concentrated in one region, is an expansion — and that is the thing worth acting on. Reads the trailing series, not a single sweep.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["bellwether", "atlas"], enabled: true,
+      prompt: "Given a company's hiring history over time, say what it indicates. STRICT JSON only: {\"signal\":\"expanding|steady|contracting|unclear\",\"strength\":0-1,\"what_changed\":\"one line\",\"evidence\":[\"the specific counts or roles that show it\"],\"timing\":\"why now, or \\\"\\\"\"}. Base it ONLY on the counts given. Say unclear when the series is too short — a trend needs more than two points." },
+    "bw-brief": { id: "bw-brief", product: "Bellwether", name: "6 · Write the opportunity brief", kind: "llm",
+      description: "The human-facing output: what this company appears to be doing, why now, and what it implies — with the postings cited. Proposes, never asserts. A hiring pattern is evidence of intent, not proof of it, and a brief that forgets the difference gets someone laughed out of a meeting.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["bellwether"], enabled: true,
+      prompt: "Write a short brief on what this company's hiring suggests. Ground every claim in the postings given and cite them. STRICT JSON only: {\"headline\":\"one line\",\"what\":\"2-3 sentences\",\"why_now\":\"one line\",\"evidence\":[{\"posting\":\"title\",\"point\":\"what it shows\"}],\"caveats\":[\"what would make this reading wrong\"]}. Hiring is evidence of intent, never proof — write it that way." },
+    "bw-ask": { id: "bw-ask", product: "Bellwether", name: "7 · Ask the market", kind: "hybrid",
+      description: "Grounded questions across every company watched — 'who started hiring warehouse staff this quarter', 'which of our targets are opening in the south'. Answers from the stored postings and signals, citing companies and roles, never from memory of the market.",
+      provider: "anthropic", model: "claude-opus-4-8", skills: ["bellwether", "qansr-knowledge-store"], enabled: true,
+      prompt: "Answer from the hiring data provided and nothing else. Name the companies and cite the postings behind every claim. If the data does not cover the question, say so plainly rather than generalising about the market." },
+    "bw-embed": { id: "bw-embed", product: "Bellwether", name: "Vector Embeddings · role & company", kind: "hybrid",
+      description: "Embeds each posting and each company's hiring profile, so roles can be found by meaning rather than keyword and companies clustered by what they are actually building. EMBEDDING MODELS ONLY — a chat model cannot embed.",
+      provider: "openai", model: "text-embedding-3-small", skills: ["bellwether"], enabled: true, prompt: "" },
     "qlegal-c1": { id: "qlegal-c1", product: "Q-Legal", name: "Comprehensive Read (C1) · Munshi", kind: "hybrid",
       description: "The deep substrate. Reads the whole file into a faithful transcript — every clause, table and field. Born-digital files use the exact text layer (free, lossless); scanned / image-only pages route to the Munshi vision reader (`munshi3:read`), which preserves tables and transcribes what the text layer flattens. Nothing above it ever re-reads the original; C1 is the deep-read rung of the Ask ladder.",
       provider: "zai", model: "glm-4.5v", skills: ["munshi", "qansr-knowledge-store"], enabled: true,
