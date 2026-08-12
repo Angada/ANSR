@@ -1,0 +1,47 @@
+__pycache__/
+*.pyc
+*.enriched.csv
+test_output.csv
+# transient run logs / scratch (anything underscore-prefixed)
+*.log
+run_full_log.txt
+coverage_log.txt
+coverage_http.csv
+_*
+# secrets — never commit
+secrets.local.json
+.env
+.apify_token
+# local spend ledger
+apify_spend.json
+# local virtualenv created by run.bat / run.sh
+.venv/
+*.pid
+# web UI runtime folders (per-run uploads / outputs / archived shortlists)
+uploads/
+outputs/
+roles_archive/
+# archived prior runs + run data (kept locally, never shipped)
+archive/
+apollo_input*.csv
+apollo_export*.csv
+apollo_results*.csv
+*_misses.csv
+unresolved_companies*.csv
+# auto-generated slug cache (real-run data — rebuilds itself)
+cache/
+
+# stray temp files from atomic writes / headless workers
+tmp*.json
+tmp*.json.out
+*.out.jsonl
+*.tmp
+*.pids
+# local agent config
+.claude/
+# recovery / bulk-run data + scratch (kept local, never shipped)
+apollo_unresolved_recovery*.csv
+combined_all_results*.csv
+paid_base*.txt
+unresolved_sample.json
+recovery_supervisor.ps1
