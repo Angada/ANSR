@@ -204,7 +204,7 @@ async function renderBizRules() {
         <span data-msg style="font-size:12px;color:var(--grn)"></span>
         <details style="margin-left:auto;font-size:11px;color:var(--dim2)"><summary style="cursor:pointer">advanced (raw JSON)</summary>
           <textarea data-adv rows="6" style="width:340px;max-width:80vw;font-family:ui-monospace,monospace;font-size:11px;margin-top:6px">${esc(JSON.stringify(r.collection || {}, null, 2))}</textarea></details>
-      </div>
+      </div><div class="whyx-panel"></div></div>
     </div>`;
   const byCat = {}; for (const [id, r] of Object.entries(BR)) (byCat[r.category || "other"] ||= []).push([id, r]);
   host.innerHTML = `<p class="intro"><b>BUSINESS RULES</b> — RayDar's own dials. Nothing here is generic: these are the actual parameters of your sweep, the actual prompts each source runs through, and the filter that decides what gets dropped. Saved rules apply to the very next sweep.</p>`
@@ -1054,12 +1054,12 @@ function leadIdea(s, franchises) {
     ${deliverableBox(s)}
     ${factCheckBadge(s)}
     <div class="why-pair">
-      <div class="whyx-row">
+      <div class="whyx-wrap"><div class="whyx-row">
       <details class="whyx"><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
       <details class="whyx" ontoggle="if(this.open)loadOutline(${s.id})"><summary><span class="q">e</span> why this story (detailed)</summary><div class="whyx-b" id="ol-${s.id}">${outlineBlock(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> how RayDar built this — step by step</summary>${pipelineTrace(s)}</details>
-      </div>
+      </div><div class="whyx-panel"></div></div>
     </div>
     ${sourcesBox(s)}
     ${ideaActs(s)}
@@ -1079,12 +1079,12 @@ function altIdea(s, franchises, topicKey) {
       <div style="margin-top:12px">${deliverableBox(s)}</div>
       ${factCheckBadge(s)}
       <div class="chips">${ideaChips(s, franchises)}</div>
-      <div class="whyx-row">
+      <div class="whyx-wrap"><div class="whyx-row">
       <details class="whyx" open><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
       <details class="whyx" ontoggle="if(this.open)loadOutline(${s.id})"><summary><span class="q">e</span> why this story (detailed)</summary><div class="whyx-b" id="ol-${s.id}">${outlineBlock(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> how RayDar built this — step by step</summary>${pipelineTrace(s)}</details>
-      </div>
+      </div><div class="whyx-panel"></div></div>
       ${sourcesBox(s)}
       ${ideaActs(s)}
     </div>
@@ -1879,6 +1879,22 @@ function paintOutline(id) {
   const host = document.getElementById(`ol-${id}`);
   if (host && _STORIES[id]) host.innerHTML = outlineBlock(_STORIES[id]);
 }
+
+// The why-chips are a TAB BAR: one row that never wraps, one panel at a time,
+// rendered in a container BELOW the bar. Clicking a chip therefore never moves
+// the chips — which is the whole point.
+document.addEventListener("toggle", (e) => {
+  const d = e.target;
+  if (!(d instanceof HTMLElement) || !d.classList?.contains("whyx")) return;
+  const row = d.closest(".whyx-row"); if (!row) return;
+  const wrap = row.parentElement;
+  let panel = wrap.querySelector(":scope > .whyx-panel");
+  if (!panel) { panel = document.createElement("div"); panel.className = "whyx-panel"; wrap.appendChild(panel); }
+  if (!d.open) { if (!row.querySelector("details[open]")) panel.innerHTML = ""; return; }
+  row.querySelectorAll("details[open]").forEach((o) => { if (o !== d) o.open = false; });   // one at a time
+  const body = d.querySelector(":scope > .whyx-b, :scope > .trace");
+  panel.innerHTML = body ? body.innerHTML : "";
+}, true);
 // ---- radar sweep meter ------------------------------------------------------
 async function meter(steps, hostId, doneMsg, waitFor) {
   const host = document.getElementById(hostId); if (!host) return;

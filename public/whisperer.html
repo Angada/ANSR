@@ -799,22 +799,28 @@
   .ol-src{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line2);font-size:11px;color:var(--dim2)}
   .deepbtn{border-color:var(--grn-dim);color:var(--grn);font-weight:600}
   .deepbtn:hover{background:rgba(206,69,2,.08)}
-  /* ---- the why-chips: fixed row, panel in normal flow below --------------
-     First attempt used absolute positioning, which turned the panels into
-     floating drawers over the card — worse than the problem. This keeps them in
-     the document: `display:contents` promotes each summary and each panel to be
-     a direct flex child of the row, so the chips sit on one line in order and an
-     opened panel takes a full-width row of its own BELOW them (order:9). The
-     header row never moves, and the panel is an ordinary block that pushes the
-     card down like any other content. */
-  .whyx-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
+  /* ---- the why-chips behave as a TAB BAR ---------------------------------
+     Two things were still moving them: the row could WRAP to a second line, and
+     two panels could be open at once, so the chips sat in a different place
+     depending on what you had opened. Now the row never wraps (it scrolls
+     sideways if it must) and only one panel is ever open — so the bar is in the
+     same place regardless of what you click. The panel is a normal block below
+     it, not a floating drawer. */
+  .whyx-row{display:flex;flex-wrap:nowrap;gap:8px;align-items:flex-start;
+    overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch;
+    padding-bottom:2px;scrollbar-width:thin}
   .whyx{display:contents}
-  .whyx>summary{white-space:nowrap}
+  .whyx>summary{white-space:nowrap;flex:0 0 auto}
   .whyx[open]>summary{border-color:var(--grn-dim);background:rgba(206,69,2,.09);color:var(--grn)}
+  /* the open panel drops out of the scrolling row and becomes its own block */
+  /* the panel is pulled out of the scroll container and rendered as a normal
+     block underneath it — no floating, no horizontal clipping */
+  .whyx-wrap{position:relative}
   .whyx-row>.whyx>.whyx-b,
-  .whyx-row>.whyx>.trace{flex:0 0 100%;order:9;margin-top:4px;
-    background:var(--bg2);border:1px solid var(--line);border-left:3px solid var(--grn-dim);
-    border-radius:0 12px 12px 0;padding:14px 16px}
+  .whyx-row>.whyx>.trace{position:fixed;visibility:hidden;pointer-events:none}
+  .whyx-panel{margin-top:8px;background:var(--bg2);border:1px solid var(--line);
+    border-left:3px solid var(--grn-dim);border-radius:0 12px 12px 0;padding:14px 16px}
+  .whyx-panel:empty{display:none}
   </style>
 </head>
 <body>
