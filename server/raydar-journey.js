@@ -631,7 +631,7 @@ export function mountJourney(app, upload) {
       "",
       comments.length
         ? `WHAT THE AUDIENCE ACTUALLY ASKED (verbatim, from the comments in ${scope} — ${comments.length} of them):\n${comments.map((c) => `- "${c}"`).join("\n")}`
-        : "NO real comments were collected for this theme — say so in evidence_summary and keep the outline to what the idea itself supports. Do NOT invent audience quotes.",
+        : "NO audience comments are available for this idea. Do NOT invent quotes, and do NOT write about the absence of comments — the reader does not need an apology. Build the outline from the idea, the take and the beats, and in evidence_summary give the argument for why this story stands on its own reasoning.",
       s.evidence ? `\nRESEARCH EVIDENCE ON FILE: ${s.evidence}` : "",
     ].filter(Boolean).join("\n");
 

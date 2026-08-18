@@ -204,7 +204,7 @@ async function renderBizRules() {
         <span data-msg style="font-size:12px;color:var(--grn)"></span>
         <details style="margin-left:auto;font-size:11px;color:var(--dim2)"><summary style="cursor:pointer">advanced (raw JSON)</summary>
           <textarea data-adv rows="6" style="width:340px;max-width:80vw;font-family:ui-monospace,monospace;font-size:11px;margin-top:6px">${esc(JSON.stringify(r.collection || {}, null, 2))}</textarea></details>
-      </div><div class="whyx-panel"></div></div>
+      </div>
     </div>`;
   const byCat = {}; for (const [id, r] of Object.entries(BR)) (byCat[r.category || "other"] ||= []).push([id, r]);
   host.innerHTML = `<p class="intro"><b>BUSINESS RULES</b> — RayDar's own dials. Nothing here is generic: these are the actual parameters of your sweep, the actual prompts each source runs through, and the filter that decides what gets dropped. Saved rules apply to the very next sweep.</p>`
@@ -1850,8 +1850,8 @@ function outlineBlock(s) {
     ${list("Proof the writer must get", o.proof_needed)}
     ${list("Objections to answer", o.objections)}
     ${o.close ? `<div class="ol-r"><div class="ol-k">How it ends</div><div>${esc(o.close)}</div></div>` : ""}
-    ${o.evidence_summary ? `<div class="ol-why"><div class="ol-k">Why this story — the evidence</div><div>${esc(o.evidence_summary)}</div>
-      <div class="ol-src">Grounded in <b>${g.comments_used ?? 0}</b> real comment${g.comments_used === 1 ? "" : "s"} from <b>${esc(g.scope || "this sweep")}</b>${g.winner ? ` · winning video: <a href="${esc(safeUrl(g.winner.url))}" target="_blank" rel="noopener">${esc(String(g.winner.title || "").slice(0, 70))}</a>${g.winner.views ? ` (${Number(g.winner.views).toLocaleString("en-IN")} views)` : ""}` : ""}${g.model ? ` · ${esc(g.model)}` : ""}</div></div>` : ""}
+    ${(o.evidence_summary && (o._grounding?.comments_used || o._grounding?.winner)) ? `<div class="ol-why"><div class="ol-k">Why this story — the evidence</div><div>${esc(o.evidence_summary)}</div>
+      ${g.comments_used ? `<div class="ol-src">Grounded in <b>${g.comments_used}</b> real comment${g.comments_used === 1 ? "" : "s"} from <b>${esc(g.scope || "this sweep")}</b>${g.winner ? ` · winning video: <a href="${esc(safeUrl(g.winner.url))}" target="_blank" rel="noopener">${esc(String(g.winner.title || "").slice(0, 70))}</a>${g.winner.views ? ` (${Number(g.winner.views).toLocaleString("en-IN")} views)` : ""}` : ""}${g.model ? ` · ${esc(g.model)}` : ""}</div>` : ""}</div>` : ""}
     <div style="margin-top:10px"><button class="btn small" onclick="loadOutline(${s.id}, true)">↻ Rebuild</button></div>`;
 }
 
