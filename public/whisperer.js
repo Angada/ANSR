@@ -953,6 +953,7 @@ function ideaActs(s) {
     <button class="btn small" onclick="idea(${s.id},'saved')">${ic("save")} Save</button>
     <button class="btn small" onclick="rejectIdea(${s.id})">${ic("x")} Reject</button>
     <button class="btn small" onclick="editIdea(${s.id},'${esc(s.heading).replace(/'/g, "\\'")}')">${ic("edit")} Edit</button>
+    <button class="btn small deepbtn" onclick="deepIdea(${s.id})" title="Build a detailed, evidence-backed outline for THIS idea only — one model call, nothing else is generated">${ic("bolt")} ${s.outline ? "Deep idea ✓" : "Generate deep idea"}</button>
     <label class="build"><input type="checkbox" ${s.selected ? "checked" : ""} onchange="idea(${s.id},'select')"> build</label>
   </div>`;
 }
@@ -1055,6 +1056,7 @@ function leadIdea(s, franchises) {
     <div class="why-pair">
       <details class="whyx"><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
+      <details class="whyx" ontoggle="if(this.open)loadOutline(${s.id})"><summary><span class="q">e</span> why this story (detailed)</summary><div class="whyx-b" id="ol-${s.id}">${outlineBlock(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> how RayDar built this — step by step</summary>${pipelineTrace(s)}</details>
     </div>
     ${sourcesBox(s)}
@@ -1077,6 +1079,7 @@ function altIdea(s, franchises, topicKey) {
       <div class="chips">${ideaChips(s, franchises)}</div>
       <details class="whyx" open><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
+      <details class="whyx" ontoggle="if(this.open)loadOutline(${s.id})"><summary><span class="q">e</span> why this story (detailed)</summary><div class="whyx-b" id="ol-${s.id}">${outlineBlock(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> how RayDar built this — step by step</summary>${pipelineTrace(s)}</details>
       ${sourcesBox(s)}
       ${ideaActs(s)}
@@ -1816,6 +1819,62 @@ window.jTimeline = async (id) => {
   ov.querySelector("[data-ok]").onclick = close; ov.onclick = (e) => { if (e.target === ov) close(); };
 };
 
+
+// ---- THE DETAILED STORY OUTLINE -------------------------------------------
+// The deep layer under "why this story". Built from the REAL comments swept for
+// this theme and the storyline of the video already winning attention — every
+// section carrying the comment that justifies it, and the evidence at the base.
+// Generated on demand (one model call), then stored, so reopening costs nothing.
+const _OUTLINES = {};
+function outlineBlock(s) {
+  const o = _OUTLINES[s.id] || s.outline;
+  if (!o) return `<div class="ol-idle">A concrete, section-by-section outline for a writer — built from the real comments on this theme and what the winning video leaves unanswered.
+    <button class="btn small" onclick="loadOutline(${s.id}, true)">Build the detailed outline</button></div>`;
+  if (o.__loading) return `<div class="ol-idle">Reading the comments and the winning storyline…</div>`;
+  if (o.__error) return `<div class="ferr"><div class="ferr-r">${esc(o.__error)}</div></div>
+    <div style="margin-top:8px"><button class="btn small" onclick="loadOutline(${s.id}, true)">Try again</button></div>`;
+  const g = o._grounding || {};
+  const list = (t, a) => (a || []).length ? `<div class="ol-r"><div class="ol-k">${t}</div><ul class="ol-ul">${a.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
+  return `
+    ${o.premise ? `<div class="ol-prem">${esc(o.premise)}</div>` : ""}
+    ${o.reader ? `<div class="ol-r"><div class="ol-k">Who's reading</div><div>${esc(o.reader)}</div></div>` : ""}
+    ${o.why_this_wins ? `<div class="ol-r"><div class="ol-k">The opening</div><div>${esc(o.why_this_wins)}</div></div>` : ""}
+    ${(o.sections || []).length ? `<div class="ol-secs">${(o.sections).map((x, i) => `
+      <div class="ol-sec"><div class="ol-sh"><span class="ol-n">${String(i + 1).padStart(2, "0")}</span>${esc(x.heading || "")}</div>
+        ${x.covers ? `<div class="ol-c">${esc(x.covers)}</div>` : ""}
+        ${x.evidence ? `<div class="ol-e">${esc(x.evidence)}</div>` : ""}</div>`).join("")}</div>` : ""}
+    ${list("Proof the writer must get", o.proof_needed)}
+    ${list("Objections to answer", o.objections)}
+    ${o.close ? `<div class="ol-r"><div class="ol-k">How it ends</div><div>${esc(o.close)}</div></div>` : ""}
+    ${o.evidence_summary ? `<div class="ol-why"><div class="ol-k">Why this story — the evidence</div><div>${esc(o.evidence_summary)}</div>
+      <div class="ol-src">Grounded in <b>${g.comments_used ?? 0}</b> real comment${g.comments_used === 1 ? "" : "s"} from this theme${g.winner ? ` · winning video: <a href="${esc(safeUrl(g.winner.url))}" target="_blank" rel="noopener">${esc(String(g.winner.title || "").slice(0, 70))}</a>${g.winner.views ? ` (${Number(g.winner.views).toLocaleString("en-IN")} views)` : ""}` : ""}${g.model ? ` · ${esc(g.model)}` : ""}</div></div>` : ""}
+    <div style="margin-top:10px"><button class="btn small" onclick="loadOutline(${s.id}, true)">↻ Rebuild</button></div>`;
+}
+
+// The CTA on the card. Deliberately per-idea: a deep outline is one model call,
+// so it is built for the one you chose and nothing else.
+window.deepIdea = async (id) => {
+  const box = document.getElementById(`ol-${id}`);
+  const det = box?.closest("details");
+  if (det && !det.open) det.open = true;          // reveal it, then fill it
+  box?.scrollIntoView({ behavior: "smooth", block: "center" });
+  await loadOutline(id, !_OUTLINES[id]);
+};
+window.loadOutline = async (id, force) => {
+  const s = _STORIES[id]; if (!s) return;
+  if (_OUTLINES[id] && !force) return;                      // already have it
+  if (!force && s.outline) { _OUTLINES[id] = s.outline; return paintOutline(id); }
+  _OUTLINES[id] = { __loading: true }; paintOutline(id);
+  try {
+    const r = await (await fetch(`/api/wh/story/${id}/outline`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ regenerate: !!force }) })).json();
+    _OUTLINES[id] = r.outline || { __error: r.error || "could not build the outline" };
+  } catch { _OUTLINES[id] = { __error: "could not reach the server" }; }
+  paintOutline(id);
+};
+function paintOutline(id) {
+  const host = document.getElementById(`ol-${id}`);
+  if (host && _STORIES[id]) host.innerHTML = outlineBlock(_STORIES[id]);
+}
 // ---- radar sweep meter ------------------------------------------------------
 async function meter(steps, hostId, doneMsg, waitFor) {
   const host = document.getElementById(hostId); if (!host) return;

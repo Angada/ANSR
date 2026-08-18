@@ -574,6 +574,56 @@ export function mountJourney(app, upload) {
     res.json({ events: (await jq(`select actor,action,from_stage,to_stage,field,before_val,after_val,note,at
                                     from wh_story_event where story_id=$1 order by at, id`, [Number(req.params.id)])).rows }));
 
+  // ---- THE DETAILED STORY OUTLINE ---------------------------------------
+  // The deep layer under "why this story": a concrete, section-by-section
+  // outline built from the REAL comments collected for this theme and the
+  // storyline of the video already winning attention — with the evidence for
+  // every claim quoted underneath. Generated on demand, stored, so opening it
+  // twice is free and a sweep never pays for eighteen of them.
+  app.post("/api/wh/story/:id/outline", async (req, res) => {
+    const id = Number(req.params.id);
+    const s = (await jq(`select id, batch_id, heading, summary, demand_topic, franchise, emotional_register,
+                                why_now, why_relevant, evidence, topic_guide, outline, gap_type, score_breakdown
+                           from wh_feed_story where id=$1`, [id])).rows[0];
+    if (!s) return res.status(404).json({ error: "unknown idea" });
+    if (s.outline && !req.body?.regenerate) return res.json({ ok: true, outline: s.outline, cached: true });
+
+    // the real audience voice + what is already winning, straight from the sweep
+    const fs = (await jq(`select feed_signal from wh_batch where id=$1`, [s.batch_id])).rows[0]?.feed_signal;
+    const kept = Array.isArray(fs) ? fs : (fs?.kept || []);
+    const mine = kept.filter((k) => k.topic === s.demand_topic);
+    const comments = [...new Set(mine.flatMap((k) => k.qs || []))].slice(0, 30);
+    const winner = mine[0] || kept[0] || null;   // rankFeedSignal sorts by velocity, so [0] is what is winning
+
+    const user = [
+      `IDEA: ${s.heading}`,
+      s.summary ? `SUMMARY: ${s.summary}` : "",
+      `THEME: ${s.demand_topic} · SERIES: ${s.franchise}${s.emotional_register ? ` · REGISTER: ${s.emotional_register}` : ""}`,
+      s.why_now ? `WHY NOW: ${s.why_now}` : "",
+      s.topic_guide?.take ? `THE TAKE SO FAR: ${s.topic_guide.take}` : "",
+      (s.topic_guide?.beats || []).length ? `BEATS SO FAR:\n${(s.topic_guide.beats).map((b) => `- ${b}`).join("\n")}` : "",
+      "",
+      winner ? `THE VIDEO CURRENTLY WINNING ON THIS SUBJECT:\n"${winner.title}" — ${winner.views} views in ${winner.ageDays} days${winner.questions ? `, ${winner.questions} question-comments` : ""}. ${winner.url}` : "No live winner captured for this theme.",
+      "",
+      comments.length
+        ? `WHAT THE AUDIENCE ACTUALLY ASKED (verbatim, from the comments on this theme — ${comments.length} of them):\n${comments.map((c) => `- "${c}"`).join("\n")}`
+        : "NO real comments were collected for this theme — say so in evidence_summary and keep the outline to what the idea itself supports. Do NOT invent audience quotes.",
+      s.evidence ? `\nRESEARCH EVIDENCE ON FILE: ${s.evidence}` : "",
+    ].filter(Boolean).join("\n");
+
+    const out = await runPipeline("raydar-story-outline", { user, maxTokens: 3000 });
+    const j = out.mode === "ai" ? jsonFrom(out.text) : null;
+    if (!j) return res.status(502).json({
+      error: out.mode === "error" ? `the model could not be reached — ${String(out.text || "").slice(0, 160)}`
+        : out.mode === "disabled" ? "the Detailed Story Outline pipeline is switched off in Admin"
+        : "no AI model is available for this step",
+      mode: out.mode });
+
+    j._grounding = { comments_used: comments.length, winner: winner ? { title: winner.title, url: winner.url, views: winner.views } : null, model: out.model || null };
+    await jq(`update wh_feed_story set outline=$2::jsonb, outline_at=now() where id=$1`, [id, JSON.stringify(j)]);
+    res.json({ ok: true, outline: j, cached: false });
+  });
+
   // ---- RECAP — "what actually went into this sweep" ---------------------
   // Reconstructed from what was PERSISTED at sweep time, not from the current
   // screen state, so re-opening an old batch recaps that batch honestly.
