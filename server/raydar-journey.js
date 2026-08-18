@@ -583,7 +583,7 @@ export function mountJourney(app, upload) {
   app.post("/api/wh/story/:id/outline", async (req, res) => {
     const id = Number(req.params.id);
     const s = (await jq(`select id, batch_id, heading, summary, demand_topic, franchise, emotional_register,
-                                why_now, why_relevant, evidence, topic_guide, outline, gap_type, score_breakdown
+                                why_now, why_relevant, evidence, topic_guide, outline, gap_type, score_breakdown, source_refs
                            from wh_feed_story where id=$1`, [id])).rows[0];
     if (!s) return res.status(404).json({ error: "unknown idea" });
     if (s.outline && !req.body?.regenerate) return res.json({ ok: true, outline: s.outline, cached: true });
@@ -594,8 +594,16 @@ export function mountJourney(app, upload) {
     // Grounding must not fail on an exact-match miss. Try narrowest first, then
     // widen: this theme's rows → the whole sweep's rows → the raw feed items for
     // this batch (which carry meta.comments even on sweeps predating `qs`).
-    let mine = kept.filter((k) => k.topic === s.demand_topic);
-    let scope = "this theme";
+    // START FROM THE VIDEOS THAT ACTUALLY MADE THIS HEADLINE. source_refs holds
+    // the exact items this idea was grounded in, so their comments are the ones
+    // that belong in its outline — a comment from an unrelated video in the same
+    // sweep is not evidence for THIS story. Only widen if those carry nothing.
+    const srcUrls = new Set((s.source_refs || []).map((r) => r && r.url).filter(Boolean));
+    let mine = kept.filter((k) => srcUrls.has(k.url));
+    let scope = "the videos behind this headline";
+    if (!mine.some((k) => (k.qs || []).length)) {
+      mine = kept.filter((k) => k.topic === s.demand_topic); scope = "this theme";
+    }
     if (!mine.some((k) => (k.qs || []).length)) { mine = kept; scope = "this sweep"; }
     let comments = [...new Set(mine.flatMap((k) => k.qs || []))].slice(0, 30);
     if (!comments.length) {
@@ -607,7 +615,7 @@ export function mountJourney(app, upload) {
         .filter((c) => isQ(c) && c.length > 12 && c.length < 220))].slice(0, 30);
       if (comments.length) scope = "the collected feed";
     }
-    const winner = (kept.filter((k) => k.topic === s.demand_topic)[0]) || kept[0] || null;
+    const winner = kept.filter((k) => srcUrls.has(k.url))[0] || kept.filter((k) => k.topic === s.demand_topic)[0] || kept[0] || null;
 
     const user = [
       `IDEA: ${s.heading}`,
@@ -616,6 +624,8 @@ export function mountJourney(app, upload) {
       s.why_now ? `WHY NOW: ${s.why_now}` : "",
       s.topic_guide?.take ? `THE TAKE SO FAR: ${s.topic_guide.take}` : "",
       (s.topic_guide?.beats || []).length ? `BEATS SO FAR:\n${(s.topic_guide.beats).map((b) => `- ${b}`).join("\n")}` : "",
+      "",
+      srcUrls.size ? `THE VIDEOS THIS IDEA WAS BUILT FROM (its evidence — the comments below come from these):\n${(s.source_refs || []).filter((r) => r && r.url).slice(0, 6).map((r) => `- "${r.title || r.url}" (${r.source || "source"})`).join("\n")}` : "",
       "",
       winner ? `THE VIDEO CURRENTLY WINNING ON THIS SUBJECT:\n"${winner.title}" — ${winner.views} views in ${winner.ageDays} days${winner.questions ? `, ${winner.questions} question-comments` : ""}. ${winner.url}` : "No live winner captured for this theme.",
       "",

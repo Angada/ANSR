@@ -1851,7 +1851,7 @@ function outlineBlock(s) {
     ${list("Objections to answer", o.objections)}
     ${o.close ? `<div class="ol-r"><div class="ol-k">How it ends</div><div>${esc(o.close)}</div></div>` : ""}
     ${o.evidence_summary ? `<div class="ol-why"><div class="ol-k">Why this story — the evidence</div><div>${esc(o.evidence_summary)}</div>
-      <div class="ol-src">Grounded in <b>${g.comments_used ?? 0}</b> real comment${g.comments_used === 1 ? "" : "s"} from this theme${g.winner ? ` · winning video: <a href="${esc(safeUrl(g.winner.url))}" target="_blank" rel="noopener">${esc(String(g.winner.title || "").slice(0, 70))}</a>${g.winner.views ? ` (${Number(g.winner.views).toLocaleString("en-IN")} views)` : ""}` : ""}${g.model ? ` · ${esc(g.model)}` : ""}</div></div>` : ""}
+      <div class="ol-src">Grounded in <b>${g.comments_used ?? 0}</b> real comment${g.comments_used === 1 ? "" : "s"} from <b>${esc(g.scope || "this sweep")}</b>${g.winner ? ` · winning video: <a href="${esc(safeUrl(g.winner.url))}" target="_blank" rel="noopener">${esc(String(g.winner.title || "").slice(0, 70))}</a>${g.winner.views ? ` (${Number(g.winner.views).toLocaleString("en-IN")} views)` : ""}` : ""}${g.model ? ` · ${esc(g.model)}` : ""}</div></div>` : ""}
     <div style="margin-top:10px"><button class="btn small" onclick="loadOutline(${s.id}, true)">↻ Rebuild</button></div>`;
 }
 
