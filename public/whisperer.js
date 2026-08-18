@@ -1054,10 +1054,12 @@ function leadIdea(s, franchises) {
     ${deliverableBox(s)}
     ${factCheckBadge(s)}
     <div class="why-pair">
+      <div class="whyx-row">
       <details class="whyx"><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
       <details class="whyx" ontoggle="if(this.open)loadOutline(${s.id})"><summary><span class="q">e</span> why this story (detailed)</summary><div class="whyx-b" id="ol-${s.id}">${outlineBlock(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> how RayDar built this — step by step</summary>${pipelineTrace(s)}</details>
+      </div>
     </div>
     ${sourcesBox(s)}
     ${ideaActs(s)}
@@ -1077,10 +1079,12 @@ function altIdea(s, franchises, topicKey) {
       <div style="margin-top:12px">${deliverableBox(s)}</div>
       ${factCheckBadge(s)}
       <div class="chips">${ideaChips(s, franchises)}</div>
+      <div class="whyx-row">
       <details class="whyx" open><summary><span class="q">e</span> why this angle</summary><div class="whyx-b">${angleWhy(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> why this story</summary><div class="whyx-b">${storyReason(s)}</div></details>
       <details class="whyx" ontoggle="if(this.open)loadOutline(${s.id})"><summary><span class="q">e</span> why this story (detailed)</summary><div class="whyx-b" id="ol-${s.id}">${outlineBlock(s)}</div></details>
       <details class="whyx"><summary><span class="q">e</span> how RayDar built this — step by step</summary>${pipelineTrace(s)}</details>
+      </div>
       ${sourcesBox(s)}
       ${ideaActs(s)}
     </div>

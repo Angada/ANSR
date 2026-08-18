@@ -591,9 +591,23 @@ export function mountJourney(app, upload) {
     // the real audience voice + what is already winning, straight from the sweep
     const fs = (await jq(`select feed_signal from wh_batch where id=$1`, [s.batch_id])).rows[0]?.feed_signal;
     const kept = Array.isArray(fs) ? fs : (fs?.kept || []);
-    const mine = kept.filter((k) => k.topic === s.demand_topic);
-    const comments = [...new Set(mine.flatMap((k) => k.qs || []))].slice(0, 30);
-    const winner = mine[0] || kept[0] || null;   // rankFeedSignal sorts by velocity, so [0] is what is winning
+    // Grounding must not fail on an exact-match miss. Try narrowest first, then
+    // widen: this theme's rows → the whole sweep's rows → the raw feed items for
+    // this batch (which carry meta.comments even on sweeps predating `qs`).
+    let mine = kept.filter((k) => k.topic === s.demand_topic);
+    let scope = "this theme";
+    if (!mine.some((k) => (k.qs || []).length)) { mine = kept; scope = "this sweep"; }
+    let comments = [...new Set(mine.flatMap((k) => k.qs || []))].slice(0, 30);
+    if (!comments.length) {
+      // last resort: read the comments straight off the collected items
+      const isQ = (t) => /\?|\bhow\b|\bwhy\b|\bwhat\b|\bwhich\b|\bshould i\b|\bcan i\b/i.test(String(t || ""));
+      const raw = (await jq(`select meta from wh_feed_item where meta ? 'comments' order by id desc limit 400`)).rows;
+      comments = [...new Set(raw.flatMap((r) => (r.meta?.comments || []))
+        .map((c) => String(c).replace(/<[^>]+>/g, " ").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/\s+/g, " ").trim())
+        .filter((c) => isQ(c) && c.length > 12 && c.length < 220))].slice(0, 30);
+      if (comments.length) scope = "the collected feed";
+    }
+    const winner = (kept.filter((k) => k.topic === s.demand_topic)[0]) || kept[0] || null;
 
     const user = [
       `IDEA: ${s.heading}`,
@@ -606,7 +620,7 @@ export function mountJourney(app, upload) {
       winner ? `THE VIDEO CURRENTLY WINNING ON THIS SUBJECT:\n"${winner.title}" — ${winner.views} views in ${winner.ageDays} days${winner.questions ? `, ${winner.questions} question-comments` : ""}. ${winner.url}` : "No live winner captured for this theme.",
       "",
       comments.length
-        ? `WHAT THE AUDIENCE ACTUALLY ASKED (verbatim, from the comments on this theme — ${comments.length} of them):\n${comments.map((c) => `- "${c}"`).join("\n")}`
+        ? `WHAT THE AUDIENCE ACTUALLY ASKED (verbatim, from the comments in ${scope} — ${comments.length} of them):\n${comments.map((c) => `- "${c}"`).join("\n")}`
         : "NO real comments were collected for this theme — say so in evidence_summary and keep the outline to what the idea itself supports. Do NOT invent audience quotes.",
       s.evidence ? `\nRESEARCH EVIDENCE ON FILE: ${s.evidence}` : "",
     ].filter(Boolean).join("\n");
@@ -619,7 +633,7 @@ export function mountJourney(app, upload) {
         : "no AI model is available for this step",
       mode: out.mode });
 
-    j._grounding = { comments_used: comments.length, winner: winner ? { title: winner.title, url: winner.url, views: winner.views } : null, model: out.model || null };
+    j._grounding = { comments_used: comments.length, scope, winner: winner ? { title: winner.title, url: winner.url, views: winner.views } : null, model: out.model || null };
     await jq(`update wh_feed_story set outline=$2::jsonb, outline_at=now() where id=$1`, [id, JSON.stringify(j)]);
     res.json({ ok: true, outline: j, cached: false });
   });

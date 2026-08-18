@@ -799,6 +799,24 @@
   .ol-src{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line2);font-size:11px;color:var(--dim2)}
   .deepbtn{border-color:var(--grn-dim);color:var(--grn);font-weight:600}
   .deepbtn:hover{background:rgba(206,69,2,.08)}
+  /* ---- the why-chips stop moving ----------------------------------------
+     They were inline <details> in a wrapping row, so opening one pushed the
+     others onto a new line and the row reflowed under the cursor. Each chip is
+     now a fixed-width block whose panel is absolutely positioned BELOW the row:
+     the header row never changes height, and nothing shifts. */
+  .whyx-row{display:flex;flex-wrap:wrap;gap:8px;position:relative;padding-bottom:2px}
+  .whyx{position:static}
+  .whyx>summary{white-space:nowrap}
+  .whyx[open]>summary{border-color:var(--grn-dim);background:rgba(206,69,2,.09);color:var(--grn)}
+  .whyx-row .whyx>.whyx-b,
+  .whyx-row .whyx>.trace{position:absolute;left:0;right:0;top:calc(100% + 8px);z-index:3;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;
+    box-shadow:0 10px 30px rgba(0,36,46,.10)}
+  /* the row reserves space only while something is open */
+  .whyx-row:has(.whyx[open]){padding-bottom:0}
+  @media(max-width:640px){
+    .whyx-row .whyx>.whyx-b,.whyx-row .whyx>.trace{position:static;margin-top:8px;box-shadow:none}
+  }
   </style>
 </head>
 <body>
