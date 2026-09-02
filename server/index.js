@@ -176,6 +176,12 @@ app.use((req, res, next) => {
     if (path.startsWith("/api/")) return res.status(401).json({ error: "auth required" });
     return res.redirect("/login.html");
   }
+  // Hand the resolved account down to every route. Hand-written audit writes used
+  // to hardcode 'vik'/'admin'/'you' or take the name from req.body.by — so a user
+  // could attribute a decision to a colleague, and every such action produced two
+  // audit rows disagreeing about who did it (the middleware's, with the real user,
+  // and the route's, with a literal).
+  req.acct = acct;
   // signed in, but is this app theirs? (enforced here, not in the nav)
   if (!allowedFor(acct, path)) {
     if (path.startsWith("/api/")) return res.status(403).json({ error: "not available on this account" });

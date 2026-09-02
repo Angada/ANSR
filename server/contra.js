@@ -568,7 +568,9 @@ export function mountContra(app, upload) {
   // moment), and feeds the archetype-level teaching signal below.
   app.post("/api/contra/review/:id/act", async (req, res) => {
     const id = Number(req.params.id);
-    const { kind, box_key, finding_key, body, by } = req.body || {};
+    const { kind, box_key, finding_key, body } = req.body || {};
+    // NOT req.body.by — the browser does not get to say who acted.
+    const by = req.acct?.user || "unknown";
     if (!["accept", "reject", "comment"].includes(kind)) return res.status(400).json({ error: "bad kind" });
     if (kind !== "comment") {
       const rv = (await q(`select archetype_id from contra_review where id=$1`, [id])).rows[0];

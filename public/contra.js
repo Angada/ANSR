@@ -34,6 +34,16 @@ let ARCHES = [];          // library list
 let BATCH = null;         // current review batch { batch, reviews:[...] }
 let CFILES = [];          // dropped File objects, index-aligned with BATCH.reviews
 let RVOPEN = null;        // opened reviewed contract { review, changes }
+// Decisions already made on the open review, keyed by section|finding. The whole
+// accept/reject loop existed server-side (contra_decision, /act, /decisions,
+// /signal) and had NO way in: actBox and commentBox were defined and never called,
+// and no control was rendered anywhere. So a reviewer could not resolve a finding,
+// and the next contract of the same archetype re-raised it forever.
+let RVDEC = {};
+const decId = (boxKey, findingKey) => `${boxKey || ""}|${findingKey || ""}`;
+// a stable identity for one finding/rule inside a review — the model does not give
+// us ids, so derive one from the text and keep it short enough for the column
+const fkey = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 150);
 let RVTAB = "report";     // report | timeline
 let ASK_LAST = null, ASK_BOXKEY = null;   // Ask Contract: last Q&A + focused box
 let REVIEWS = [], REVIEWS_LOADED = false;  // Reviewed history table
@@ -421,6 +431,7 @@ window.setRvTab = (t) => { RVTAB = t; renderReviewed(); };
 window.closeReviewed = () => { RVOPEN = null; setSub("reviewed"); };
 window.openReviewed = async (id) => {
   RVOPEN = await (await fetch(`/api/contra/review/${id}`)).json();
+  await loadDecisions(id);
   RVTAB = "report"; AREA = "contracts"; SUB.contracts = "reviewed"; renderNav();
   Object.values(VIEWS).forEach((v) => ($(v).hidden = true)); $("#view-reviewed").hidden = false;
   renderReviewed(); window.scrollTo({ top: 0, behavior: "smooth" });
@@ -452,6 +463,46 @@ async function ensureClauseLabels() {
 }
 const VCOLOR = { present: "#2E7D4F", non_standard: "#8a6d1f", risky: "#C77B2B", missing: "#C0392B" };
 const VLABEL = { present: "Present", non_standard: "Non-std", risky: "Risky", missing: "Missing" };
+
+// ---- the decision control -------------------------------------------------
+async function loadDecisions(id) {
+  try {
+    const j = await (await fetch(`/api/contra/review/${id}/decisions`)).json();
+    RVDEC = {};
+    for (const d of (j.decisions || [])) RVDEC[decId(d.box_key, d.finding_key)] = d;
+  } catch { RVDEC = {}; }
+}
+// Accept / Reject / Comment for one thing in the report. `boxKey` is the section,
+// `findingKey` identifies a single rule-check or finding inside it (null = the
+// section as a whole).
+function decCtl(boxKey, findingKey) {
+  const id = RVOPEN?.review?.id;
+  const d = RVDEC[decId(boxKey, findingKey)];
+  const args = `${id},'${esc(boxKey || "")}','${esc(findingKey || "")}'`;
+  const state = d
+    ? `<span class="dec-state dec-${esc(d.verdict)}">${d.verdict === "accept" ? "accepted" : "rejected"}${d.actor ? ` · ${esc(d.actor)}` : ""}</span>`
+    : "";
+  return `<span class="dec" onclick="event.stopPropagation()">
+    <button class="dec-b ${d?.verdict === "accept" ? "on" : ""}" title="This is right — stop raising it" onclick="actOn(${args},'accept')">Accept</button>
+    <button class="dec-b ${d?.verdict === "reject" ? "on" : ""}" title="This is wrong — teach the archetype" onclick="actOn(${args},'reject')">Reject</button>
+    <button class="dec-b" title="Leave a note" onclick="noteOn(${args})">Note</button>
+    ${state}</span>`;
+}
+window.actOn = async (id, boxKey, findingKey, kind) => {
+  await fetch(`/api/contra/review/${id}/act`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind, box_key: boxKey || null, finding_key: findingKey || null }) });
+  await loadDecisions(id);
+  RVOPEN = await (await fetch(`/api/contra/review/${id}`)).json();
+  renderReviewed();
+};
+window.noteOn = (id, boxKey, findingKey) => rdForm("Add a note", [{ k: "body", label: "Your note", ph: "e.g. check with legal before signing" }], async (o) => {
+  if (!o.body) return;
+  await fetch(`/api/contra/review/${id}/act`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "comment", box_key: boxKey || null, finding_key: findingKey || null, body: o.body }) });
+  RVOPEN = await (await fetch(`/api/contra/review/${id}`)).json();
+  renderReviewed();
+});
+
 function reportView(r) {
   const rep = r.report || {};
   const verdicts = rep.verdicts || [], checks = rep.rule_checks || [], findings = rep.findings || [];
@@ -464,9 +515,9 @@ function reportView(r) {
       <div class="g"><div class="gv">${findings.length}</div><div class="gl">findings</div></div>
       <div class="g"><div class="gv">${flagged}<span style="font-size:14px;color:var(--line2)">/${verdicts.length || "—"}</span></div><div class="gl">sections flagged</div></div></div>`;
   const summary = rep.summary ? `<p class="rsummary">${esc(rep.summary)}</p>` : "";
-  const rc = checks.length ? `<div class="rsec-lbl">Rule checks</div><div style="margin-bottom:22px">${checks.map((c) => `<div class="rcrow"><span class="rcp ${c.result || "check"}">${String(c.result || "check").toUpperCase()}</span><span style="flex:1">${esc(c.rule || c.section_key || "")} — ${esc(c.note || c.found || "")}</span>${clauseChips(c.refs)}</div>`).join("")}</div>` : "";
-  const fnd = findings.length ? `<div class="rsec-lbl">Whole-contract findings</div><div style="margin-bottom:22px">${findings.map((f) => `<div class="frow ${f.severity === "high" ? "hi" : f.severity === "med" ? "med" : ""}"><b>${esc(String(f.kind || "finding").replace(/_/g, " "))}</b> · ${esc(f.note || "")}${clauseChips(f.refs)}</div>`).join("")}</div>` : "";
-  const secs = verdicts.length ? `<div class="rsec-lbl">Section review <span style="color:var(--dim2);font-weight:400">· click to ask</span></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${verdicts.map((v) => `<div class="schip" onclick="askBox('${esc(v.key)}')"><span style="flex:1">${esc(String(v.key || "").replace(/_/g, " "))}</span><span class="sdot" style="background:${VCOLOR[v.verdict] || "#B4B2A9"}"></span><span style="font-size:11px;font-weight:600;color:${VCOLOR[v.verdict] || "#7A7266"}">${VLABEL[v.verdict] || v.verdict || ""}</span></div>`).join("")}</div>` : "";
+  const rc = checks.length ? `<div class="rsec-lbl">Rule checks</div><div style="margin-bottom:22px">${checks.map((c) => `<div class="rcrow"><span class="rcp ${c.result || "check"}">${String(c.result || "check").toUpperCase()}</span><span style="flex:1">${esc(c.rule || c.section_key || "")} — ${esc(c.note || c.found || "")}</span>${clauseChips(c.refs)}${decCtl(c.section_key || "whole-contract", fkey(c.rule))}</div>`).join("")}</div>` : "";
+  const fnd = findings.length ? `<div class="rsec-lbl">Whole-contract findings</div><div style="margin-bottom:22px">${findings.map((f) => `<div class="frow ${f.severity === "high" ? "hi" : f.severity === "med" ? "med" : ""}"><b>${esc(String(f.kind || "finding").replace(/_/g, " "))}</b> · ${esc(f.note || "")}${clauseChips(f.refs)}${decCtl("whole-contract", fkey(f.kind + " " + (f.note || "")))}</div>`).join("")}</div>` : "";
+  const secs = verdicts.length ? `<div class="rsec-lbl">Section review <span style="color:var(--dim2);font-weight:400">· click to ask</span></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${verdicts.map((v) => `<div class="schip" onclick="askBox('${esc(v.key)}')"><span style="flex:1">${esc(String(v.key || "").replace(/_/g, " "))}</span><span class="sdot" style="background:${VCOLOR[v.verdict] || "#B4B2A9"}"></span><span style="font-size:11px;font-weight:600;color:${VCOLOR[v.verdict] || "#7A7266"}">${VLABEL[v.verdict] || v.verdict || ""}</span>${decCtl(v.key, null)}</div>`).join("")}</div>` : "";
   const doc = `<div class="report-doc">${glance}
     <div style="padding:20px 26px 24px">${summary}${rc}${fnd}${secs}
       <div style="margin-top:20px;padding-top:12px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;color:#A79F93;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><span>Prepared by Contra · ${esc(r.contract_name || "")}</span><span>an AI product by The Kettle Black</span></div></div></div>`;

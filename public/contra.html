@@ -153,6 +153,18 @@
   @media(max-width:640px){.glance{grid-template-columns:repeat(2,1fr)}}
   .rsec-lbl{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2);margin:0 0 11px}
   .rsummary{margin:0 0 22px;font-size:14px;color:#3a3a3a;line-height:1.7}
+  /* the decision control — accept / reject / note on any finding, rule or section */
+  .dec{display:inline-flex;align-items:center;gap:5px;margin-left:auto;flex:none}
+  .dec-b{font:inherit;font-size:11px;font-weight:600;padding:3px 9px;min-height:26px;border:1px solid var(--line2);
+    border-radius:999px;background:#fff;color:var(--dim);cursor:pointer;transition:.15s}
+  .dec-b:hover{border-color:#C0A98A;color:var(--ink)}
+  .dec-b:focus-visible{outline:2px solid #CE4502;outline-offset:2px}
+  .dec-b.on{background:#2E7D4F;border-color:#2E7D4F;color:#fff}
+  .dec-b.on:nth-child(2){background:#C0392B;border-color:#C0392B}
+  .dec-state{font-size:10.5px;font-weight:600;color:var(--dim2);white-space:nowrap}
+  .dec-accept{color:#2E7D4F} .dec-reject{color:#C0392B}
+  .frow .dec{margin-left:10px} .schip .dec{margin-left:6px}
+  @media(max-width:640px){.dec{margin-left:0;width:100%;padding-top:6px}}
   .rcrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 11px;padding:9px 0;border-top:1px solid #F0EDE7}
   .rcrow:last-child{border-bottom:1px solid #F0EDE7}
   .rcp{font-size:10px;font-weight:700;border-radius:4px;padding:3px 8px;min-width:58px;text-align:center;flex:0 0 auto}
