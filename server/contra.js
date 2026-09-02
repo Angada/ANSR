@@ -17,6 +17,36 @@ import { markupDocx } from "./contra-redline.js";
 const REVIEW_COLS = "id, batch_id, contract_name, archetype_id, archetype_ids, status, verdicts, findings, rule_checks, report, issue_count, run_mode, run_note, coverage, detect_confidence, detected, marked_doc_path, extract_md, original_ext, party1, party2, created_at, updated_at";
 
 // snap LLM verdict keys onto the archetype's section keys (model-adherence safety)
+// ---- canonical section vocabulary -----------------------------------------
+// Section keys used to be whatever the model happened to emit, slugified. Two MSAs
+// produced "commercial_terms" and "fees_and_payment" for the same theme, and
+// "liability_and_liability_limits" and "liability_and_indemnity" for another.
+// dedupOutlines keys on an EXACT string, so those did NOT merge: the same concept
+// was verdicted twice under two names, both rule sets were sent to the model, and
+// both counted toward issue_count — one contract inflating its own issue count.
+// The archetype prompt now names a fixed vocabulary; this maps what earlier
+// archetypes already stored onto the same keys, so old and new merge together.
+const CANON_KEY = {
+  fees: "commercial_terms", fees_and_payment: "commercial_terms", fees_and_charges: "commercial_terms",
+  pricing: "commercial_terms", charges: "commercial_terms", commercials: "commercial_terms",
+  rates: "commercial_terms", rate_card: "commercial_terms", consideration: "commercial_terms",
+  payment: "payment_terms", invoicing: "payment_terms", invoicing_and_payment: "payment_terms", billing: "payment_terms",
+  limitation_of_liability: "liability", liability_cap: "liability", limits_of_liability: "liability",
+  liability_and_liability_limits: "liability", liability_and_indemnity: "liability", liability_limits: "liability",
+  indemnities: "indemnity", indemnification: "indemnity",
+  term: "term_termination", termination: "term_termination", term_and_termination: "term_termination",
+  duration: "term_termination", renewal: "term_termination",
+  confidential_information: "confidentiality", nda: "confidentiality",
+  data_privacy: "data_protection", privacy: "data_protection", gdpr: "data_protection", data: "data_protection",
+  intellectual_property: "ip", ip_rights: "ip", ipr: "ip",
+  governing_law_and_jurisdiction: "governing_law", jurisdiction: "governing_law", applicable_law: "governing_law",
+  disputes: "dispute_resolution", dispute: "dispute_resolution", arbitration: "dispute_resolution",
+  sla: "service_levels", service_level_agreement: "service_levels", service_levels_and_credits: "service_levels",
+  warranty: "warranties", representations: "warranties", representations_and_warranties: "warranties",
+  parties_and_particulars: "particulars", key_particulars: "particulars",
+};
+const canonKey = (k) => { const n = String(k || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/(^_|_$)/g, ""); return CANON_KEY[n] || n; };
+
 function snapKeys(verdicts, keys, labels) {
   const set = new Set(keys);
   const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -69,7 +99,7 @@ function normRules(rules) {
 // normalise proposed sections → the review_outline shape (rules preserved)
 function toOutline(sections) {
   return (Array.isArray(sections) ? sections : []).map((s, i) => ({
-    key: slugify(s.key || s.label || `section_${i + 1}`).replace(/-/g, "_"),
+    key: canonKey(slugify(s.key || s.label || `section_${i + 1}`).replace(/-/g, "_")),
     label: String(s.label || s.key || `Section ${i + 1}`).slice(0, 80),
     what_to_check: String(s.what_to_check || "").slice(0, 400),
     required: s.required !== false,
@@ -216,8 +246,31 @@ export function mountContra(app, upload) {
     res.json({ archetype: a });
   });
 
+  // contra_review.archetype_id -> contra_archetype.id is ON DELETE NO ACTION, so an
+  // archetype that has EVER been used in a review cannot be deleted: Postgres raises
+  // 23503, Express turns it into a 500, and the client (which never checked r.ok)
+  // closed the dialog and re-rendered as if it had worked. Clicking again did the
+  // same nothing, forever. Say what is actually in the way, and offer the thing that
+  // does work — retiring it, which stops it being offered without rewriting history.
   app.delete("/api/contra/archetype/:id", async (req, res) => {
-    await q(`delete from contra_archetype where id=$1`, [Number(req.params.id)]);
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+    const used = Number((await q(`select count(*)::int c from contra_review where archetype_id=$1`, [id])).rows[0]?.c || 0);
+    if (used) return res.status(409).json({
+      error: `This archetype has been used in ${used} review${used === 1 ? "" : "s"}, so deleting it would erase how those contracts were judged. Retire it instead — it stops being offered for new reviews and the old ones keep their reasoning.`,
+      used, can_retire: true });
+    try {
+      await q(`delete from contra_archetype where id=$1`, [id]);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(409).json({ error: `Could not delete it — something still refers to it (${String(e.code || e.message || e).slice(0, 60)}). Retire it instead.`, can_retire: true });
+    }
+  });
+  // retire = keep the row and the history, stop offering it for new reviews
+  app.post("/api/contra/archetype/:id/retire", async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "bad id" });
+    await q(`update contra_archetype set status='retired' where id=$1`, [id]);
     res.json({ ok: true });
   });
 
@@ -229,7 +282,7 @@ export function mountContra(app, upload) {
     const bykey = new Map();
     for (const a of archetypes) {
       for (const s of (a.review_outline || [])) {
-        const k = (s.key || slugify(s.label)).toLowerCase();
+        const k = canonKey(s.key || slugify(s.label));
         if (!bykey.has(k)) bykey.set(k, { key: k, label: s.label, what_to_check: s.what_to_check, required: false, rules: [], from: [] });
         const m = bykey.get(k);
         m.required = m.required || s.required !== false;
@@ -499,7 +552,10 @@ export function mountContra(app, upload) {
       const rv = (await q(`select archetype_id from contra_review where id=$1`, [id])).rows[0];
       await q(`insert into contra_decision(review_id, archetype_id, box_key, finding_key, verdict, reason, actor)
                values($1,$2,$3,$4,$5,$6,$7)
-               on conflict (review_id, box_key, finding_key)
+               -- must match contra_decision_ident_idx (051): the plain column tuple
+               -- could never match a NULL finding_key, so section-level decisions
+               -- inserted a new row every time instead of updating one
+               on conflict (review_id, coalesce(box_key, ''), coalesce(finding_key, ''))
                do update set verdict=excluded.verdict, reason=excluded.reason, actor=excluded.actor, created_at=now()`,
         [id, rv?.archetype_id || null, String(box_key || "").slice(0, 80) || null,
          finding_key ? String(finding_key).slice(0, 160) : null, kind,

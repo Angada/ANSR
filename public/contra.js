@@ -258,7 +258,25 @@ window.editArch = async (id) => {
   ARCH = { id: a.id, name: a.name, status: a.status, description: a.description || "", version: a.version || 1, versions: j.versions || [], created_at: a.created_at, _viewing: null, sections: a.review_outline || [], global_rules: a.global_rules || [] };
   EDIT_IN = "library"; renderLibrary(); window.scrollTo({ top: 0, behavior: "smooth" });
 };
-window.delArch = (id, name) => rdConfirm("Delete archetype?", `“${name}” will be removed.`, async () => { await fetch(`/api/contra/archetype/${id}`, { method: "DELETE" }); if (ARCH?.id === id) { ARCH = null; EDIT_IN = null; } await loadArches(); renderNav(); renderView(SUB[AREA]); });
+// This never checked r.ok, so a 500 from the foreign-key violation looked exactly
+// like success: the dialog closed, the list re-rendered, and the archetype was
+// still there with no explanation.
+window.delArch = (id, name) => rdConfirm("Delete archetype?", `“${name}” will be removed.`, async () => {
+  const r = await fetch(`/api/contra/archetype/${id}`, { method: "DELETE" });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    if (j.can_retire) {
+      return rdConfirm("Can't delete it", `${j.error}\n\nRetire it now?`, async () => {
+        await fetch(`/api/contra/archetype/${id}/retire`, { method: "POST" });
+        if (ARCH?.id === id) { ARCH = null; EDIT_IN = null; }
+        await loadArches(); renderNav(); renderView(SUB[AREA]);
+      });
+    }
+    return rdAlert("Can't delete it", j.error || "the server refused");
+  }
+  if (ARCH?.id === id) { ARCH = null; EDIT_IN = null; }
+  await loadArches(); renderNav(); renderView(SUB[AREA]);
+});
 
 // ---- Contracts · Review (drop → detect → select → review) ------------------
 function renderReview() {
