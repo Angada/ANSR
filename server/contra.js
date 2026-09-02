@@ -433,16 +433,23 @@ export function mountContra(app, upload) {
          complete ? "done" : "partial", JSON.stringify(coverage)]);
 
       // timeline (newest-first on read): the review event + one row per finding + redline
-      let seq = 0;
-      await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning) values($1,$2,'ai','contra-review','review',$3,$4)`,
-        [id, seq++, `Reviewed against ${archetypes.map((a) => a.name).join(" + ")}`, String(rp.summary || "").slice(0, 400)]);
+      // NOT 0. Every other writer allocates with nextSeq(); this one restarted at
+      // zero, and re-running a review does not delete the previous run's rows — so
+      // two runs both wrote seq 0,1,2… and `order by seq desc` interleaved them
+      // arbitrarily. The report was overwritten but the timeline showed both runs'
+      // findings with no way to tell which was current, in an append-only audit
+      // trail. run_id tags which pass each row belongs to.
+      let seq = await nextSeq(id);
+      const runTag = `run-${Date.now().toString(36)}`;
+      await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning,run_tag) values($1,$2,'ai','contra-review','review',$3,$4,$5)`,
+        [id, seq++, `Reviewed against ${archetypes.map((a) => a.name).join(" + ")}`, String(rp.summary || "").slice(0, 400), runTag]);
       for (const fnd of findings) {
-        await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning,refs) values($1,$2,'ai','contra-review',$3,$4,'',$5::jsonb)`,
-          [id, seq++, fnd.kind || "finding", String(fnd.note || "").slice(0, 300), JSON.stringify(fnd.refs || [])]);
+        await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning,refs,run_tag) values($1,$2,'ai','contra-review',$3,$4,'',$5::jsonb,$6)`,
+          [id, seq++, fnd.kind || "finding", String(fnd.note || "").slice(0, 300), JSON.stringify(fnd.refs || []), runTag]);
       }
       for (const rl of redlines) {
-        await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning,refs) values($1,$2,'ai','contra-review','redline',$3,$4,$5::jsonb)`,
-          [id, seq++, `“${String(rl.find).slice(0, 80)}” → “${String(rl.replace || "").slice(0, 80)}”`, String(rl.reason || "").slice(0, 240), JSON.stringify(rl.ref ? [rl.ref] : [])]);
+        await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning,refs,run_tag) values($1,$2,'ai','contra-review','redline',$3,$4,$5::jsonb,$6)`,
+          [id, seq++, `“${String(rl.find).slice(0, 80)}” → “${String(rl.replace || "").slice(0, 80)}”`, String(rl.reason || "").slice(0, 240), JSON.stringify(rl.ref ? [rl.ref] : []), runTag]);
       }
       const pend = (await q(`select count(*) c from contra_review where batch_id=$1 and status not in ('done','partial','error','not_assessed')`, [rev.batch_id])).rows[0];
       if (Number(pend.c) === 0) await q(`update contra_batch set status='done' where id=$1`, [rev.batch_id]);

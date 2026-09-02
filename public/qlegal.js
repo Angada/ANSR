@@ -1131,9 +1131,17 @@ async function renderConfirm() {
 }
 // accept a whole group at once — same resolve path as a single decision
 window.confBatch = (kind, action) => {
-  const ids = CONFIRMS.filter((c) => c.kind === kind).map((c) => c.id);
-  rdConfirm(`Accept all ${ids.length}?`, "Each one resolves exactly as if you pressed Accept on it individually. Classifications use the AI's proposed category — change any you disagree with first.", async () => {
-    await fetch("/api/qlegal/confirms/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids, action }) });
+  // Send each card's OWN picked category, not just its id. This posted ids alone,
+  // so the server fell back to the AI's proposal and a category the reviewer had
+  // just corrected on screen was filed as the AI's guess — and marked confirmed.
+  // The dialog's own words told them to correct any they disagreed with first.
+  const rows = CONFIRMS.filter((c) => c.kind === kind).map((c) => ({
+    id: c.id,
+    doc_type: document.getElementById(`confpick-${c.id}`)?.value || null,
+  }));
+  const changed = rows.filter((r) => r.doc_type && r.doc_type !== (CONFIRMS.find((c) => c.id === r.id)?.proposal?.doc_type)).length;
+  rdConfirm(`Accept all ${rows.length}?`, `Each one resolves exactly as if you pressed Accept on it individually${changed ? `, keeping the ${changed} categor${changed === 1 ? "y you changed" : "ies you changed"}` : ", using the category shown on each card"}.`, async () => {
+    await fetch("/api/qlegal/confirms/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ids: rows, action }) });
     renderConfirm(); loadRegistry(); loadCats(); loadConfirmCount().then(renderNav);
   });
 };

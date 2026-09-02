@@ -140,6 +140,14 @@ function sectionEditor() {
       <button class="btn" onclick="${saved ? "closeEditor()" : "discardDraft()"}">${saved ? "Close" : "Discard"}</button>
     </div>`;
 }
+// While an older version is on screen the editor is READ-ONLY: an edit here would
+// be written against the snapshot, not the current archetype. Say so once, plainly.
+function viewingBlock() {
+  if (!ARCH?._viewing) return false;
+  rdAlert(`You're viewing v${ARCH._viewing}`,
+    `This is an older snapshot, so it can't be edited in place — that would overwrite the current v${ARCH.version}. Press “Save as v${(ARCH.version || 1) + 1}” to restore this version, or pick the current one from the version list.`);
+  return true;
+}
 window.onDesc = (v) => { ARCH.description = v; };
 window.loadVersion = async (v) => {
   v = Number(v);
@@ -153,24 +161,32 @@ window.loadVersion = async (v) => {
 
 // rules — type + Enter → chip (multiple per section, removable)
 window.ruleKey = (e, i) => { if (e.key === "Enter") { e.preventDefault(); const v = e.target.value.trim(); if (v) addRule(i, v); } };
-window.addRule = (i, text) => { (ARCH.sections[i].rules = ARCH.sections[i].rules || []).push({ id: rid("r"), text, created_at: new Date().toISOString() }); rerenderEditor(i); saveDraft(); };
-window.delRule = (i, id) => { ARCH.sections[i].rules = (ARCH.sections[i].rules || []).filter((r) => r.id !== id); rerenderEditor(); saveDraft(); };
+window.addRule = (i, text) => { if (viewingBlock()) return; (ARCH.sections[i].rules = ARCH.sections[i].rules || []).push({ id: rid("r"), text, created_at: new Date().toISOString() }); rerenderEditor(i); saveDraft(); };
+window.delRule = (i, id) => { if (viewingBlock()) return; ARCH.sections[i].rules = (ARCH.sections[i].rules || []).filter((r) => r.id !== id); rerenderEditor(); saveDraft(); };
 window.grKey = (e) => { if (e.key === "Enter") { e.preventDefault(); const v = e.target.value.trim(); if (v) addGRule(v); } };
-window.addGRule = (text) => { (ARCH.global_rules = ARCH.global_rules || []).push({ id: rid("g"), text, created_at: new Date().toISOString() }); rerenderEditor(); document.getElementById("grinput")?.focus(); saveDraft(); };
-window.delGRule = (id) => { ARCH.global_rules = (ARCH.global_rules || []).filter((r) => r.id !== id); rerenderEditor(); saveDraft(); };
+window.addGRule = (text) => { if (viewingBlock()) return; (ARCH.global_rules = ARCH.global_rules || []).push({ id: rid("g"), text, created_at: new Date().toISOString() }); rerenderEditor(); document.getElementById("grinput")?.focus(); saveDraft(); };
+window.delGRule = (id) => { if (viewingBlock()) return; ARCH.global_rules = (ARCH.global_rules || []).filter((r) => r.id !== id); rerenderEditor(); saveDraft(); };
 
-window.toggleReq = (i) => { ARCH.sections[i].required = !ARCH.sections[i].required; rerenderEditor(); saveDraft(); };
-window.delSection = (i) => { ARCH.sections.splice(i, 1); rerenderEditor(); saveDraft(); };
+window.toggleReq = (i) => { if (viewingBlock()) return; ARCH.sections[i].required = !ARCH.sections[i].required; rerenderEditor(); saveDraft(); };
+window.delSection = (i) => { if (viewingBlock()) return; ARCH.sections.splice(i, 1); rerenderEditor(); saveDraft(); };
 window.onName = (v) => { ARCH.name = v; };
 window.addSection = () => rdForm("Add a section", [{ k: "label", label: "Section label", ph: "e.g. Data protection" }, { k: "chk", label: "What to check", ph: "what a reviewer verifies here" }], (o) => {
   if (!o.label) return;
   ARCH.sections.push({ key: o.label.toLowerCase().replace(/[^a-z0-9]+/g, "_"), label: o.label, what_to_check: o.chk || "", required: true, rules: [], order: ARCH.sections.length });
   rerenderEditor(); saveDraft();
 });
-window.amendSection = (i) => { const s = ARCH.sections[i]; rdForm("Amend section", [{ k: "label", label: "Section label", v: s.label }, { k: "chk", label: "What to check", v: s.what_to_check }], (o) => { s.label = o.label || s.label; s.what_to_check = o.chk; rerenderEditor(); saveDraft(); }); };
+window.amendSection = (i) => { if (viewingBlock()) return; const s = ARCH.sections[i]; rdForm("Amend section", [{ k: "label", label: "Section label", v: s.label }, { k: "chk", label: "What to check", v: s.what_to_check }], (o) => { s.label = o.label || s.label; s.what_to_check = o.chk; rerenderEditor(); saveDraft(); }); };
 
 async function saveDraft() {
   if (!ARCH?.id) return;
+  // VIEWING AN OLD VERSION IS NOT EDITING IT. loadVersion() replaces ARCH.sections
+  // with the snapshot, and every mutator autosaves — so opening v2 to check a rule
+  // and removing one chip silently POSTed *v2 minus that chip* over the live
+  // outline, which stayed labelled v4 while v3 and v4's rules vanished. The screen
+  // says "viewing v2 — Save to restore it as v5", i.e. that viewing is safe.
+  // The explicit Save (saveArchetype) still restores, deliberately. The autosave
+  // must not.
+  if (ARCH._viewing) return;
   ARCH.sections.forEach((s, i) => (s.order = i));
   try { await fetch(`/api/contra/archetype/${ARCH.id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: ARCH.name, description: ARCH.description || "", review_outline: ARCH.sections, global_rules: ARCH.global_rules || [], save: false }) }); } catch { /* keep local */ }
 }

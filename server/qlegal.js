@@ -1565,13 +1565,27 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
   // same suppression on reject — so a batch can never take a shortcut a single
   // decision wouldn't.
   app.post("/api/qlegal/confirms/batch", async (req, res) => {
-    const ids = (req.body?.ids || []).map(Number).filter(Boolean).slice(0, 200);
+    // ids may be plain numbers OR {id, doc_type} — because "Accept all" used to send
+    // ids only and one shared doc_type, so a classification the reviewer CORRECTED
+    // on a card was thrown away and the AI's original guess was filed instead, then
+    // marked doc_type_confirmed. The dialog explicitly told them to change any they
+    // disagreed with first.
+    const raw = (req.body?.ids || []).slice(0, 200);
+    const items = raw.map((x) => (typeof x === "object" && x
+      ? { id: Number(x.id), doc_type: x.doc_type || null }
+      : { id: Number(x), doc_type: null })).filter((x) => x.id);
     const action = req.body?.action;
-    if (!ids.length || !["accept", "reject"].includes(action)) return res.status(400).json({ error: "ids + action required" });
+    if (!items.length || !["accept", "reject"].includes(action)) return res.status(400).json({ error: "ids + action required" });
+    const ids = items.map((x) => x.id);
     let done = 0; const errors = [];
-    for (const id of ids) {
-      try { await resolveConfirm(id, { action, doc_type: req.body?.doc_type, reason: req.body?.reason, by: req.body?.by }); done++; }
-      catch (e) { errors.push({ id, error: clip(e.message, 120) }); }
+    for (const it of items) {
+      try {
+        await resolveConfirm(it.id, { action,
+          doc_type: it.doc_type || req.body?.doc_type,   // the card's own pick wins
+          reason: req.body?.reason,
+          by: req.acct?.user || "unknown" });            // never req.body.by
+        done++;
+      } catch (e) { errors.push({ id: it.id, error: clip(e.message, 120) }); }
     }
     res.json({ resolved: done, errors });
   });
