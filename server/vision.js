@@ -21,7 +21,10 @@ export const VISION_MODEL = {
 // pages silently — the reader must prefer the account that can actually pay.
 export const VISION_PREF = ["anthropic", "openai", "google", "zai", "xai"];
 
-// OpenAI-compatible chat endpoints per provider (for the image_url path).
+// OpenAI-compatible chat endpoints, used ONLY for a provider the registry gives
+// no baseURL for. A provider WITH a baseURL is routed by the registry (see
+// callVision) — never from here, or this table silently becomes a second,
+// drifting source of truth for where a provider's money is.
 const OPENAI_BASE = {
   openai: "https://api.openai.com/v1",
   zai: "https://api.z.ai/api/paas/v4",
@@ -38,9 +41,21 @@ export function pickVisionProvider(prefer) {
 }
 
 // Low-level: one multimodal completion. images: [{ data(base64), media_type }].
+//
+// THE REGISTRY OWNS THE ENDPOINT. This file used to decide a provider's host from
+// its own OPENAI_BASE table, and that table drifted from the registry: it sent
+// Z.AI to paas/v4 (the pay-as-you-go wallet) while store.js routes Z.AI to
+// api.z.ai/api/anthropic (the Coding Plan, where this account's balance actually
+// lives). The wallet answers 429 "insufficient balance", the page failed, and the
+// failover below then spent ANTHROPIC's wallet finishing a job the operator had
+// pointed at Z.AI — the one thing the provider rule forbids.
+//
+// Same test as ai.js, and the protocol is NOT the test: a provider carrying a
+// baseURL speaks the Anthropic wire format at ITS OWN host, with ITS OWN key.
 export async function callVision(provider, key, model, system, userText, images) {
-  if (provider === "anthropic") {
-    const client = new Anthropic({ apiKey: key });
+  const prov = (loadConfig().providers || {})[provider] || {};
+  if (provider === "anthropic" || prov.baseURL) {
+    const client = new Anthropic({ apiKey: key, baseURL: prov.baseURL || undefined });
     const content = [
       ...images.map((im) => ({ type: "image", source: { type: "base64", media_type: im.media_type || "image/png", data: im.data } })),
       { type: "text", text: userText },
@@ -94,6 +109,10 @@ export async function runVisionSkill(skillId, images, { userText = "", prefer } 
   // FAILOVER. One provider being rate-limited or out of balance must never cost a
   // page: 24 pages of a 38-page lease were lost to a single 429 "insufficient
   // balance". Try the routed provider, then every other keyed vision provider.
+  // Falling back CROSSES A BILLING BOUNDARY — it finishes the job on a different
+  // company's wallet than the operator chose. That is worth doing to save a
+  // 38-page lease, but never worth doing silently: every hop is recorded in
+  // `tried` and the result carries fellBack + billedTo so the caller can say so.
   const chain = [[provider, model], ...VISION_PREF
     .filter((alt) => alt !== provider && VISION_MODEL[alt] && getApiKey(alt))
     .map((alt) => [alt, VISION_MODEL[alt]])];
@@ -108,7 +127,7 @@ export async function runVisionSkill(skillId, images, { userText = "", prefer } 
         callVision(prov, key, mdl, system, prompt, images),
         new Promise((_, rej) => setTimeout(() => rej(new Error("vision timed out (240s)")), 240000)),
       ]);
-      if (String(text || "").trim()) return { text, provider: prov, model: mdl, mode: "ai", fellBack: prov !== provider };
+      if (String(text || "").trim()) return { text, provider: prov, model: mdl, mode: "ai", fellBack: prov !== provider, billedTo: prov, chosen: provider, tried };
       lastErr = `${prov} returned nothing`;
     } catch (e) {
       lastErr = `${prov}: ${String(e.message || e).slice(0, 120)}`;

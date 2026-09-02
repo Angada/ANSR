@@ -132,6 +132,18 @@ const FALLBACKS = [
 ];
 
 export async function embedTexts(texts, forceModel) {
+  // A DISABLED GATE MEANS NO CALL. embedModelId() returns "hash:v1" when the
+  // qlegal-embed pipeline is switched off — but "hash:v1" was then filtered out
+  // of the candidate list and the OpenAI FALLBACKS below ran anyway. So turning
+  // the pipeline off in Admin did not stop the estate embedding against OpenAI;
+  // it just stopped saying which model it used. The gate is checked first now,
+  // and nothing after it runs.
+  const gate = loadConfig().pipelines["qlegal-embed"];
+  if (!forceModel && gate && gate.enabled === false) {
+    await vlog({ model: "hash:v1", ref_type: "embed", input: `${texts.length} texts`,
+      output: "qlegal-embed is switched off in Admin — no provider was called; key-free hash vectors used, semantic search is degraded", status: "off" });
+    return { model: "hash:v1", vectors: texts.map(hashEmbed) };
+  }
   const first = forceModel || embedModelId();
   // Try the configured model, then every other provider that actually holds a
   // key. The old code tried ONE model and fell straight to hash:v1 — so a single
