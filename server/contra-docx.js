@@ -74,7 +74,9 @@ export async function buildReviewDocx(review) {
   const cov = rep.coverage || {};
   if (cov.extract_truncated || (cov.unread_pages || []).length) {
     const bits = [];
-    if (cov.extract_truncated) bits.push(`only the first ${Number(cov.extract_chars || 0).toLocaleString()} of ${Number(cov.extract_full_chars || 0).toLocaleString()} characters were read`);
+    if (cov.extract_truncated) bits.push(cov.extract_full_chars
+      ? `only the first ${Number(cov.extract_chars || 0).toLocaleString()} of ${Number(cov.extract_full_chars).toLocaleString()} characters were read`
+      : `the extract was cut at ${Number(cov.extract_chars || 0).toLocaleString()} characters`);
     if ((cov.unread_pages || []).length) bits.push(`${cov.unread_pages.length} page(s) could not be read: ${cov.unread_pages.slice(0, 12).join(", ")}`);
     body.push(line([new TextRun({ text: `PARTIAL READ — ${bits.join("; ")}. Anything in the unread portion was not assessed.`, bold: true, size: 16, color: R_COLOR.breach })]));
   }

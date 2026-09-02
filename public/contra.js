@@ -587,7 +587,7 @@ function reportView(r) {
   // Say what was read BEFORE showing counts built from it.
   const cov = rep.coverage || {};
   const partial = (cov.extract_truncated || (cov.unread_pages || []).length) ? `<div class="partialbar">
-      <b>Partial read</b> — ${cov.extract_truncated ? `only the first ${Number(cov.extract_chars || 0).toLocaleString()} of ${Number(cov.extract_full_chars || 0).toLocaleString()} characters were read` : ""}${cov.extract_truncated && (cov.unread_pages || []).length ? "; " : ""}${(cov.unread_pages || []).length ? `${cov.unread_pages.length} page(s) could not be read` : ""}.
+      <b>Partial read</b> — ${cov.extract_truncated ? (cov.extract_full_chars ? `only the first ${Number(cov.extract_chars || 0).toLocaleString()} of ${Number(cov.extract_full_chars).toLocaleString()} characters were read` : `the extract was cut at ${Number(cov.extract_chars || 0).toLocaleString()} characters`) : ""}${cov.extract_truncated && (cov.unread_pages || []).length ? "; " : ""}${(cov.unread_pages || []).length ? `${cov.unread_pages.length} page(s) could not be read` : ""}.
       Anything in the unread portion was not assessed.
     </div>` : "";
   const summary = rep.summary ? `<p class="rsummary">${esc(rep.summary)}</p>` : "";

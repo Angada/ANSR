@@ -456,7 +456,12 @@ export function mountContra(app, upload) {
                     && !inputPartial;
       const report = { title: "Contract Review", generated_at: new Date().toISOString(), archetypes: archetypes.map((a) => a.name), meta, parties: { a: party1, b: party2 }, summary: rp.summary || "", verdicts, rule_checks, findings, redlines, sections: outlineForPrompt, coverage, complete };
       const partialWhy = [
-        rev.extract_truncated ? `only the first ${Number(rev.extract_chars || 0).toLocaleString()} of ${Number(rev.extract_full_chars || 0).toLocaleString()} characters were read — the rest of the contract was not seen` : "",
+        rev.extract_truncated
+          ? (rev.extract_full_chars
+              ? `only the first ${Number(rev.extract_chars || 0).toLocaleString()} of ${Number(rev.extract_full_chars).toLocaleString()} characters were read — the rest of the contract was not seen`
+              // backfilled rows know they were cut but not by how much; do not invent a total
+              : `the extract was cut at ${Number(rev.extract_chars || 0).toLocaleString()} characters — the rest of the contract was not seen`)
+          : "",
         unread.length ? `${unread.length} page${unread.length === 1 ? "" : "s"} could not be read (${unread.slice(0, 8).join(", ")}${unread.length > 8 ? "…" : ""})` : "",
         coverage.sections_returned < coverage.sections_expected ? `${coverage.sections_expected - coverage.sections_returned} section(s) were not verdicted` : "",
         coverage.rules_returned < coverage.rules_expected ? `${coverage.rules_expected - coverage.rules_returned} rule(s) were not checked` : "",
