@@ -1383,7 +1383,12 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
       ? (await q(`select doc_type from ql_document where id=$1`, [docId])).rows[0]?.doc_type || null
       : null;
     const rows = (await q(
-      `select coalesce(set_name,'Estate-wide') as set_name, count(*)::int as questions,
+      // count(DISTINCT r.id), not count(*). The LATERAL over doc_types fans each
+      // question out to one row per document type, so a question tagged for 5 types
+      // was counted 5 times: the picker offered "MSA & Services 27" against 7 real
+      // questions, and running the set then read "7/27" — telling the reviewer that
+      // 20 questions had failed when none had.
+      `select coalesce(set_name,'Estate-wide') as set_name, count(distinct r.id)::int as questions,
               coalesce(jsonb_agg(distinct t) filter (where t is not null), '[]'::jsonb) as doc_types
          from ql_register r left join lateral jsonb_array_elements_text(coalesce(r.doc_types,'[]'::jsonb)) t on true
         where r.status='active' group by 1 order by (coalesce(set_name,'Estate-wide')='Estate-wide') desc, 1`

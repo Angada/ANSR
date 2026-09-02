@@ -1,5 +1,34 @@
 // Shared UI: app header (logo home · Admin tab · user + role) + the platform date
 // standard: INDIA format, IST always — readable "29 Jun, 2026" · compact "29-09-2026".
+// ---- ONE PLACE THAT NOTICES A DEAD SESSION --------------------------------
+// Every loader in every app is written `try { X = (await (await fetch(u)).json()).rows }
+// catch { X = [] }`. A 401 returns perfectly valid JSON — {"error":"auth required"} —
+// so .json() SUCCEEDS, the catch never fires, and `|| []` swallows it. Q-Legal then
+// rendered as a healthy but EMPTY repository: "the repository is empty", 0 contracts,
+// 0 standing questions, no obligations, and no sign-in prompt anywhere on the page.
+// A seven-day cookie expiring mid-session, or a server restart, looked exactly like a
+// customer who had not uploaded anything yet.
+//
+// Rather than fix a hundred call sites, notice it once, here.
+(() => {
+  const _fetch = window.fetch;
+  let bounced = false;
+  window.fetch = async (input, init) => {
+    const r = await _fetch(input, init);
+    try {
+      const url = String(typeof input === "string" ? input : (input && input.url) || "");
+      const api = url.startsWith("/api/") || url.includes(`${location.origin}/api/`);
+      // /api/login answers 401 for a wrong password — that is the login form's own
+      // business, not an expired session.
+      if (r.status === 401 && api && !url.includes("/api/login") && !bounced) {
+        bounced = true;
+        location.href = `/login.html?next=${encodeURIComponent(location.pathname)}`;
+      }
+    } catch { /* an interceptor must never break a real response */ }
+    return r;
+  };
+})();
+
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const _istParts = (d) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "numeric" })
   .formatToParts(d).reduce((o, x) => ((o[x.type] = x.value), o), {});

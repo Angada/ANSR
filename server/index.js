@@ -1049,6 +1049,18 @@ app.post("/api/integrations/:id/test", async (req, res) => {
 });
 
 // Whisperer routes (demand↔supply content intelligence — Journey 1, mock-first)
+// WRITING A BUSINESS RULE IS AN ADMIN ACT, even though the rules live under the
+// RayDar prefix. /api/wh/ is owned by the raydar app, so the Content account — which
+// cannot open Admin at all — could POST /api/wh/rules/:id and rewrite the guardrails
+// PROMPT (the brand voice, the audience contract, "propose never assert"), the model
+// override, and a pipeline's enabled flag. That is prompt and gate governance leaking
+// sideways out of the one screen built to hold it. Reads stay open: the Settings page
+// renders the rules for everyone, it just cannot save them.
+app.post(/^\/api\/wh\/rules(\/.*)?$/i, (req, res, next) => {
+  const acct = accountOf(req);
+  if (!acct?.admin) return res.status(403).json({ error: "Editing RayDar's business rules is an admin action — ask an admin, or sign in as one." });
+  next();
+});
 mountWhisperer(app, slug, upload);
 // RayDar Journey — the gated, high-involvement lane alongside the express sweep
 mountThemes(app);   // themes + deep outline + sweep recap (the Journey lane is gone)

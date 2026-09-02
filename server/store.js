@@ -183,7 +183,16 @@ const DEFAULT_CONFIG = {
       prompt: "You are the legal team's drafting assistant. Model contracts define structure and standard positions; the ask defines particulars. Draft complete, precise, in the house voice \u2014 never invent facts, bracket what is unknown." },
     "qlegal-embed": { id: "qlegal-embed", product: "Q-Legal", name: "Vector Embeddings · the semantic spine", kind: "hybrid",
       description: "Embeds every contract at three granularities — document (C2 summary: families, dedup, the estate map), section (contents-wiki headings), clause (every § with its gist) — into pgvector, each row carrying its § anchor and the model that wrote it. Retrieval is hybrid ALWAYS (facts + FTS + vector, rank-fused) and a vector hit is only ever a pointer to a real §. Swap the model here and the Re-index embed sweep re-embeds the estate; with no key it runs a deterministic hashed embedding (hash:v1) so nothing blocks. EMBEDDING MODELS ONLY — a chat model cannot embed, and **Anthropic/Claude has no embeddings endpoint at all** (its API is Messages/Batches/Files/Token-counting/Models), so this step cannot run on Claude however good the key is. Working options: OpenAI text-embedding-3-small/large, Google gemini-embedding-001, or a Z.AI embedding model. Anything else silently falls back to hash:v1 — Re-index shows it as 'degraded'.",
-      provider: "zai", model: "embedding-3", skills: ["qlegal", "atlas"], enabled: true, prompt: "" },
+      // Must match EMBED_LOCK in server/index.js. It used to read zai/embedding-3
+      // while the lock only permitted openai/text-embedding-3-small — so the estate
+      // ran on the value the lock forbade, pipelineRoleError() rejected any save
+      // (including a re-save of the running value), and admin.js renders no
+      // provider/model select for a locked pipeline. There was no control anywhere
+      // that could move it. zai/embedding-3 also routes to paas/v4 — the wallet this
+      // account documents as answering 429 "insufficient balance" — so it failed and
+      // fell through to OpenAI silently, mixing two vector spaces in one corpus,
+      // which is the exact thing locking the model exists to prevent.
+      provider: "openai", model: "text-embedding-3-small", skills: ["qlegal", "atlas"], enabled: true, prompt: "" },
     "qlegal-ask": { id: "qlegal-ask", product: "Q-Legal", name: "Ask the Repository", kind: "hybrid",
       description: "Natural-language answers over the whole estate, via the RETRIEVAL LADDER — rung 1: C2 facts + register answers (structured, covers every contract, so 'which of our contracts…' is answered without reading them); rung 2: the contents & clause wikis of the matching documents; rung 3: the C1 deep text of the closest few; rung 4: the original, cited as the authority but never read by the model. Every claim cites document + §; says what's missing (and suggests a new standing register question) rather than guessing.",
       provider: "anthropic", model: "claude-opus-4-8", skills: ["qansr-knowledge-store", "munshi"], enabled: true,
@@ -334,6 +343,7 @@ function ensure() {
 
 // Merge a stored config over defaults (so new default providers/pipelines appear
 // even on configs saved before they existed).
+const LOCKED_EMBED = new Set(["qlegal-embed", "atlas-embed"]);   // mirrors EMBED_PIPELINES in server/index.js
 function mergeDefaults(cfg) {
   const providers = { ...DEFAULT_CONFIG.providers };
   // model lists are code-defined (not user data) — always take the latest from
@@ -348,6 +358,15 @@ function mergeDefaults(cfg) {
     // temperature/json/maxTokens are tuning knobs owned by code (like name/skills),
     // so registry-level tuning always takes the latest default over a saved config.
     pipelines[id] = { ...d, ...p, product: d.product ?? p.product, name: d.name ?? p.name, description: d.description ?? p.description, skills: d.skills ?? p.skills, kind: d.kind ?? p.kind, temperature: d.temperature ?? p.temperature, json: d.json ?? p.json, maxTokens: d.maxTokens ?? p.maxTokens };
+    // LOCKED pipelines take their provider/model from code, never from a saved
+    // config — one corpus, one vector space. A config written before the default
+    // was corrected would otherwise keep pinning the estate to the forbidden value
+    // with no UI able to change it.
+    // Only where the default actually names one: atlas-embed is `deterministic` and
+    // carries no provider/model at all, and forcing undefined onto it blanked the
+    // row. "Apply to all" already excludes these via pipelineRoleError and reports
+    // them back as `skipped` — this only stops a stale SAVED value overriding code.
+    if (LOCKED_EMBED.has(id) && d.provider) { pipelines[id].provider = d.provider; pipelines[id].model = d.model; }
   }
   return { ...DEFAULT_CONFIG, ...cfg, providers, pipelines, integrations: { ...(cfg.integrations || {}) } };
 }

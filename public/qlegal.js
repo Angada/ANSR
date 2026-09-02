@@ -388,9 +388,12 @@ function renderRegistry() {
     return `<tr class="clk touch ${dev ? "srcdev" : ""}" data-k="1" onclick="openDoc(${d.id})"
         title="${dev ? "Uploaded from a device — not governed by the SharePoint scan" : "From SharePoint — kept in step by the nightly scan"}">
       <td><b>${esc(d.title || d.filename)}</b>${d.title ? `<div class="am">${esc(d.filename)}</div>` : ""}</td>
-      <td>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>${conf}` : "<span class='am'>—</span>"}${d.scanned ? ' <span class="tagchip" title="read from a scan/image via vision-OCR" style="color:#8a5a10;background:#FBF1E2;border-color:#EAD3AE">📷 scanned</span>' : ""}</td>
+      <td>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>${conf}` : "<span class='am'>—</span>"}${d.scanned ? ' <span class="tagchip" title="read from a scan/image via vision-OCR" style="color:#8a5a10;background:#FBF1E2;border-color:#EAD3AE">◈ scanned</span>' : ""}</td>
       <td>${esc([d.party1, d.party2].filter(Boolean).join(" ⟷ ")) || "<span class='am'>—</span>"}</td>
       <td>${[f.effective_date, f.expiry_date].filter(Boolean).map(fmtNice).join(" → ") || "<span class='am'>—</span>"}</td>
+      <td>${f.unsupported_language
+        ? `<span class="ochip o-dismissed" title="we could not extract this document — a blank fact means NOT READ, not 'not stated'">not read · ${esc(f.unsupported_language)}</span>`
+        : `<span class="am">read</span>`}</td>
       <td><span class="srcpill ${dev ? "dev" : "sp"}">${dev ? "device" : "SharePoint"}</span></td>
       <td>${(d.tags || []).slice(0, 3).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ") || "<span class='am'>—</span>"}</td>
       <td>v${d.latest_version}${d.source === "sharepoint" ? ' <span class="am" title="synced from SharePoint">· SP</span>' : ""}${d.scanned ? ' <span class="am">· scan</span>' : ""}${d.status === "inactive" ? ' <span class="ochip o-dismissed">inactive</span>' : ""}</td>
@@ -529,7 +532,18 @@ window.checkReady = async (rerender) => {
 };
 let COVER = null;   // "what the search sees" for the open contract
 window.openDoc = async (id) => {
-  try { OPEN = await (await fetch(`/api/qlegal/document/${id}`)).json(); } catch { return; }
+  // A 404 body ({error:"not found"}) used to be assigned straight to OPEN, so
+  // wikiView then read OPEN.document.facts of undefined and threw — leaving the
+  // PREVIOUS contract on screen with no error. Clicking a citation in an old answer
+  // after a purge showed you someone else's contract and told you nothing.
+  let d = null;
+  try { d = await (await fetch(`/api/qlegal/document/${id}`)).json(); } catch { d = null; }
+  if (!d || d.error || !d.document) {
+    return rdAlert("Can't open that contract", d?.error === "not found" || !d
+      ? "It is no longer in the repository — it may have been deleted or purged since this link was made."
+      : String(d.error));
+  }
+  OPEN = d;
   COVER = null;
   fetch(`/api/qlegal/coverage/${id}`).then((r) => r.json()).then((c) => {
     if (OPEN?.document?.id && Number(OPEN.document.id) === Number(id)) { COVER = c; renderRegistry(); }
@@ -556,7 +570,7 @@ function wikiView() {
       <div class="vmeta">${fmtD(v.created_at)}${v.read_report && v.read_report.pages ? ` · ${v.read_report.pages}p${(v.read_report.ocr_pages || []).length ? ` · OCR ${v.read_report.ocr_pages.length}p` : ""}` : ""}</div>
       ${v.read_report && ((v.read_report.unread_pages || []).length || (v.read_report.figure_pages || []).length) ? `<div class="vdiff" style="color:var(--red)">⚠ unread p.${esc([...(v.read_report.unread_pages || []), ...(v.read_report.figure_pages || [])].join(", "))} — check the original</div>` : ""}
       ${v.diff_summary ? `<div class="vdiff">${esc(v.diff_summary).slice(0, 160)}</div>` : ""}
-      <div class="vlinks"><a class="ref" href="/api/qlegal/original/${v.id}" target="_blank">📄 file</a><a class="ref" href="/api/qlegal/c1/${v.id}" target="_blank">📖 C1</a><a class="ref" href="/api/qlegal/c2/${v.id}" target="_blank">🔑 C2</a></div>
+      <div class="vlinks"><a class="ref" href="/api/qlegal/original/${v.id}" target="_blank">▤ file</a><a class="ref" href="/api/qlegal/c1/${v.id}" target="_blank">▥ C1</a><a class="ref" href="/api/qlegal/c2/${v.id}" target="_blank">◆ C2</a></div>
     </div>`).join("");
   const highlight = `<div class="wikicard reveal hl">
       <div class="hlrow">
@@ -666,7 +680,7 @@ function wikiView() {
     <div class="chead reveal">
       <div class="chead-emb">Q</div>
       <div class="chead-body">
-        <div class="chead-titlerow"><span class="chead-title">${esc(d.title || d.filename)}</span>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>` : ""}${(OPEN.versions || []).some((v) => v.ocr) ? '<span class="tagchip" title="read from a scan/image via vision-OCR" style="color:#8a5a10;background:#FBF1E2;border-color:#EAD3AE">📷 scanned / image source</span>' : ""}${(d.tags || []).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ")}</div>
+        <div class="chead-titlerow"><span class="chead-title">${esc(d.title || d.filename)}</span>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>` : ""}${(OPEN.versions || []).some((v) => v.ocr) ? '<span class="tagchip" title="read from a scan/image via vision-OCR" style="color:#8a5a10;background:#FBF1E2;border-color:#EAD3AE">◈ scanned / image source</span>' : ""}${(d.tags || []).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ")}</div>
         ${(d.party1 || d.party2) ? `<div class="chead-parties">${esc(d.party1 || "?")}<span class="vs">⟷</span>${esc(d.party2 || "?")}</div>` : ""}
         ${d.source === "sharepoint"
           ? `<div class="am" style="margin-top:6px"><span class="srcpill sp">SharePoint</span> the source of truth — kept in step by the nightly scan${f.sp_web_url ? ` · <a class="ref" href="${esc(safeUrl(f.sp_web_url))}" target="_blank">open in SharePoint ↗</a>` : ""}</div>`
@@ -787,10 +801,11 @@ async function renderRegisters() {
   const rows = QROWS.map((r) => {
     const answered = Number(r.answered), pending = Math.max(0, REG_TOTAL - answered);
     return `<tr class="clk touch" data-k="${esc((r.name + " " + r.question + " " + (r.set_name || "estate-wide") + " " + (r.doc_types || []).join(" ")).toLowerCase())}" onclick="openRegister(${r.id})">
-      <td><b>${esc(r.name)}</b>${r.builtin ? ' <span class="tagchip">built-in</span>' : ""}
+      <td><b>${esc(r.name)}</b>
         <div class="am" style="max-width:60ch;margin-top:3px">${esc(r.question)}</div></td>
       <td><span class="typebadge">${esc(r.set_name || "Estate-wide")}</span></td>
       <td>${((r.doc_types || []).length ? r.doc_types : ["Every contract"]).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ")}</td>
+      <td>${r.builtin ? '<span class="tagchip">built-in</span>' : '<span class="am">yours</span>'}</td>
       <td><span class="duechip due-ok">${r.yes_count} yes</span></td>
       <td>${Number(r.unclear_count) ? `<span class="duechip due-soon">${r.unclear_count} unclear</span>` : "<span class='am'>—</span>"}</td>
       <td class="am">${answered}/${REG_TOTAL}${pending ? ` <span style="color:var(--amber)">· ${pending} pending</span>` : ""}</td>
@@ -850,12 +865,14 @@ function registerHitsView() {
   const hits = colfSort(HIT_COLS, HST, colfRows(HIT_COLS, HST, allHits));
   const P = { yes: "due-ok", no: "due-none", unclear: "due-soon" };
   const rows = hits.map((h) => `<tr class="clk touch" data-k="${esc(((h.title || h.filename) + " " + (h.answer || "") + " " + h.present).toLowerCase())}">
-      <td onclick="openDoc(${h.document_id})"><b>${esc(h.title || h.filename)}</b>${h.doc_type ? ` <span class="typebadge">${esc(h.doc_type)}</span>` : ""}
+      <td onclick="openDoc(${h.document_id})"><b>${esc(h.title || h.filename)}</b>
         <div class="am">${esc([h.party1, h.party2].filter(Boolean).join(" ⟷ "))}</div></td>
-      <td><span class="duechip ${P[h.present] || "due-none"}">${esc(h.present)}</span>${h.status !== "auto" ? ' <span class="tagchip">confirmed</span>' : ""}</td>
+      <td>${h.doc_type ? `<span class="typebadge">${esc(h.doc_type)}</span>` : '<span class="am">—</span>'}</td>
+      <td><span class="duechip ${P[h.present] || "due-none"}">${esc(h.present)}</span></td>
       <td>${esc(h.value) || "<span class='am'>—</span>"}</td>
       <td style="max-width:44ch">${esc(h.answer || "")}</td>
       <td>${(h.refs || []).map((x) => `<span class="ref">${esc(x)}</span>`).join(" ") || "<span class='am'>—</span>"}</td>
+      <td>${h.status !== "auto" ? '<span class="tagchip">confirmed by you</span>' : '<span class="am">AI</span>'}</td>
       <td class="tacts"><button class="btn small touch" onclick="fixHit(${h.id},'${esc(h.present)}','${esc(h.answer || "").replace(/'/g, "&#39;")}','${esc(h.value || "").replace(/'/g, "&#39;")}')">Correct</button></td>
     </tr>`).join("");
   return `<span class="backlnk" onclick="closeRegister()">‹ all standing questions</span>
@@ -1039,8 +1056,17 @@ async function renderConfirm() {
   // Grouped by KIND, not by time: twelve classifications in a row is a rhythm;
   // alternating kinds is twelve context switches.
   const KINDS = [["classification", "What kind of document is this?"], ["link", "Does this sit under that?"],
-    ["lineage", "Are these the same contract?"], ["removal", "Gone from the source"]];
-  const groups = KINDS.map(([k, q]) => [k, q, CONFIRMS.filter((c) => c.kind === k)]).filter(([, , g]) => g.length);
+    ["lineage", "Are these the same contract?"], ["removal", "Gone from the source"],
+    // 'unread' confirms are raised by ingest for pages OCR could not read. They were
+    // missing from this list while loadConfirmCount() counted the WHOLE queue — so the
+    // nav badge said "1", the screen said "nothing awaiting your decision", and the
+    // badge could never be cleared. confCard/consequence already handled the kind.
+    ["unread", "Pages that could not be read"]];
+  const known = new Set(KINDS.map(([k]) => k));
+  const groups = [...KINDS.map(([k, q]) => [k, q, CONFIRMS.filter((c) => c.kind === k)]),
+    // anything the server raises that this screen does not know about still has to be
+    // reachable, or the badge outlives the queue again
+    ["other", "Other decisions", CONFIRMS.filter((c) => !known.has(c.kind))]].filter(([, , g]) => g.length);
 
   const ledger = (LED.decided_30d || LED.open != null) ? `
     <div class="wikicard reveal" style="border-left:3px solid var(--grn)">
@@ -1482,7 +1508,7 @@ window.draftRun = async () => {
 // ---- Ask THIS contract — conversational, grounded solely in the open document --
 function askDocBox(d) {
   const th = DOCTHREADS[d.id] || [];
-  const turns = th.map((t) => `<div class="askbox-a"><div class="askbox-q">🧑 ${esc(t.q)}</div><div class="askbox-ans">${mdlite(t.a)}</div></div>`).join("");
+  const turns = th.map((t) => `<div class="askbox-a"><div class="askbox-q">◇ ${esc(t.q)}</div><div class="askbox-ans">${mdlite(t.a)}</div></div>`).join("");
   return `<div class="askbox reveal" style="margin-bottom:18px">
     <div class="askbox-h">✦ Ask this contract <span class="askbox-s">grounded only in ${esc(d.title || d.filename)} · cites the §§ · follow-ups keep context</span></div>
     ${turns}
@@ -1566,12 +1592,14 @@ async function renderSpFiles() {
   if (d.error) { host.innerHTML = `<p class="intro"><b>SHAREPOINT FILES</b> — browse the live library.</p><div class="empty">${esc(d.error)} — configure it in Manage → SharePoint.</div>`; return; }
   const crumbs = [`<span class="fchip touch ${!SPF.folder ? "on" : ""}" onclick="spfGo('')">Library root</span>`]
     .concat(SPF.folder.split("/").filter(Boolean).map((seg, i, arr) => `<span class="fchip touch" onclick="spfGo('${esc(arr.slice(0, i + 1).join("/"))}')">${esc(seg)}</span>`)).join(" / ");
-  const folders = (d.folders || []).map((f) => `<span class="fchip touch" onclick="spfGo('${esc((SPF.folder ? SPF.folder + "/" : "") + f.name)}')">📁 ${esc(f.name)}<span class="n">${f.childCount}</span></span>`).join("");
+  const folders = (d.folders || []).map((f) => `<span class="fchip touch" onclick="spfGo('${esc((SPF.folder ? SPF.folder + "/" : "") + f.name)}')">▸ ${esc(f.name)}<span class="n">${f.childCount}</span></span>`).join("");
   const kb = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB";
   const SPROWS = colfSort(SPF_COLS, FST, colfRows(SPF_COLS, FST, d.files || []));
   const rows = SPROWS.map((f) => `<tr data-k="${esc([f.name, f.path, f.modified_by, f.doc_type].join(" ").toLowerCase())}">
-      <td><b>${esc(f.name)}</b><div class="am">${esc(f.path || "/")}</div></td>
-      <td class="am">${fmtDT(f.modified)}<div>${esc(f.modified_by)}</div></td>
+      <td><b>${esc(f.name)}</b></td>
+      <td class="am">${esc(f.path || "/")}</td>
+      <td class="am">${esc(f.modified_by) || "—"}</td>
+      <td class="am">${fmtDT(f.modified)}</td>
       <td class="am">${kb(f.size)}</td>
       <td>${f.doc_id ? `<span class="typebadge">${esc(f.doc_type || "indexed")}</span>${f.doc_status === "inactive" ? ' <span class="ochip o-dismissed">inactive</span>' : ""}` : '<span class="am">not indexed</span>'}</td>
       <td class="tacts">${f.doc_id ? `<button class="btn small touch" onclick="openDoc(${f.doc_id})">Open in Q-Legal ▸</button>` : `<button class="btn small btn--org touch" onclick="spfIngest('${esc(f.id)}',this)">Ingest now</button>`}
@@ -1624,7 +1652,8 @@ async function renderLog() {
   const LROWS = colfSort(LOG_COLS, LST, colfRows(LOG_COLS, LST, LOG), (a, b) => b.id - a.id);
   const rows = LROWS.map((l) => `<tr data-k="${esc([l.pipeline, l.provider, l.model, l.status, l.ref_type, l.input_summary, l.output_summary].join(" ").toLowerCase())}">
       <td class="am" style="white-space:nowrap">${fmtDT(l.created_at)}</td>
-      <td><b>${esc(l.pipeline || "—")}</b><div class="am">${esc(l.provider || "")} ${esc(l.model || "")}</div></td>
+      <td><b>${esc(l.pipeline || "—")}</b></td>
+      <td class="am">${esc(l.provider || "")} ${esc(l.model || "")}</td>
       <td>${esc(l.status || "")}</td>
       <td class="am">${esc(l.ref_type || "")}${l.ref_id ? " #" + l.ref_id : ""}</td>
       <td style="max-width:26ch">${esc(l.input_summary || "")}</td>
