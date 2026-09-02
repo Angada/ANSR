@@ -63,7 +63,13 @@ export async function getJob(jobId) {
   // Saying so is the whole point: a spinner that will never resolve is worse than
   // an error, because it asks the user to keep waiting for nothing.
   const unfinished = items.filter((i) => i.stage === "queued" || (i.status === "pending" && i.stage !== "done"));
-  return { job, items, stalled: job.status !== "running" && unfinished.length > 0, unfinished: unfinished.length };
+  // `status !== running` alone misses the COMMONEST death: the request is killed by
+  // the platform mid-sweep, so nothing ever moves the job off `running` and it sits
+  // there forever looking busy. That is precisely the spinner-that-never-resolves
+  // this module was written to prevent. Silence for a while IS the signal.
+  const silentMin = (Date.now() - new Date(job.updated_at).getTime()) / 60000;
+  const stalled = unfinished.length > 0 && (job.status !== "running" || silentMin > 10);
+  return { job, items, stalled, unfinished: unfinished.length, silent_minutes: Math.round(silentMin) };
 }
 
 export async function latestJob(app) {

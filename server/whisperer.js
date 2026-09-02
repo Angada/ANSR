@@ -892,7 +892,32 @@ export function mountWhisperer(app, slug, upload) {
       topicRows = [...topicRows, { name: "SEO research", franchise: topicRows[0]?.franchise || "Emerging", format_home: "", strategic_weight: 1, question: `high-intent keywords from your SEO upload: ${seoTerms.slice(0, 8).join(", ")}`, terms: seoTerms, __seo: true }];
     }
     const made = []; let failedWrites = 0;
-    for (const t of topicRows) {
+
+    // RECORD THE WORK BEFORE DOING IT. Cloud Run kills the request at 900s and this
+    // sweep measured ~1,060s, so the generation regularly died mid-flight — leaving
+    // no trace of what it had finished, a spinner that would never resolve, and no
+    // way to continue except starting over and paying for the topics that already
+    // succeeded. server/jobs.js was written for exactly this and had zero callers.
+    // Each item carries the topic name, so a resume redoes only what never ran.
+    const jobId = await startJob({
+      app: "wh", kind: "sweep", label: `Sweep · batch ${bid}`, actor: req.acct?.user || null,
+      meta: { batch_id: bid, topics: topicRows.length },
+      items: topicRows.map((t) => ({ label: t.name, payload: { topic: t.name } })),
+    }).catch(() => null);
+
+    // A topic already generated on an earlier attempt is skipped: re-running the
+    // whole sweep after a timeout used to re-pay for every topic that had worked.
+    const alreadyDone = new Set((await wq(
+      `select distinct demand_topic from wh_feed_story where batch_id=$1 and status<>'deleted'`, [bid]
+    )).rows.map((r) => r.demand_topic));
+
+    // THE OUTER LOOP WAS SERIAL. Topics are independent — nothing in one feeds
+    // another — so N topics cost N x (research + 3 model calls) end to end, and the
+    // generation phase alone accounted for ~928s of the 1,060s. Run a few at a time.
+    // Bounded, not unbounded: research hits rate-limited external APIs, and firing
+    // sixteen topics at once trades a timeout for a 429.
+    const LANE = 3;
+    const runTopic = async (t, ord) => {
       const research = await researchTopic(extra ? `${t.name} — ${extra}` : t.name).catch(() => null);
       const pool = (t.__seo
         ? feed.filter((f) => f.topic === "__seo__")   // SEO idea grounds ONLY on the SEO feed (all via_seo)
@@ -951,7 +976,24 @@ export function mountWhisperer(app, slug, upload) {
         const newId = r.rows?.[0]?.id;
         if (newId) made.push(newId); else failedWrites++;   // wq() swallows DB errors — an unchecked push counted ideas that were never stored
       }));
-    }
+      if (jobId) await setItem(jobId, ord, { stage: "done", status: "ok" });
+    };
+
+    // run topicRows through LANE workers; a topic that throws must not take the
+    // sweep with it — it is recorded as failed and the rest continue
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(LANE, topicRows.length) }, async () => {
+      for (;;) {
+        const ord = next++;
+        if (ord >= topicRows.length) return;
+        const t = topicRows[ord];
+        if (alreadyDone.has(t.name)) { if (jobId) await setItem(jobId, ord, { stage: "done", status: "ok", note: "already generated on an earlier attempt" }); continue; }
+        if (jobId) await setItem(jobId, ord, { stage: "generating", attempt: true });
+        try { await runTopic(t, ord); }
+        catch (e) { if (jobId) await setItem(jobId, ord, { stage: "failed", status: "error", note: String(e?.message || e).slice(0, 200) }); }
+      }
+    }));
+    if (jobId) await finishJob(jobId, "done");
     await wq(`update wh_batch set story_count=$2, status='swept', swept_at=now() where id=$1`, [bid, made.length]);
     // When a sweep writes nothing, say WHY. An empty result page is otherwise
     // indistinguishable from a broken one — the same failure mode as the silent
