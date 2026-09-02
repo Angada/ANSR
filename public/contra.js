@@ -33,6 +33,7 @@ let EDIT_IN = null;       // "maker" | "library" — where the editor is shown
 let ARCHES = [];          // library list
 let BATCH = null;         // current review batch { batch, reviews:[...] }
 let CFILES = [];          // dropped File objects, index-aligned with BATCH.reviews
+let OPEN_BATCHES = [];    // batches with unreviewed contracts still in them
 let RVOPEN = null;        // opened reviewed contract { review, changes }
 // Decisions already made on the open review, keyed by section|finding. The whole
 // accept/reject loop existed server-side (contra_decision, /act, /decisions,
@@ -87,6 +88,15 @@ function rerenderEditor(focusI) { (EDIT_IN === "library" ? renderLibrary : rende
 
 async function init() {
   await loadArches();
+  await loadOpenBatches();
+  // a link to a batch wins; otherwise pick up the most recent unfinished one
+  const fromHash = Number((location.hash.match(/batch=(\d+)/) || [])[1]);
+  if (fromHash) await openBatch(fromHash, { push: false });
+  else if (OPEN_BATCHES.length) await openBatch(OPEN_BATCHES[0].id, { push: false });
+  window.addEventListener("hashchange", async () => {
+    const id = Number((location.hash.match(/batch=(\d+)/) || [])[1]);
+    if (id && id !== BATCH?.batch?.id) { await openBatch(id, { push: false }); renderReview(); }
+  });
   fetch("/api/contra/reviews").then((r) => r.json()).then((j) => { REVIEWS = j.reviews || []; REVIEWS_LOADED = true; renderNav(); }).catch(() => {});
   renderNav();
   Object.values(VIEWS).forEach((v) => ($(v).hidden = true));
@@ -315,11 +325,17 @@ function renderReview() {
         <div class="s">PDF / DOCX · Munshi3 vision-OCR for scans · each auto-detects its archetype</div></div>
       <input type="file" id="cfile" accept=".pdf,.docx,.doc,.txt,.md" multiple onchange="cUpload(this.files)">
     </div>`;
+  // Every batch that still has unreviewed contracts, so none is ever stranded.
+  const others = OPEN_BATCHES.filter((b) => b.id !== BATCH?.batch?.id);
+  const resume = others.length ? `<div class="resumebar">
+      <span class="resume-l">Still to review</span>
+      ${others.map((b) => `<button class="btn small touch" onclick="resumeBatch(${b.id})">${esc(b.name || `Batch ${b.id}`)} · ${b.contract_count || 0} contract${b.contract_count === 1 ? "" : "s"}</button>`).join("")}
+    </div>` : "";
   let body = "";
   if (!saved.length) body = `<div class="empty">// save an archetype in the Archetype Maker first — Review detects against it //</div>`;
   else if (BATCH) body = BATCH.reviews.map((rv, i) => reviewRow(rv, i)).join("");
   host.innerHTML = `<p class="intro"><b>REVIEW</b> — drop a contract; Contra detects its type and <b>recommends archetypes</b>. Confirm or pick up to 3, then Review. Overlapping points are deduped.</p>`
-    + drop + `<div id="cproc"></div>` + body;
+    + resume + drop + `<div id="cproc"></div>` + body;
 }
 function reviewRow(rv, i) {
   if (rv.status === "done") {
@@ -354,6 +370,39 @@ function reviewRow(rv, i) {
       <span class="createlink" onclick="createFromFile(${i})">No archetype fits? Create one from this file →</span>
     </div></div>`;
 }
+
+// ---- the review queue lives in the DATABASE, not in this tab ---------------
+// BATCH was a module variable and nothing ever called /api/contra/batch/:id. So:
+// drop 5 contracts, review 2, refresh — and the other 3 sat in the database as
+// status='detected', absent from Reviewed and reachable from no screen at all.
+// They were simply gone from the product. Same for any review that errored: the
+// user pressed OK on "Review failed" and the contract vanished.
+async function openBatch(id, { push = true } = {}) {
+  try {
+    const j = await (await fetch(`/api/contra/batch/${id}`)).json();
+    if (j.error) { BATCH = null; return false; }
+    // `selected` is the reviewer's pick and was never persisted. Seed it from what
+    // was actually run (archetype_ids), else from what detection recommended, so a
+    // reload lands you where you were rather than on an empty picker.
+    for (const rv of j.reviews || []) {
+      rv.selected = (Array.isArray(rv.archetype_ids) && rv.archetype_ids.length)
+        ? rv.archetype_ids.map(Number)
+        : (rv.detected || []).slice(0, 1).map((d) => Number(d.archetype_id || d.id)).filter(Boolean);
+    }
+    BATCH = j;
+    if (push) location.hash = `batch=${id}`;
+    return true;
+  } catch { return false; }
+}
+// Unfinished work, so a batch is findable even without the link.
+async function loadOpenBatches() {
+  try {
+    const j = await (await fetch("/api/contra/batches")).json();
+    OPEN_BATCHES = (j.batches || []).filter((b) => b.status !== "done").slice(0, 8);
+  } catch { OPEN_BATCHES = []; }
+}
+window.resumeBatch = async (id) => { if (await openBatch(id)) renderReview(); };
+
 window.cDrop = (e) => { e.preventDefault(); e.currentTarget.classList.remove("over"); const fs = e.dataTransfer?.files; if (fs && fs.length) cUpload(fs); };
 window.cUpload = async (files) => {
   if (!files || !files.length) return;
@@ -364,7 +413,10 @@ window.cUpload = async (files) => {
     const { ok, j } = await runWithMeter("cproc", ["Reading the contract(s) · Munshi3", "Fingerprinting each contract", "Detecting & ranking archetypes"], req);
     const p = $("#cproc"); if (p) p.innerHTML = "";
     if (!ok) return rdAlert("Couldn't read that", j.error || "");
-    BATCH = j; renderReview();
+    BATCH = j;
+    if (j.batch?.id) location.hash = `batch=${j.batch.id}`;   // survives a refresh
+    loadOpenBatches();
+    renderReview();
   } catch (e) { const p = $("#cproc"); if (p) p.innerHTML = ""; rdAlert("Upload failed", String(e.message || e)); }
 };
 window.toggleArch = (i, id) => {
@@ -381,8 +433,10 @@ window.runReview = async (i) => {
     const { ok, j } = await runWithMeter("cproc", ["Reading against the archetype", "Verdict on each section", "Checking your rules", "Whole-contract findings", "Proposing redlines", "Composing the report"], req);
     const p = $("#cproc"); if (p) p.innerHTML = "";
     if (!ok) return rdAlert("Review failed", j.error || "");
-    rv.status = "done"; rv.issue_count = j.review.issue_count;
+    rv.status = j.review?.status || "done"; rv.issue_count = j.review?.issue_count;
     REVIEWS_LOADED = false;   // refresh the Reviewed history
+    // re-read the batch so the queue reflects the DATABASE, not this tab's guess
+    if (BATCH?.batch?.id) { await openBatch(BATCH.batch.id, { push: false }); await loadOpenBatches(); }
     renderReview(); openReviewed(rv.id);
   } catch (e) { const p = $("#cproc"); if (p) p.innerHTML = ""; rdAlert("Review failed", String(e.message || e)); }
 };
