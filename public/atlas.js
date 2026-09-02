@@ -1,6 +1,6 @@
 // Atlas wiki — classify/route a client + browse the archetype library.
 const $ = (s, r = document) => r.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+const esc = (s) => String(s ?? "").replace(/[&<>"'`]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[m]));
 
 async function init() {
   const { clients } = await (await fetch("/api/clients")).json();

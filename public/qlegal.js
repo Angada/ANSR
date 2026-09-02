@@ -5,7 +5,11 @@
 // (obligations · confirm · rules · SharePoint scanner · AI activity).
 // SharePoint/upload is the source of truth; everything here is the derived layer.
 const $ = (s, r = document) => r.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
+const esc = (s) => String(s ?? "").replace(/[&<>"'`]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[m]));
+// Escaping neutralises the quote but NOT the scheme — `javascript:…` survives esc()
+// intact. Every href built from stored or external data (SharePoint hands us its own
+// URLs) goes through this, so only http(s) can ever reach the attribute.
+const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : "#");
 // ts_headline highlights hits with <b>…</b> — escape everything else, keep the <b>s
 const snip = (s) => esc(s).replace(/&lt;b&gt;/g, "<b>").replace(/&lt;\/b&gt;/g, "</b>");
 // minimal markdown for AI answers: **bold**, bullet lines — nothing else
@@ -60,7 +64,16 @@ function renderNav() {
   $("#subnav").innerHTML = subs.map(([k, l, n]) => `<button class="${SUB[AREA] === k ? "on" : ""}" onclick="setSub('${k}')">${l}${n ? `<span class="count">${n}</span>` : ""}</button>`).join("");
 }
 window.setArea = (a) => { AREA = a; setSub(SUB[a]); };
-window.setSub = (s) => { SUB[AREA] = s; renderNav(); Object.values(VIEWS).forEach((v) => ($(v).hidden = true)); $(VIEWS[s]).hidden = false; renderView(s); };
+// Defensive on purpose: setSub("pipelines") used to be called from two failure
+// banners for a view that does not exist here, so $(undefined) threw and the one
+// button a stuck user was told to press did nothing but raise a TypeError.
+window.setSub = (s) => {
+  const v = VIEWS[s];
+  if (!v) return console.warn(`setSub("${s}") — no such view in this app`);
+  SUB[AREA] = s; renderNav();
+  Object.values(VIEWS).forEach((x) => ($(x).hidden = true));
+  $(v).hidden = false; renderView(s);
+};
 function renderView(s) { ({ chat: renderChat, draft: renderDraft, registers: renderRegisters, contracts: renderRegistry, map: renderMap, spfiles: renderSpFiles, obligations: renderObligations, confirm: renderConfirm, sweep: renderSweep, taxonomy: renderTaxonomy, rules: renderRules, sharepoint: renderSharePoint, log: renderLog }[s])(); }
 
 async function loadRegistry() {
@@ -340,7 +353,7 @@ function renderRegistry() {
       <p class="rsummary" style="margin:6px 0 0">${esc(READY.reason || "")}</p>
       ${READY.fix ? `<p class="rsummary" style="margin:8px 0 0"><b>To fix:</b> ${esc(READY.fix)}</p>` : ""}
       <div style="margin-top:11px;display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn small btn--org touch" onclick="setArea('settings');setSub('pipelines')">Settings → AI Pipelines ▸</button>
+        <button class="btn small btn--org touch" onclick="location.href='/admin.html'">Settings → AI Pipelines ▸</button>
         <a class="btn small touch" style="text-decoration:none" href="/admin.html">Admin → Vault ▸</a>
         <button class="btn small touch" onclick="checkReady(true)">Check again</button>
       </div>
@@ -656,7 +669,7 @@ function wikiView() {
         <div class="chead-titlerow"><span class="chead-title">${esc(d.title || d.filename)}</span>${d.doc_type ? `<span class="typebadge">${esc(d.doc_type)}</span>` : ""}${(OPEN.versions || []).some((v) => v.ocr) ? '<span class="tagchip" title="read from a scan/image via vision-OCR" style="color:#8a5a10;background:#FBF1E2;border-color:#EAD3AE">📷 scanned / image source</span>' : ""}${(d.tags || []).map((t) => `<span class="tagchip">${esc(t)}</span>`).join(" ")}</div>
         ${(d.party1 || d.party2) ? `<div class="chead-parties">${esc(d.party1 || "?")}<span class="vs">⟷</span>${esc(d.party2 || "?")}</div>` : ""}
         ${d.source === "sharepoint"
-          ? `<div class="am" style="margin-top:6px"><span class="srcpill sp">SharePoint</span> the source of truth — kept in step by the nightly scan${f.sp_web_url ? ` · <a class="ref" href="${esc(f.sp_web_url)}" target="_blank">open in SharePoint ↗</a>` : ""}</div>`
+          ? `<div class="am" style="margin-top:6px"><span class="srcpill sp">SharePoint</span> the source of truth — kept in step by the nightly scan${f.sp_web_url ? ` · <a class="ref" href="${esc(safeUrl(f.sp_web_url))}" target="_blank">open in SharePoint ↗</a>` : ""}</div>`
           : `<div class="am" style="margin-top:6px"><span class="srcpill dev">device upload</span> ${esc(d.source_location || d.filename)}${(d.source_detail || {}).by ? ` · added by ${esc(d.source_detail.by)}` : ""}${(d.source_detail || {}).at ? ` · ${fmtD(d.source_detail.at)}` : ""} — <b>not</b> governed by the SharePoint scan; there is no original to re-fetch, so the vault snapshot is the only copy</div>`}
       </div>
       <button class="btn small touch" onclick="delDoc(${d.id}, this.dataset.n)" data-n="${esc(d.title || d.filename)}" title="purge this contract and everything indexed from it">✕ Purge</button>
@@ -690,12 +703,11 @@ function wikiView() {
   })() : "";
   return head + langWarn + askDocBox(d) + parties + highlight + setting + summary + confs + regCard + noticeCard + oblCard + treeCard + nearCard + coverCard + contentsCard + clauseCard;
 }
-// re-embed just this contract (the sweep is estate-wide; this is the one-doc door)
-window.reindexDoc = async (id) => {
-  const j = await (await fetch("/api/qlegal/sweep/embed", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ limit: 50 }) })).json();
-  if (j.error) return rdAlert("Re-index failed", j.error);
-  openDoc(id);
-};
+// NOTE: a second `window.reindexDoc` used to live here, and being second it WON —
+// so "Re-index" on one contract silently ran an estate-wide embed of fifty and never
+// called the reindex endpoint at all. The real one-doc implementation is at the top
+// of this file (it re-reads the original and reports what it recovered). If a
+// one-document re-EMBED is ever wanted, give it its own name.
 // The question sets available for this contract: the ones matching its type are
 // recommended, the rest are still offered — a reviewer may deliberately ask a
 // lease's questions of an unclassified scan.
@@ -1049,7 +1061,7 @@ async function renderConfirm() {
     <div class="wikicard reveal" style="border-left:3px solid var(--amber)">
       <div class="rsec-lbl">Blocked — not decisions, system problems</div>
       <p class="rsummary">${LED.blocked} document${LED.blocked === 1 ? "" : "s"} couldn't be classified because the pipeline couldn't run — usually no keyed model. That isn't a judgement call, so it isn't in the list below.</p>
-      <button class="btn small touch" onclick="setArea('settings');setSub('pipelines')">Check AI Pipelines ▸</button>
+      <button class="btn small touch" onclick="location.href='/admin.html'">Check AI Pipelines ▸</button>
     </div>` : "";
 
   host.innerHTML = `<p class="intro"><b>NEEDS YOU</b> — the AI proposes, you decide. Everything you need is on the card; every answer teaches the system.</p>`
@@ -1563,7 +1575,7 @@ async function renderSpFiles() {
       <td class="am">${kb(f.size)}</td>
       <td>${f.doc_id ? `<span class="typebadge">${esc(f.doc_type || "indexed")}</span>${f.doc_status === "inactive" ? ' <span class="ochip o-dismissed">inactive</span>' : ""}` : '<span class="am">not indexed</span>'}</td>
       <td class="tacts">${f.doc_id ? `<button class="btn small touch" onclick="openDoc(${f.doc_id})">Open in Q-Legal ▸</button>` : `<button class="btn small btn--org touch" onclick="spfIngest('${esc(f.id)}',this)">Ingest now</button>`}
-        <a class="btn small touch" style="text-decoration:none" href="${esc(f.web_url)}" target="_blank">SharePoint ↗</a></td>
+        <a class="btn small touch" style="text-decoration:none" href="${esc(safeUrl(f.web_url))}" target="_blank">SharePoint ↗</a></td>
     </tr>`).join("");
   host.innerHTML = `<p class="intro"><b>SHAREPOINT FILES</b> — the live library, read-only: browse its folders, search it, see what's indexed here, pull anything in on the spot. The nightly scan keeps the rest in step.</p>
     <div class="fstrip" style="margin-bottom:10px">${crumbs}

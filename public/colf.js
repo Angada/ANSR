@@ -31,7 +31,7 @@
 // ============================================================================
 (function () {
   if (window.colfState) return;                    // idempotent
-  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
+  const esc = (s) => String(s ?? "").replace(/[&<>"'`]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[m]));
 
   const CSS = `
 .colf{background:none;border:none;font:inherit;color:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:5px;padding:0;text-align:left;white-space:nowrap}

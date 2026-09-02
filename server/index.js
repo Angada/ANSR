@@ -71,10 +71,13 @@ const APP_ROUTES = {
   raydar: { pages: ["/whisperer.html", "/whisperer.js"], apis: ["/api/wh/"] },
   contra: { pages: ["/contra.html", "/contra.js", "/contract.html", "/contract.js", "/contracts.html", "/contracts.js"], apis: ["/api/contra/"] },
   qlegal: { pages: ["/qlegal.html", "/qlegal.js"], apis: ["/api/qlegal/"] },
-  mint:   { pages: ["/mint.html", "/mint.js", "/invoice.html", "/invoice.js", "/invoice-doc.js", "/atlas.html", "/atlas.js"], apis: ["/api/mint/", "/api/atlas/", "/api/runs", "/api/customers", "/api/roster", "/api/ruleset"] },
+  mint:   { pages: ["/mint.html", "/mint.js", "/invoice.html", "/invoice.js", "/invoice-doc.html", "/invoice-doc.js", "/atlas.html", "/atlas.js"], apis: ["/api/mint/", "/api/atlas/", "/api/runs", "/api/customers", "/api/roster", "/api/ruleset"] },
 };
 // admin-only surfaces: the Vault, the pipeline registry, integrations, accounts
-const ADMIN_ONLY = { pages: ["/admin.html", "/admin.js"], apis: ["/api/config", "/api/pipelines", "/api/providers", "/api/integrations", "/api/vault"] };
+// `/api/vault` was listed here but no such route has ever existed, while /api/audit and
+// /api/ai/map were admin-only only by ACCIDENT — they matched nothing, so default-deny
+// caught them. Declared intent beats a lucky fallthrough: both are named now.
+const ADMIN_ONLY = { pages: ["/admin.html", "/admin.js", "/admin.css", "/console.css"], apis: ["/api/config", "/api/pipelines", "/api/providers", "/api/integrations", "/api/audit", "/api/ai/map"] };
 const token = (a) => createHash("sha256").update(`${a.user}:${a.pw}:qansr-soft`).digest("hex");
 const OPEN = ["/login.html", "/login.js", "/app.css", "/favicon.png", "/apple-touch-icon.png", "/q-emblem.png", "/api/login", "/health"];
 const cookieToken = (req) => (req.headers.cookie || "").split(";").map((c) => c.trim()).find((c) => c.startsWith("qansr_auth="))?.slice(11);
@@ -86,8 +89,15 @@ const setSession = (res, acct) => res.setHeader("Set-Cookie", `qansr_auth=${toke
 
 // May this account touch this path? Shared plumbing (/api/me, /q.js, /brand, the
 // landing page) is allowed to everyone who is signed in.
-function allowedFor(acct, path) {
+function allowedFor(acct, rawPath) {
   if (acct.admin) return true;
+  // LOWERCASE FIRST. Express routes case-INSENSITIVELY by default, but every list
+  // below is lowercase and every test is startsWith() — so `/API/config` matched no
+  // prefix, fell through line 102's static-asset branch, and was then happily served
+  // by app.get("/api/config"). A Content login could read the Vault config, the whole
+  // legal estate and the pipeline registry, and POST over provider keys, purely by
+  // shouting the path. Normalise once, match everything against the normalised copy.
+  const path = String(rawPath || "").toLowerCase();
   const hitsAdmin = ADMIN_ONLY.pages.includes(path) || ADMIN_ONLY.apis.some((p) => path.startsWith(p));
   if (hitsAdmin) return false;
   for (const [app, r] of Object.entries(APP_ROUTES)) {
@@ -154,15 +164,21 @@ app.post("/api/logout", (_req, res) => {
 });
 
 app.use((req, res, next) => {
-  if (OPEN.some((p) => req.path === p) || req.path.startsWith("/brand/") || req.path.startsWith("/raydar-approach-note") || req.path.startsWith("/raydar-engine")) return next(); // public: shareable client approach note + engine pipeline doc
+  // same normalisation as allowedFor: Express matches routes case-insensitively, so
+  // every path test here has to, or `/API/…` is judged a static asset. The public
+  // prefixes are anchored with a trailing slash so a future `raydar-engine-internal.html`
+  // can't inherit "public" from the prefix alone.
+  const path = String(req.path || "").toLowerCase();
+  const publicDir = (d) => path === d || path.startsWith(`${d}/`); // the bare path is the shareable link; the slash form is everything inside it
+  if (OPEN.some((p) => path === p) || path.startsWith("/brand/") || publicDir("/raydar-approach-note") || publicDir("/raydar-engine")) return next(); // public: shareable client approach note + engine pipeline doc
   const acct = accountOf(req);
   if (!acct) {
-    if (req.path.startsWith("/api/")) return res.status(401).json({ error: "auth required" });
+    if (path.startsWith("/api/")) return res.status(401).json({ error: "auth required" });
     return res.redirect("/login.html");
   }
   // signed in, but is this app theirs? (enforced here, not in the nav)
-  if (!allowedFor(acct, req.path)) {
-    if (req.path.startsWith("/api/")) return res.status(403).json({ error: "not available on this account" });
+  if (!allowedFor(acct, path)) {
+    if (path.startsWith("/api/")) return res.status(403).json({ error: "not available on this account" });
     const home = acct.apps.length ? APP_ROUTES[acct.apps[0]].pages[0] : "/login.html";
     return res.redirect(home);
   }

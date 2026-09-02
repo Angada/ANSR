@@ -2,7 +2,7 @@
 const $ = (s, r = document) => r.querySelector(s);
 const id = new URLSearchParams(location.search).get("id") || "ANSR-KENVUE";
 const confClass = (c) => (c >= 0.85 ? "hi" : c >= 0.6 ? "mid" : "lo");
-const esc = (s) => String(s).replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+const esc = (s) => String(s ?? "").replace(/[&<>"'`]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[m]));
 
 // render a box content value (string | array-of-objects | object | scalar)
 function renderVal(v) {

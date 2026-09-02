@@ -2,7 +2,7 @@
 // Connectors row (all providers) → pipelines grouped by product → each AI gate
 // with provider/model dropdowns + enable + editable prompt.
 const $ = (s, r = document) => r.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+const esc = (s) => String(s ?? "").replace(/[&<>"'`]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[m]));
 let CFG = null;
 
 async function load() {
@@ -392,7 +392,7 @@ function auSay(r) {
 }
 
 let AU = { app: "all", actor: "all", q: "", limit: 200 };
-const auEsc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+const auEsc = (s) => String(s ?? "").replace(/[&<>"'`]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[m]));
 const auDT = (ts) => { if (!ts) return ""; const p = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).formatToParts(new Date(ts)).reduce((a, x) => ((a[x.type] = x.value), a), {}); return `${p.day}-${p.month}-${p.year} ${p.hour}:${p.minute}:${p.second}`; };
 
 async function loadAudit() {

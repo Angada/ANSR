@@ -1,6 +1,6 @@
 // Outputs: ANSR-branded A4 invoice + month-by-month breakdown + detailed calc.
 const $ = (s, r = document) => r.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[m]));
+const esc = (s) => String(s ?? "").replace(/[&<>"'`]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[m]));
 const p = new URLSearchParams(location.search);
 let CLIENT = p.get("customer") || p.get("client") || "";
 let RUN = p.get("run") || "";

@@ -2,7 +2,7 @@
 // (Review · Reviewed). Phase 1+ : Archetype Maker (multi-step propose) and the
 // Archetype Library with plain-English review rules (type → Enter → chip).
 const $ = (s, r = document) => r.querySelector(s);
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
+const esc = (s) => String(s ?? "").replace(/[&<>"'`]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;", "`": "&#96;" }[m]));
 // India time (IST) — always show Asia/Kolkata regardless of the viewer's device
 const IST = { timeZone: "Asia/Kolkata" };
 // India format, IST — readable "29 Jun, 2026" · with time "29-09-2026 · 2:09 pm"
