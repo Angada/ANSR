@@ -14,7 +14,7 @@ import { markupDocx } from "./contra-redline.js";
 // Every column of contra_review EXCEPT the heavy/raw blobs (original_file bytea,
 // contract_doc) — used for reads that don't need the original bytes, so we never
 // serialise the uploaded file into a JSON response. The /docx route still SELECT *s.
-const REVIEW_COLS = "id, batch_id, contract_name, archetype_id, archetype_ids, status, verdicts, findings, rule_checks, report, issue_count, detect_confidence, detected, marked_doc_path, extract_md, original_ext, party1, party2, created_at, updated_at";
+const REVIEW_COLS = "id, batch_id, contract_name, archetype_id, archetype_ids, status, verdicts, findings, rule_checks, report, issue_count, run_mode, run_note, coverage, detect_confidence, detected, marked_doc_path, extract_md, original_ext, party1, party2, created_at, updated_at";
 
 // snap LLM verdict keys onto the archetype's section keys (model-adherence safety)
 function snapKeys(verdicts, keys, labels) {
@@ -310,7 +310,31 @@ export function mountContra(app, upload) {
         maxTokens: 8000, // large archetypes (many sections/rules) produce big JSON — don't truncate
       });
       await logRun(rout, { ref_type: "review", ref_id: id, rules_applied: merged.sections.flatMap((s) => s.rules.map((r) => r.text)), input: rev.contract_name, output: "review" });
-      const rp = jparse(rout.text) || {};
+      // A REVIEW THAT DID NOT RUN MUST NEVER SAY "CLEAN".
+      // runPipeline does NOT throw — it RETURNS {mode:"stub"|"disabled"|"error"}
+      // with prose in .text. That prose contains no JSON, so `jparse(...) || {}`
+      // yielded {}, every array came back empty, issue_count computed to 0, and the
+      // row was written status='done'. The product then rendered it green and
+      // exported a branded Word document reading "0 issues flagged" — for a
+      // contract no model had ever read. Six different failures all landed here:
+      // no key, pipeline disabled in Admin, provider 429/5xx, JSON truncated at
+      // max_tokens (the model DID find breaches and we threw them away), an empty
+      // extract, and a PDF whose pages could not be read.
+      const fail = async (mode, note) => {
+        await q(`update contra_review set status='error', run_mode=$2, run_note=$3, issue_count=null, updated_at=now() where id=$1`,
+          [id, mode, String(note || "").slice(0, 500)]).catch(() => {});
+        return res.status(502).json({ error: note, mode, review: { id, status: "error" } });
+      };
+      if (rout.mode !== "ai") {
+        return fail(rout.mode,
+          rout.mode === "disabled" ? "The contra-review pipeline is switched off in Admin — nothing was reviewed."
+          : rout.mode === "stub" ? "No AI model is configured for contra-review, so no review ran. Add a provider key in Admin → Vault."
+          : `The model could not be reached — ${String(rout.text || "").slice(0, 200)}`);
+      }
+      const rp = jparse(rout.text);
+      // A parse failure is NOT a clean contract. Truncation is the dangerous case:
+      // the review genuinely happened and found things, and the JSON was cut off.
+      if (!rp) return fail("error", "The model replied but the review could not be read as JSON — most likely cut off mid-answer. Nothing was assessed; re-run it.");
       const verdicts = snapKeys(Array.isArray(rp.verdicts) ? rp.verdicts : [], keys, merged.sections.map((s) => s.label));
       const rule_checks = Array.isArray(rp.rule_checks) ? rp.rule_checks : [];
       const findings = Array.isArray(rp.findings) ? rp.findings : [];
@@ -320,9 +344,18 @@ export function mountContra(app, upload) {
       const meta = { title: m.title || "", type: m.type || "", effective_date: m.effective_date || "", expiry_date: m.expiry_date || "" };
       const issue_count = verdicts.filter((v) => ["risky", "missing", "non_standard"].includes(v.verdict)).length
         + rule_checks.filter((c) => c.result === "breach" || c.result === "check").length + findings.length;
-      const report = { title: "Contract Review", generated_at: new Date().toISOString(), archetypes: archetypes.map((a) => a.name), meta, parties: { a: party1, b: party2 }, summary: rp.summary || "", verdicts, rule_checks, findings, redlines, sections: outlineForPrompt };
-      await q(`update contra_review set status='done', verdicts=$2::jsonb, rule_checks=$3::jsonb, findings=$4::jsonb, report=$5::jsonb, issue_count=$6, party1=$7, party2=$8, updated_at=now() where id=$1`,
-        [id, JSON.stringify(verdicts), JSON.stringify(rule_checks), JSON.stringify(findings), JSON.stringify(report), issue_count, party1, party2]);
+      // COVERAGE. The model was asked for one verdict per section and one
+      // rule_check per rule. Fewer means it did not finish — and a contract that
+      // was only half-checked must not be reported with the same confidence as one
+      // that was fully checked, because the half it skipped is where the breach is.
+      const coverage = { sections_expected: keys.length, sections_returned: new Set(verdicts.map((v) => v.key)).size,
+                         rules_expected: allRules.length, rules_returned: rule_checks.length };
+      const complete = coverage.sections_returned >= coverage.sections_expected
+                    && coverage.rules_returned >= coverage.rules_expected;
+      const report = { title: "Contract Review", generated_at: new Date().toISOString(), archetypes: archetypes.map((a) => a.name), meta, parties: { a: party1, b: party2 }, summary: rp.summary || "", verdicts, rule_checks, findings, redlines, sections: outlineForPrompt, coverage, complete };
+      await q(`update contra_review set status=$9, verdicts=$2::jsonb, rule_checks=$3::jsonb, findings=$4::jsonb, report=$5::jsonb, issue_count=$6, party1=$7, party2=$8, run_mode='ai', coverage=$10::jsonb, updated_at=now() where id=$1`,
+        [id, JSON.stringify(verdicts), JSON.stringify(rule_checks), JSON.stringify(findings), JSON.stringify(report), issue_count, party1, party2,
+         complete ? "done" : "partial", JSON.stringify(coverage)]);
 
       // timeline (newest-first on read): the review event + one row per finding + redline
       let seq = 0;
@@ -336,9 +369,9 @@ export function mountContra(app, upload) {
         await q(`insert into contra_change(review_id,seq,actor_type,actor_id,kind,body,reasoning,refs) values($1,$2,'ai','contra-review','redline',$3,$4,$5::jsonb)`,
           [id, seq++, `“${String(rl.find).slice(0, 80)}” → “${String(rl.replace || "").slice(0, 80)}”`, String(rl.reason || "").slice(0, 240), JSON.stringify(rl.ref ? [rl.ref] : [])]);
       }
-      const pend = (await q(`select count(*) c from contra_review where batch_id=$1 and status<>'done'`, [rev.batch_id])).rows[0];
+      const pend = (await q(`select count(*) c from contra_review where batch_id=$1 and status not in ('done','partial','error','not_assessed')`, [rev.batch_id])).rows[0];
       if (Number(pend.c) === 0) await q(`update contra_batch set status='done' where id=$1`, [rev.batch_id]);
-      res.json({ review: { id, status: "done", issue_count, report } });
+      res.json({ review: { id, status: complete ? "done" : "partial", issue_count, report, coverage } });
     } catch (e) {
       await q(`update contra_review set status='error' where id=$1`, [id]).catch(() => {});
       res.status(500).json({ error: String(e.message || e).slice(0, 200) });
@@ -357,7 +390,11 @@ export function mountContra(app, upload) {
               r.report->'meta'->>'expiry_date' as expiry_date,
               r.issue_count, r.status, r.created_at, r.updated_at
          from contra_review r left join contra_archetype a on a.id = r.archetype_id
-        where r.status = 'done' order by r.id desc limit 200`
+        -- NOT just 'done'. Filtering to done meant a review that failed, was only
+        -- partly covered, or was retired as never-assessed vanished from the product
+        -- entirely — no row, no way back, no way to re-run it. Hiding a bad review is
+        -- the same mistake as calling it clean, one step further along.
+        where r.status in ('done','partial','error','not_assessed') order by r.id desc limit 200`
     )).rows;
     res.json({ reviews: rows });
   });

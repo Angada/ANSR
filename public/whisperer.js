@@ -38,12 +38,12 @@ let SHOW_DONE = false;
 let SERIES_ON = null;   // only one content series may be armed at a time
 let IDEA_TH = "all", IDEA_RG = "all", IDEA_GP = "all", IDEA_SORT = "score";  // judged ideas leave the working list (drawer, not deleted)
 let JOURNEY = null;     // the Journey board (stations · stories · dumps) for BATCH
-// ---- Journey lane: OFF ------------------------------------------------------
-// The six-station tracked lane is built and working, but not wanted right now.
-// Hidden, not deleted: the tab, the sub-nav entry and the CTA under the sweep
-// results all key off this one flag. The server routes, schema and event log
-// stay in place and are simply unused — flip to true to bring it all back.
-const JOURNEY_ON = false;
+// The six-station Journey lane was hidden behind a flag for weeks and is now
+// DELETED (Asa, 02-09-2026). Its three live routes — themes, the deep story
+// outline and the sweep recap — were extracted to server/raydar-themes.js first;
+// everything else went. The wh_journey_chip / wh_story_event / wh_own_content
+// tables and wh_feed_story's stage columns are left in place: they may hold real
+// rows, and dropping data is a separate decision from deleting code.
 
 // ---- journey rail (horizontal) ---------------------------------------------
 // The rail is NAVIGATION, not decoration: three named steps you can click
@@ -95,20 +95,18 @@ window.toIdeas = () => goStage(3);
 
 // ---- sub-nav: New Sweep / Batches / Library / Settings ----------------------
 function renderSubnav() {
-  $("#subnav").innerHTML = [["sweep", "New Sweep"], ...(JOURNEY_ON ? [["journey", "Journey"]] : []), ["batches", "Batches"], ["library", "Library"], ["settings", "Settings"]]
+  $("#subnav").innerHTML = [["sweep", "New Sweep"], ["batches", "Batches"], ["library", "Library"], ["settings", "Settings"]]
     .map(([k, l]) => `<button class="${VIEW === k ? "on" : ""}" onclick="setView('${k}')">${l}</button>`).join("");
 }
 window.setView = (v) => {
   if (v === "rules") v = "settings";        // old deep-links land on Settings
-  if (v === "journey" && !JOURNEY_ON) v = "sweep";   // lane is off — no dead end
+  if (v === "journey") v = "sweep";         // the lane is gone — old deep-links land on the sweep
   VIEW = v; renderSubnav();
   $("#view-sweep").hidden = v !== "sweep";
-  $("#view-journey").hidden = v !== "journey";
   $("#view-batches").hidden = v !== "batches";
   $("#view-library").hidden = v !== "library";
   $("#view-rules").hidden = v !== "settings";
   window.scrollTo({ top: 0, behavior: "smooth" });   // every tab opens at its top
-  if (v === "journey") renderJourney();
   if (v === "batches") renderBatches();
   if (v === "library") loadLibrary();
   if (v === "settings") renderBizRules();
@@ -857,7 +855,7 @@ async function loadIdeas() {
   const { stories } = await (await fetch(`/api/wh/feedstories/${BATCH.id}?franchise=${encodeURIComponent(FR)}`)).json();
   const { franchises } = await (await fetch("/api/wh/franchises")).json();
   try { FEED_SIGNAL = (await (await fetch(`/api/wh/feed-signal/${BATCH.id}`)).json()).feed || []; } catch { FEED_SIGNAL = []; }
-  try { RECAP = await (await fetch(`/api/wh/journey/recap/${BATCH.id}`)).json(); } catch { RECAP = null; }
+  try { RECAP = await (await fetch(`/api/wh/sweep/recap/${BATCH.id}`)).json(); } catch { RECAP = null; }
   renderIdeas(stories, franchises);
   rail();
 }
@@ -930,7 +928,7 @@ function trendReport(stories) {
 // Sits above the results. Answers, in one place: which concepts were armed,
 // which search terms those concepts fired, what SEO research was in play, what
 // you typed in the brief, which APIs were queried and what came back. Built
-// from what was PERSISTED at sweep time (/journey/recap), so re-opening an old
+// from what was PERSISTED at sweep time (/sweep/recap), so re-opening an old
 // batch recaps THAT batch — not whatever is currently ticked on screen.
 // Plain-English scoring explainer. The four numbers on every idea are opaque
 // unless someone says, in words, what each one measured and why it came out
@@ -1448,20 +1446,6 @@ window.setIdeaGp = (v) => { IDEA_GP = v; loadIdeas(); };
 window.setIdeaSort = (v) => { IDEA_SORT = v; loadIdeas(); };
 window.clearIdeaFilters = () => { FR = IDEA_TH = IDEA_RG = IDEA_GP = "all"; loadIdeas(); };
 
-// The bridge from Journey 1 to Journey 2. Ideas on their own stop here; this is
-// how a batch becomes briefed, owned, dated work. Without a door this obvious
-// nobody finds the Journey tab, because nothing on the results page points at it.
-function journeyCTA(stories) {
-  if (!JOURNEY_ON) return "";
-  const enrolled = (stories || []).filter((s) => s.stage).length;
-  return `<div class="jcta">
-    <div class="jcta-t">${enrolled ? "This batch is already in the journey" : "Turn these ideas into actual work"}</div>
-    <div class="jcta-s">${enrolled
-      ? `${enrolled} topic${enrolled === 1 ? " is" : "s are"} being tracked through the six stations — shortlist, research, brief, writer, published.`
-      : "Ideas stop here. The journey takes them the rest of the way: you shortlist, SEO drops their research in, RayDar builds the brief, you put a writer and a date on it — every step logged."}</div>
-    <button class="sweep-btn jcta-b" onclick="setView('journey')">${enrolled ? "◎ Open the journey" : "◎ Start the journey with this batch"} →</button>
-  </div>`;
-}
 window.setFR = (v) => { FR = v; loadIdeas(); };
 function refreshCurrent() { if (VIEW === "library") loadLibrary(); else loadIdeas(); }
 window.idea = async (id, action) => { await fetch(`/api/wh/feedstory/${id}/action`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) }); refreshCurrent(); };
@@ -1599,16 +1583,13 @@ function libraryBoard(s, i, franchises) {
 // ---- LIBRARY — where every decision has to end up being findable ----------
 // Marking an idea Used / Saved / Rejected is only worth doing if you can get
 // back to it. These filters are that downstream: by outcome (including the ones
-// nobody has judged yet), by WHY it was rejected, by where it has reached in
-// the journey, and by which sweep it came from.
-let LIB_FR = "all", LIB_FB = "all", LIB_ST = "all", LIB_RS = "all", LIB_BA = "all", LIB_BATCHES = [];
+// nobody has judged yet), by WHY it was rejected, and by which sweep it came from.
+let LIB_FR = "all", LIB_FB = "all", LIB_RS = "all", LIB_BA = "all", LIB_BATCHES = [];
 const REJECT_REASONS = ["off-brand", "not interesting", "already covered", "wrong timing"];
-const JSTAGE_LABEL = { radar: "01 Radar", shortlist: "02 Shortlist", dump: "03 Dump", brief: "04 Brief", assign: "05 Assign", live: "06 Live" };
 async function loadLibrary() {
   const qs = new URLSearchParams();
   if (LIB_FR !== "all") qs.set("franchise", LIB_FR);
   if (LIB_FB !== "all") qs.set("feedback", LIB_FB);
-  if (LIB_ST !== "all") qs.set("stage", LIB_ST);
   if (LIB_RS !== "all") qs.set("reason", LIB_RS);
   if (LIB_BA !== "all") qs.set("batch", LIB_BA);
   const { stories } = await (await fetch(`/api/wh/library?${qs}`)).json();
@@ -1621,385 +1602,17 @@ async function loadLibrary() {
       ${sel("Series", LIB_FR, [["all", "all"], ...FRANCHISES.map((f) => [f.name, f.name])], "setLibFR", "Which 1Up sub-series it routes to")}
       ${sel("Sweep", LIB_BA, [["all", "all"], ...LIB_BATCHES.map((b) => [String(b.id), b.name])], "setLibBA", "Which sweep produced it")}
       <span class="lf-n">${stories.length} idea${stories.length === 1 ? "" : "s"}</span>
-      ${[LIB_FB, LIB_ST, LIB_FR, LIB_BA, LIB_RS].some((x) => x !== "all") ? `<button class="btn small" onclick="clearLibFilters()">Clear filters</button>` : ""}
+      ${[LIB_FB, LIB_FR, LIB_BA, LIB_RS].some((x) => x !== "all") ? `<button class="btn small" onclick="clearLibFilters()">Clear filters</button>` : ""}
     </div>`;
   $("#view-library").innerHTML = `<p class="intro"><b>LIBRARY</b> — every idea ever generated, across every sweep. Nothing you mark is lost: filter by what you decided, why you rejected it, or how far it got. Click a story to expand the reasoning.</p>` +
     filters + (stories.length ? `<div class="boards">${stories.map((s, i) => libraryBoard(s, i, FRANCHISES)).join("")}</div>` : `<div class="empty">// nothing matches these filters //</div>`);
 }
 window.setLibFR = (v) => { LIB_FR = v; loadLibrary(); };
 window.setLibFB = (v) => { LIB_FB = v; if (v !== "rejected") LIB_RS = "all"; loadLibrary(); };
-window.setLibST = (v) => { LIB_ST = v; loadLibrary(); };
 window.setLibRS = (v) => { LIB_RS = v; loadLibrary(); };
 window.setLibBA = (v) => { LIB_BA = v; loadLibrary(); };
-window.clearLibFilters = () => { LIB_FR = LIB_FB = LIB_ST = LIB_RS = LIB_BA = "all"; loadLibrary(); };
+window.clearLibFilters = () => { LIB_FR = LIB_FB = LIB_RS = LIB_BA = "all"; loadLibrary(); };
 
-// ==========================================================================
-// JOURNEY — the gated, high-involvement lane. Runs ALONGSIDE the express
-// sweep (New Sweep is untouched); same batch, same stories, six owned
-// stations with a human gate between each.
-//
-//   01 Radar → 02 Shortlist → 03 Dump → 04 Brief → 05 Assign → 06 Live
-//
-// Explainable-AI principle, applied per station: every one carries WHY it
-// exists, WHAT it does, what the MACHINE decides vs what YOU decide, and the
-// GATE you have to close. Copy is served from the server handbook
-// (/journey/stations) so screen and docs can't drift apart.
-// ==========================================================================
-let JSTATIONS = [], JOPEN = "shortlist", JSEL = new Set(), JCHIPS = {};
-// preset chips come from wh_journey_chip, NOT from a hard-coded array — so the
-// team can add a verdict, a season or a dump kind in the DB without a deploy.
-const chipsOf = (kind, fallback = []) => (JCHIPS[kind] || []).length ? JCHIPS[kind].map((c) => c.value) : fallback;
-async function loadJChips() {
-  try {
-    const { chips } = await (await fetch("/api/wh/journey/chips")).json();
-    JCHIPS = (chips || []).reduce((a, c) => ((a[c.kind] = a[c.kind] || []).push(c), a), {});
-  } catch { JCHIPS = {}; }
-}
-
-async function renderJourney() {
-  const host = $("#view-journey");
-  await loadBatches(!BATCH);
-  // The journey starts HERE too — you shouldn't have to go back to New Sweep to
-  // begin one. Same three feeds, plus a batch picker to reopen an old sweep.
-  const opener = `<div class="jopen">
-    <div class="jopen-r">
-      <button class="sweep-btn" onclick="startNewSweep()">◎ Start a new sweep</button>
-      <label class="bp"><span class="bp-k">or run the journey on an existing batch</span>
-        <select onchange="if(this.value)openBatchInJourney(+this.value, this.selectedOptions[0].dataset.n)">${batchOptions(BATCH?.id)}</select>
-      </label>
-    </div>
-    <details class="jopen-f"><summary>Arm the feeds — Trend Spotting · SEO Inputs · TalentMind</summary>
-      <div class="jopen-fb">The three feeds live on the <b>New Sweep</b> screen, because a journey always starts from a sweep. Press <b>Start a new sweep</b> above to arm them, then come back here.</div>
-      <div class="jopen-g">
-        <div class="jopen-c"><b>Feed 01 · Trend Spotting</b><span>Pick the themes. Each fires its own search terms at YouTube and Reddit.</span></div>
-        <div class="jopen-c"><b>Feed 02 · SEO Inputs</b><span>Paste or upload keyword research to steer the sweep before it runs.</span></div>
-        <div class="jopen-c"><b>Feed 03 · TalentMind</b><span>Demand read from the talent themselves. Simulation only for now.</span></div>
-      </div>
-    </details>
-  </div>`;
-  if (!BATCH) {
-    host.innerHTML = `<p class="intro"><b>JOURNEY</b> — the slower, tracked lane: six owned stations with a human gate between each. Every act is journalled, so you can always see who moved what, and when.</p>`
-      + opener + `<div class="empty">// pick a batch above to walk it through the six stations //</div>`;
-    return;
-  }
-  if (!JSTATIONS.length) { try { JSTATIONS = (await (await fetch("/api/wh/journey/stations")).json()).stations || []; } catch { JSTATIONS = []; } }
-  if (!Object.keys(JCHIPS).length) await loadJChips();
-  try { JOURNEY = await (await fetch(`/api/wh/journey/${BATCH.id}`)).json(); } catch { JOURNEY = null; }
-  if (!JOURNEY) { host.innerHTML = `<div class="empty">// could not load the journey //</div>`; return; }
-
-  const { stories = [], candidates = [], dumps = [], counts = {} } = JOURNEY;
-  host.innerHTML = `
-    <p class="intro"><b>JOURNEY</b> — the same batch as the sweep, walked slowly. Six stations, each owned by a team, each with a gate you close by hand. Open any station to read <b>why it exists</b> and <b>what it does</b>.</p>
-    ${opener}
-    <div class="jn-head">
-      <span class="chip tag-grn" style="cursor:default">${ic("box")} ${esc(BATCH.name || "batch")}</span>
-      ${JOURNEY.batch?.description ? `<span class="chip" style="cursor:default;color:var(--dim)">${esc(JOURNEY.batch.description)}</span>` : ""}
-      <span class="chip" style="border:none;background:none;padding:0;color:var(--dim2)">${candidates.length} candidates · ${stories.length} in the journey · ${dumps.length} research dump${dumps.length === 1 ? "" : "s"}</span>
-    </div>
-    ${nextAction({ stories, candidates, dumps, counts })}
-    ${JSTATIONS.map((st) => station(st, { stories, candidates, dumps, counts })).join("")}`;
-}
-
-// ---- "YOU ARE HERE" — one sentence, one button, no decisions to make ------
-// Written for someone who has never used the tool and does not care how it
-// works. It looks at the board, finds the single next thing that needs doing,
-// says it in plain words, and puts the button right there.
-function nextAction(d) {
-  const at = (id) => d.stories.filter((s) => s.stage === id);
-  const unsure = d.dumps.filter((x) => x.status === "confirm").length;
-  const readyToBrief = at("dump").filter((s) => s.dumps > 0);
-  let step;
-  if (!d.candidates.length && !d.stories.length)
-    step = { n: "Start here", say: "Nothing's in this journey yet. Run a sweep first, then come back — the topics it finds will be waiting at station 01.", btn: ["Go to New Sweep", "setView('sweep')"] };
-  else if (d.candidates.length && !at("shortlist").length && !at("dump").length)
-    step = { n: "Step 1 of 6", say: `The radar found ${d.candidates.length} possible topic${d.candidates.length === 1 ? "" : "s"}. Pull the good ones through so you can go through them properly. Nothing gets committed by doing this.`, btn: ["Promote the top candidates", "jPromote()"] };
-  else if (at("shortlist").length)
-    step = { n: "Step 2 of 6", say: `${at("shortlist").length} topic${at("shortlist").length === 1 ? " is" : "s are"} waiting for your yes or no. Go down the list and press Keep, Refresh, Merge, Park or Kill on each one. Only Keep and Refresh carry on.`, btn: ["Take me to the list", "jGo('shortlist')"] };
-  else if (unsure)
-    step = { n: "Step 3 of 6", say: `${unsure} research file${unsure === 1 ? "" : "s"} came in but RayDar wasn't sure which topic ${unsure === 1 ? "it belongs" : "they belong"} to. Pick the right one from the dropdown — that's all it needs.`, btn: ["Show me", "jGo('dump')"] };
-  else if (at("dump").length && !readyToBrief.length)
-    step = { n: "Step 3 of 6", say: `${at("dump").length} topic${at("dump").length === 1 ? "" : "s"} need SEO's research. Paste an export or drop the file in — Ahrefs, Semrush, Search Console, anything. It doesn't need tidying up first.`, btn: ["Drop research in", "jGo('dump')"] };
-  else if (readyToBrief.length)
-    step = { n: "Step 4 of 6", say: `${readyToBrief.length} topic${readyToBrief.length === 1 ? " has" : "s have"} research attached. Build the brief and RayDar turns it into keywords, questions and a meta description a writer can just pick up.`, btn: ["Build the brief", "jGo('dump')"] };
-  else if (at("brief").length)
-    step = { n: "Step 4 of 6", say: `${at("brief").length} brief${at("brief").length === 1 ? " is" : "s are"} ready to read. Have a look, change anything you don't like, then approve it to hand it to Content.`, btn: ["Read the brief", "jGo('brief')"] };
-  else if (at("assign").length)
-    step = { n: "Step 5 of 6", say: `${at("assign").length} approved brief${at("assign").length === 1 ? "" : "s"} with nobody's name on ${at("assign").length === 1 ? "it" : "them"} yet. Put a writer and a date against ${at("assign").length === 1 ? "it" : "each"}.`, btn: ["Assign a writer", "jGo('assign')"] };
-  else if (at("live").length)
-    step = { n: "Done", say: `${at("live").length} piece${at("live").length === 1 ? "" : "s"} published from this batch. Add the clicks from Search Console when you have them and next month's sweep gets smarter.`, btn: ["See what's live", "jGo('live')"] };
-  else
-    step = { n: "All clear", say: "Nothing needs you right now on this batch.", btn: null };
-  return `<div class="jnext">
-    <div class="jnext-n">${esc(step.n)}</div>
-    <div class="jnext-s">${esc(step.say)}</div>
-    ${step.btn ? `<button class="jv keep jnext-b" onclick="${step.btn[1]}">${esc(step.btn[0])} →</button>` : ""}
-  </div>`;
-}
-// open a batch straight into the journey, without bouncing via the sweep tab
-window.openBatchInJourney = async (id, name) => {
-  BATCH = { id, name }; RECAP = null; JOPEN = "shortlist"; JSEL.clear();
-  await renderJourney(); renderBatchPick();
-  window.scrollTo({ top: 0, behavior: "smooth" });
-};
-window.jGo = (id) => {
-  JOPEN = id; renderJourney();
-  setTimeout(() => document.querySelector(`.jny[data-st="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
-};
-
-// one station: the explainable panel + whatever that station lets you DO
-function station(st, data) {
-  const n = st.id === "radar" ? data.candidates.length : (data.counts[st.id] || 0);
-  const body = {
-    radar: () => stRadar(data), shortlist: () => stShortlist(data), dump: () => stDump(data),
-    brief: () => stBrief(data), assign: () => stAssign(data), live: () => stLive(data),
-  }[st.id]?.() || "";
-  return `<details class="jny ${JOPEN === st.id ? "on" : ""}" data-st="${st.id}" ${JOPEN === st.id ? "open" : ""} ontoggle="jToggle('${st.id}',this.open)">
-    <summary class="jny-top">
-      <span class="jny-n">${st.n}</span>
-      <span><span class="jny-t">${esc(st.title)}</span> <span class="jny-s">— ${esc(st.short)}</span></span>
-      <span class="jny-owner">${esc(st.owner)}</span>
-      <span class="jny-count"><b>${n}</b> ${st.id === "radar" ? "candidates" : "topics"}<span class="tsr-chev">▾</span></span>
-    </summary>
-    <div class="jny-body">
-      ${body}
-      ${(st.steps || []).length ? `<details class="jhow-w"><summary>How do I use this step?</summary>
-        <div class="jhow">
-          <ol class="jhow-l">${(st.steps || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ol>
-          ${st.you_get ? `<div class="jhow-g"><b>You'll end up with:</b> ${esc(st.you_get)}</div>` : ""}
-          ${st.then ? `<div class="jhow-t">${esc(st.then)}</div>` : ""}
-        </div></details>` : ""}
-      <details class="jwhy-w"><summary>Why does this step exist? What is the AI doing?</summary>
-      <div class="jwhy">
-        <div class="jwhy-r"><div class="jwhy-k">Why</div><div>${esc(st.why)}</div></div>
-        <div class="jwhy-r"><div class="jwhy-k">What</div><div>${esc(st.does)}</div></div>
-        <div class="jwhy-r"><div class="jwhy-k">The AI</div><div>${esc(st.ai)}</div></div>
-        <div class="jwhy-r gate"><div class="jwhy-k">You</div><div>${esc(st.human)}</div></div>
-        ${(st.pipelines || []).length ? `<div class="jwhy-p">runs through${(st.pipelines || []).map((p) => `<span class="pp">${esc(p)}</span>`).join("")}· gated + model-swappable in Admin</div>` : `<div class="jwhy-p">no model call at this station</div>`}
-      </div></details>
-    </div></details>`;
-}
-window.jToggle = (id, open) => { if (open) JOPEN = id; };
-
-// ---- 01 Radar — the candidates the sweep produced, not yet enrolled -------
-function stRadar(d) {
-  if (!d.candidates.length) return `<div class="empty">// no un-enrolled candidates — run a sweep, or they're all in the journey already //</div>`;
-  return `<div class="jrow-a" style="margin-bottom:4px">
-      <button class="jv keep" onclick="jPromote()">▸ Auto-promote the top candidates</button>
-      <button class="jv" onclick="jPromoteSel()">Promote ticked (${JSEL.size})</button>
-    </div>
-    <div class="tsr-note" style="margin-bottom:6px">Auto-promote uses the score floor + top-N set in Settings → journey. Nothing is written until you press it.</div>
-    ${d.candidates.map((c) => `<div class="jrow">
-      <input type="checkbox" ${JSEL.has(c.id) ? "checked" : ""} onchange="jSel(${c.id},this.checked)">
-      <div class="jrow-h">${esc(c.heading || "untitled")}
-        <div class="jrow-m">${c.demand_topic ? `<span>${esc(c.demand_topic)}</span>` : ""}${c.franchise ? `<span>→ ${esc(c.franchise)}</span>` : ""}${c.gap_type ? `<span class="chip tag-cyan" style="cursor:default">${esc(c.gap_type)}</span>` : ""}<span>score ${(Number(c.score) || 0).toFixed(2)}</span></div>
-      </div></div>`).join("")}`;
-}
-
-// ---- 02 Shortlist — verdicts, bulk actions, add-your-own ------------------
-function stShortlist(d) {
-  const rows = d.stories.filter((s) => s.stage === "shortlist");
-  const cap = (s) => String(s).charAt(0).toUpperCase() + String(s).slice(1);
-  const V = chipsOf("verdict", ["keep", "refresh", "merge", "park", "kill"]).map((v) => [v, cap(v)]);
-  return `<div class="jrow-a" style="margin-bottom:8px">
-      ${V.map(([v, l]) => `<button class="jv ${v}" onclick="jVerdictSel('${v}')">${l} ticked (${JSEL.size})</button>`).join("")}
-      <button class="jv" onclick="jAddTopic()">+ Add a topic the radar missed</button>
-    </div>
-    ${rows.length ? rows.map((s) => `<div class="jrow">
-      <input type="checkbox" ${JSEL.has(s.id) ? "checked" : ""} onchange="jSel(${s.id},this.checked)">
-      <div class="jrow-h">${esc(s.heading || "untitled")}
-        <div class="jrow-m">${s.demand_topic ? `<span>${esc(s.demand_topic)}</span>` : ""}${s.franchise ? `<span>→ ${esc(s.franchise)}</span>` : ""}<span>score ${(Number(s.score) || 0).toFixed(2)}</span>${s.events ? `<a href="#" onclick="jTimeline(${s.id});return false">${s.events} event${s.events === 1 ? "" : "s"}</a>` : ""}</div>
-      </div>
-      <div class="jrow-a">${V.map(([v, l]) => `<button class="jv ${v}" onclick="jVerdict(${s.id},'${v}')">${l}</button>`).join("")}</div>
-    </div>`).join("") : `<div class="empty">// nothing shortlisted — promote candidates from Radar //</div>`}`;
-}
-
-// ---- 03 Dump — SEO drops research; RayDar reads it, never researches ------
-function stDump(d) {
-  const rows = d.stories.filter((s) => s.stage === "dump");
-  const KINDS = chipsOf("dumpkind", ["Keyword export", "GSC export", "SERP snapshot", "Competitor audit", "PAA / questions", "Trend report"]);
-  return `<div class="jdz">
-      <textarea id="jDumpText" rows="3" placeholder="paste an export — keywords, GSC rows, a SERP snapshot, a PAA list…"></textarea>
-      <div class="jrow-a" style="justify-content:center">
-        <select class="jn-sel" id="jDumpKind">${KINDS.map((k) => `<option>${esc(k)}</option>`).join("")}</select>
-        <button class="jv keep" onclick="jDump()">Read this dump</button>
-        <label class="jv" style="cursor:pointer">⤒ Excel · CSV · PDF · DOCX<input type="file" accept=".xlsx,.xls,.csv,.ods,.pdf,.docx" style="display:none" onchange="jDumpFile(this.files[0])"></label>
-      </div>
-      <div class="tsr-note" style="margin-top:8px">A format RayDar recognises is parsed by rules — instant, no model call, no cost. A new format costs one call, then it's free forever.</div>
-      <div id="jDumpMeter"></div>
-    </div>
-    ${d.dumps.length ? `<div style="margin-top:6px">${d.dumps.map((x) => `<div class="jdump">
-        <span class="st ${esc(x.status)}">${esc(x.status)}</span>
-        <b>${esc(x.filename || x.kind || "paste")}</b>
-        <span class="det">${x.rows} row${x.rows === 1 ? "" : "s"}${x.shape_id ? ` · shape ${esc(x.shape_id)}` : " · shape learned"}${x.confidence != null ? ` · match ${(Number(x.confidence) * 100).toFixed(0)}%` : ""}</span>
-        ${x.status === "confirm" ? `<select class="jn-sel" onchange="jAttach(${x.id},this.value)">
-            <option value="">— attach to a topic —</option>
-            ${rows.map((s) => `<option value="${s.id}">${esc((s.heading || "").slice(0, 60))}</option>`).join("")}
-          </select>` : `<span class="det">→ ${esc((rows.find((s) => s.id === x.story_id)?.heading || "attached").slice(0, 50))}</span>`}
-      </div>`).join("")}</div>` : ""}
-    <div style="margin-top:10px">${rows.length ? `<div class="tsr-note" style="margin-bottom:4px">Topics waiting on research — each one gets a <b>Build the brief →</b> button once you've dropped something in.</div>` : ""}${rows.length ? rows.map((s) => `<div class="jrow">
-      <div class="jrow-h">${esc(s.heading || "untitled")}
-        <div class="jrow-m"><span>${s.dumps || 0} dump${s.dumps === 1 ? "" : "s"} attached</span>${s.verdict ? `<span class="chip tag-cyan" style="cursor:default">${esc(s.verdict)}</span>` : ""}<a href="#" onclick="jTimeline(${s.id});return false">timeline</a></div>
-      </div>
-      <div class="jrow-a"><button class="jv ${s.dumps ? "keep" : ""}" onclick="jBrief(${s.id})" ${s.dumps ? "" : 'title="drop some research in above first — the brief is built from it"'}>Build the brief →</button></div>
-    </div>`).join("") : `<div class="empty">// nothing waiting on research — keep something at Shortlist first //</div>`}</div>`;
-}
-
-// ---- 04 Brief — the artifact Content is waiting for -----------------------
-function stBrief(d) {
-  const rows = d.stories.filter((s) => s.stage === "brief");
-  if (!rows.length) return `<div class="empty">// no briefs yet — build one from a topic at Dump //</div>`;
-  // every field is an INPUT — the brief is genuinely editable before approval,
-  // and Save writes it back through /journey/story/:id/brief/save.
-  const L = (id, path, k, v, arr) => `<div class="jbrief-r"><div class="jbrief-k">${k}</div>
-    <div><input id="bf-${id}-${path}" data-arr="${arr ? 1 : 0}" value="${esc(Array.isArray(v) ? v.join(" · ") : (v ?? ""))}" placeholder="${arr ? "separate with ·" : "—"}"></div></div>`;
-  return rows.map((s) => {
-    const b = s.brief || {};
-    return `<div class="jrow" style="align-items:flex-start"><div class="jrow-h" style="min-width:100%">
-      ${esc(s.heading || "untitled")}
-      <div class="jrow-m"><span>built from ${b._rows || 0} dumped rows</span>${b._sources?.length ? `<span>${esc(b._sources.join(", "))}</span>` : ""}${b._built ? `<span class="chip tag-amber" style="cursor:default">${esc(b._built)}</span>` : ""}<a href="#" onclick="jTimeline(${s.id});return false">timeline</a></div>
-      <div class="jbrief">
-        ${L(s.id, "primary_keyword", "Primary keyword", b.primary_keyword)}
-        ${L(s.id, "secondary_keywords", "Secondary", b.secondary_keywords, 1)}
-        ${L(s.id, "search_intent", "Search intent", b.search_intent)}
-        ${L(s.id, "faqs", "FAQs", b.faqs, 1)}
-        ${L(s.id, "paa", "People also ask", b.paa, 1)}
-        ${L(s.id, "ai_overview", "AI Overview", b.ai_overview)}
-        ${L(s.id, "related_searches", "Related searches", b.related_searches, 1)}
-        ${L(s.id, "competitor_gaps", "Competitor gaps", b.competitor_gaps, 1)}
-        ${L(s.id, "must_cover", "Must cover", b.must_cover, 1)}
-        ${L(s.id, "metadata.title", "Meta title", b.metadata?.title)}
-        ${L(s.id, "metadata.description", "Meta description", b.metadata?.description)}
-        ${L(s.id, "metadata.slug", "Slug", b.metadata?.slug)}
-        ${L(s.id, "internal_links", "Internal links", b.internal_links, 1)}
-      </div>
-      <div class="jrow-a" style="margin-top:9px">
-        <button class="jv" onclick="jBriefSave(${s.id})">Save my edits</button>
-        <button class="jv keep" onclick="jApprove(${s.id})">✓ Approve — release to Content</button>
-        <button class="jv" onclick="jBrief(${s.id})">↻ Rebuild from the dump</button>
-        <span id="bmsg-${s.id}" class="tcard-msg"></span>
-      </div></div></div>`;
-  }).join("");
-}
-
-// ---- 05 Assign — the only station with a clock ---------------------------
-function stAssign(d) {
-  const rows = d.stories.filter((s) => s.stage === "assign");
-  if (!rows.length) return `<div class="empty">// nothing approved yet — approve a brief at station 04 //</div>`;
-  return rows.map((s) => `<div class="jrow">
-    <div class="jrow-h">${esc(s.heading || "untitled")}
-      <div class="jrow-m">${s.assignee ? `<span class="chip tag-grn" style="cursor:default">${esc(s.assignee)}</span>` : `<span>unassigned</span>`}${s.due_at ? `<span>due ${fmtDT(s.due_at).split(" ·")[0]}</span>` : ""}${s.brief_at ? `<span>approved ${fmtDT(s.brief_at)}</span>` : ""}<a href="#" onclick="jTimeline(${s.id});return false">timeline</a></div>
-    </div>
-    <div class="jrow-a">
-      <button class="jv" onclick="jAssign(${s.id})">${s.assignee ? "Reassign" : "Assign a writer"}</button>
-      <button class="jv keep" onclick="jPublish(${s.id})">It's live →</button>
-    </div></div>`).join("");
-}
-
-// ---- 06 Live — the loop that makes the ranking actually learn -------------
-function stLive(d) {
-  const rows = d.stories.filter((s) => s.stage === "live");
-  if (!rows.length) return `<div class="empty">// nothing published from this batch yet //</div>`;
-  return rows.map((s) => `<div class="jrow">
-    <div class="jrow-h">${esc(s.heading || "untitled")}
-      <div class="jrow-m">${s.published_url ? `<a href="${esc(safeUrl(s.published_url))}" target="_blank" rel="noopener">${esc(String(s.published_url).slice(0, 60))}</a>` : ""}<a href="#" onclick="jTimeline(${s.id});return false">timeline</a></div>
-    </div></div>`).join("");
-}
-
-// ---- actions --------------------------------------------------------------
-const jPost = (url, body) => fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body || {}) }).then((r) => r.json());
-// ticking a box PERSISTS (wh_feed_story.selected) — it survives a refresh and
-// is visible in the Library as "to build". Not client-only state.
-window.jSel = async (id, on) => {
-  if (on) JSEL.add(id); else JSEL.delete(id);
-  await jPost("/api/wh/journey/select", { ids: [id], on: !!on });
-  renderJourney();
-};
-window.jPromote = async () => { const r = await jPost(`/api/wh/journey/${BATCH.id}/promote`); rdAlert("Promoted", `${r.promoted || 0} candidate${r.promoted === 1 ? "" : "s"} moved into Shortlist. Nothing was written to any of them yet — they're waiting on your verdict.`); JSEL.clear(); JOPEN = "shortlist"; renderJourney(); };
-window.jPromoteSel = async () => { if (!JSEL.size) return rdAlert("Nothing ticked", "Tick the candidates you want, then press again."); await jPost(`/api/wh/journey/${BATCH.id}/promote`, { ids: [...JSEL] }); JSEL.clear(); JOPEN = "shortlist"; renderJourney(); };
-window.jVerdict = async (id, v) => { await jPost("/api/wh/journey/verdict", { ids: [id], verdict: v }); renderJourney(); };
-window.jVerdictSel = async (v) => { if (!JSEL.size) return rdAlert("Nothing ticked", "Tick the topics you want to " + v + ", then press again."); await jPost("/api/wh/journey/verdict", { ids: [...JSEL], verdict: v }); JSEL.clear(); renderJourney(); };
-window.jAddTopic = () => rdPrompt("Add a topic", "Something the radar never saw — it enters at Shortlist with your name on it.", "", async (h) => { if (!h) return; await jPost(`/api/wh/journey/${BATCH.id}/topic`, { heading: h }); renderJourney(); });
-window.jDump = async () => {
-  const content = $("#jDumpText")?.value.trim(); if (!content) return rdAlert("Nothing to read", "Paste an export first, or use the file button.");
-  await meter(["Detecting the export shape", "Reading typed rows", "Matching to a shortlisted topic"], "jDumpMeter", "◎ Dump read");
-  const r = await jPost(`/api/wh/journey/${BATCH.id}/dump`, { content, kind: $("#jDumpKind")?.value });
-  jDumpDone(r);
-};
-window.jDumpFile = async (file) => {
-  if (!file) return;
-  await meter(["Extracting the file", "Detecting the export shape", "Reading typed rows", "Matching to a shortlisted topic"], "jDumpMeter", "◎ Dump read");
-  const fd = new FormData(); fd.append("file", file); fd.append("kind", $("#jDumpKind")?.value || "");
-  try { jDumpDone(await (await fetch(`/api/wh/journey/${BATCH.id}/dump-file`, { method: "POST", body: fd })).json()); }
-  catch { rdAlert("Could not read that file", "Try an .xlsx, .csv or .pdf export."); }
-};
-function jDumpDone(r) {
-  if (r.error) return rdAlert("Dump failed", r.error);
-  const how = r.mode === "deterministic" ? `Recognised as a known format (${r.shape_id}) — parsed by rules, no model call, no cost.`
-    : r.learned ? `New format — read once by the model and saved as "${r.shape_id}". The next file like this is free.`
-    : r.mode === "ai" ? "Read by the model."
-    : "No model available — kept the phrases so nothing was lost.";
-  rdAlert("Dump read", `${(r.rows || []).length} row${(r.rows || []).length === 1 ? "" : "s"} pulled. ${how} ${r.attached ? `Attached to "${r.match?.heading || "a topic"}" (${Math.round((r.match?.confidence || 0) * 100)}% match).` : "Not confident which topic it belongs to — pick one below rather than let it guess."}`);
-  if ($("#jDumpText")) $("#jDumpText").value = "";
-  renderJourney();
-}
-window.jAttach = async (id, storyId) => { if (!storyId) return; await jPost(`/api/wh/journey/dump/${id}/attach`, { story_id: Number(storyId) }); renderJourney(); };
-window.jBrief = async (id) => {
-  const r = await jPost(`/api/wh/journey/story/${id}/brief`);
-  if (r.error) return rdAlert("Can't build the brief yet", r.error);
-  JOPEN = "brief"; renderJourney();
-};
-// read every brief field back off the screen and persist it. Approving saves
-// first, so you can never approve a version different from the one you're
-// looking at.
-function briefFromScreen(id) {
-  const src = (JOURNEY?.stories || []).find((s) => s.id === id)?.brief || {};
-  const out = { ...src, metadata: { ...(src.metadata || {}) } };
-  document.querySelectorAll(`[id^="bf-${id}-"]`).forEach((el) => {
-    const path = el.id.slice(`bf-${id}-`.length);
-    const v = el.dataset.arr === "1"
-      ? el.value.split("·").map((x) => x.trim()).filter(Boolean)
-      : (el.value.trim() || null);
-    if (path.startsWith("metadata.")) out.metadata[path.slice(9)] = v;
-    else out[path] = v;
-  });
-  return out;
-}
-window.jBriefSave = async (id) => {
-  await jPost(`/api/wh/journey/story/${id}/brief/save`, { brief: briefFromScreen(id) });
-  const m = $(`#bmsg-${id}`); if (m) m.textContent = "✓ saved";
-  await renderJourney();
-};
-window.jApprove = async (id) => {
-  await jPost(`/api/wh/journey/story/${id}/brief/save`, { brief: briefFromScreen(id) });  // never approve stale text
-  await jPost(`/api/wh/journey/story/${id}/approve`);
-  JOPEN = "assign"; renderJourney();
-};
-window.jAssign = (id) => rdPrompt("Assign a writer", "Who's writing this?", "", async (who) => {
-  if (!who) return;
-  rdPrompt("Due date", "YYYY-MM-DD (leave blank for none)", "", async (due) => {
-    await jPost(`/api/wh/journey/story/${id}/assign`, { assignee: who, due_at: due || null }); renderJourney();
-  });
-});
-window.jPublish = (id) => rdPrompt("It's live", "Paste the published URL — it goes into the own-content index so future sweeps flag it as already covered.", "", async (url) => {
-  if (!url) return; await jPost(`/api/wh/journey/story/${id}/publish`, { url }); JOPEN = "live"; renderJourney();
-});
-// the audit timeline — reads straight off the append-only event table
-window.jTimeline = async (id) => {
-  const { events } = await (await fetch(`/api/wh/journey/story/${id}/events`)).json();
-  const ov = document.createElement("div"); ov.className = "ov";
-  ov.innerHTML = `<div class="box" style="width:min(560px,100%)">
-    <h3 style="margin:0 0 4px">Timeline</h3>
-    <p style="font-size:12px;color:var(--dim);margin:0 0 10px">Every act on this topic, oldest first. Append-only — nothing here can be edited or removed.</p>
-    <div class="jtl">${(events || []).length ? events.map((e) => `<div class="jtl-e">
-      <b>${esc(e.action)}</b>${e.from_stage || e.to_stage ? ` · ${esc(e.from_stage || "—")} → ${esc(e.to_stage || "—")}` : ""}
-      ${e.field ? ` · ${esc(e.field)}${e.before_val ? ` <s>${esc(e.before_val)}</s>` : ""}${e.after_val ? ` → ${esc(e.after_val)}` : ""}` : ""}
-      ${e.note ? `<br><span style="color:var(--dim2)">${esc(e.note)}</span>` : ""}
-      <br><span class="t">${esc(e.actor)} · ${fmtDT(e.at)}</span></div>`).join("") : `<div class="jtl-e">no events yet</div>`}</div>
-    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" data-ok>Close</button></div></div>`;
-  document.body.appendChild(ov);
-  const close = () => ov.remove();
-  ov.querySelector("[data-ok]").onclick = close; ov.onclick = (e) => { if (e.target === ov) close(); };
-};
 
 
 // ---- THE DETAILED STORY OUTLINE -------------------------------------------

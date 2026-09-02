@@ -1,3 +1,18 @@
+// "clean" is a CLAIM, and it may only be made about a review that actually ran and
+// actually covered the contract. It used to be rendered from `issue_count ? … : clean`
+// alone — and issue_count was NOT NULL DEFAULT 0, so a review that never reached a
+// model was indistinguishable from a spotless contract. Six failure modes all
+// rendered green.
+function reviewCell(r) {
+  if (r.status === "error" || r.status === "not_assessed")
+    return `<span style="color:var(--red);font-weight:600" title="${esc(r.run_note || "this review did not run")}">not assessed</span>`;
+  if (r.status === "partial")
+    return `<span style="color:var(--amber,#d9a441);font-weight:600" title="the model did not cover every section or rule">partly checked${r.issue_count ? ` · ${r.issue_count}` : ""}</span>`;
+  if (r.issue_count == null) return `<span style="color:var(--dim2)">—</span>`;
+  return r.issue_count
+    ? `<span style="color:var(--red);font-weight:600">${r.issue_count}</span>`
+    : `<span style="color:var(--grn)">clean</span>`;
+}
 // Contra — contract review. Areas: Archetypes (Maker · Library) · Contracts
 // (Review · Reviewed). Phase 1+ : Archetype Maker (multi-step propose) and the
 // Archetype Library with plain-English review rules (type → Enter → chip).
@@ -354,7 +369,7 @@ function renderReviewed() {
       <td>${r.contract_type ? `<span class="typebadge">${esc(r.contract_type)}</span>` : "<span style='color:var(--dim2)'>—</span>"}</td>
       <td>${esc([r.party1, r.party2].filter(Boolean).join(" ⟷ ")) || "<span style='color:var(--dim2)'>—</span>"}</td>
       <td>${esc(r.archetype || "—")}</td>
-      <td>${r.issue_count ? `<span style="color:var(--red);font-weight:600">${r.issue_count}</span>` : `<span style="color:var(--grn)">clean</span>`}</td>
+      <td>${reviewCell(r)}</td>
       <td>${fmtDT(r.created_at)}</td>
     </tr>`).join("");
   host.innerHTML = `<p class="intro"><b>REVIEWED</b> — every contract you've reviewed. The 10 most recent show here; type to search all. Click a row for its report, redlines and timeline.</p>`

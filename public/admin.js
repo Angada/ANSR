@@ -301,7 +301,7 @@ function skillCard(p) {
       </div>
       ${det ? "" : locked ? `
         <span class="chip" title="Every stored vector lives in this model's space. Swapping the model does not re-embed anything — it leaves the estate answering with meaningless similarity. Changing it safely means a deliberate re-embed of the whole corpus."
-          style="background:#EEF1F4;color:#44505C;font-weight:600">🔒 locked · ${esc(p.provider)} · ${esc(p.model)}</span>` : `
+          style="background:#EEF1F4;color:#44505C;font-weight:600">${ic("lock", 12)} locked · ${esc(p.provider)} · ${esc(p.model)}</span>` : `
         <select class="sk-prov" style="max-width:160px" onchange="skSync('${p.id}')">${provOpts}</select>
         <select class="sk-model" style="max-width:180px">${modelOpts}</select>
         <a class="lbl sk-pe" style="cursor:pointer;font-weight:600;color:var(--ansr-orange)" onclick="skPrompt('${p.id}')">prompt ▾</a>`}
@@ -410,6 +410,11 @@ async function loadAudit() {
     <select onchange="${fn}(this.value)">${opts.map((o) => `<option ${cur === o ? "selected" : ""}>${auEsc(o)}</option>`).join("")}</select></label>`;
   host.innerHTML = `
     <p class="muted">Every state-changing action across every app — who did it, when, from where, and what came back. Written automatically by the server; append-only and not editable here. Times are IST.</p>
+    ${d.health?.write_failures > 0 ? `<div style="border:1px solid #B3260A;border-left:4px solid #B3260A;background:#FBECE8;color:#7A1A06;padding:11px 14px;border-radius:8px;margin:0 0 12px;font-size:13px">
+      <b>${d.health.write_failures} audit write${d.health.write_failures === 1 ? " has" : "s have"} failed.</b>
+      This list is incomplete — actions happened that were never recorded.
+      ${d.health.last_failure ? `Last: <code>${auEsc(d.health.last_failure.path || "")}</code> at ${auEsc(d.health.last_failure.at || "")} — ${auEsc(d.health.last_failure.error || "")}` : ""}
+    </div>` : ""}
     <div class="au-bar">
       ${sel("App", AU.app, apps, "auSetApp")}
       ${sel("User", AU.actor, actors, "auSetActor")}

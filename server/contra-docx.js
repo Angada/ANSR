@@ -52,7 +52,22 @@ export async function buildReviewDocx(review) {
   const body = [];
   body.push(new Paragraph({ spacing: { after: 40 }, children: [new TextRun({ text: "Contract Review", bold: true, size: 40, color: INK })] }));
   body.push(line([new TextRun({ text: ref, size: 16, color: MUTE })]));
-  body.push(line([new TextRun({ text: `${review.issue_count || 0} issue${review.issue_count === 1 ? "" : "s"} flagged`, bold: true, size: 18, color: review.issue_count ? R_COLOR.breach : V_COLOR.present })]));
+  // THIS LINE LEAVES THE BUILDING. It used to read `${issue_count || 0} issues
+  // flagged` in green for any review with issue_count 0 — including the six ways a
+  // review can fail without ever reaching a model. That produced branded Word
+  // documents asserting a clean legal review of a contract nobody had read. A
+  // document that cannot honestly claim a result must say so, in red, at the top.
+  const assessed = review.status === "done" || review.status === "partial";
+  body.push(line([new TextRun({
+    text: !assessed
+      ? "NOT ASSESSED — this review did not complete. Nothing in this document should be relied on."
+      : review.status === "partial"
+        ? `PARTIAL REVIEW — not every section or rule was checked. ${review.issue_count || 0} issue${review.issue_count === 1 ? "" : "s"} flagged in what was checked.`
+        : `${review.issue_count || 0} issue${review.issue_count === 1 ? "" : "s"} flagged`,
+    bold: true, size: 18,
+    color: !assessed || review.status === "partial" ? R_COLOR.breach : (review.issue_count ? R_COLOR.breach : V_COLOR.present),
+  })]));
+  if (!assessed && review.run_note) body.push(line([new TextRun({ text: String(review.run_note), size: 16, color: MUTE })]));
 
   if (rep.summary) { body.push(label("Summary")); body.push(line([new TextRun({ text: rep.summary, size: 20, color: DIM })])); }
 
