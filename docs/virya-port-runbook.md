@@ -1,6 +1,6 @@
 # Virya Port Runbook
 
-Fifteen fixes found by auditing QAnsr's Q-Legal and Contra, written so another codebase can apply them.
+Sixteen fixes found by auditing QAnsr's Q-Legal and Contra, written so another codebase can apply them.
 
 Each step is **CHECK** (does Virya have this) → **VERIFY** (prove it) → **EXECUTE** (the change).
 
@@ -427,6 +427,54 @@ const stalled = unfinished.length > 0 && (job.status !== "running" || silentMin 
 
 Verify by killing a run after two of five units: the job must report stalled with three unfinished, and your resumable query must name exactly the three that never ran.
 
+## 16 · A review that read only part of the contract, and said nothing — CRITICAL
+
+Two independent ways the input is already partial before the model sees it. A "clean" verdict on a fraction of a document is worse than no verdict, because it is trusted.
+
+**CHECK** — look for a character cap on the stored extract and the review prompt, then look for extracts sitting *exactly* at it:
+```bash
+grep -n "slice(0, [0-9]\{4,\})" server/contra.js
+```
+```sql
+select contract_name, length(extract_md) from contra_review order by 2 desc limit 10;
+-- four of ours read exactly 60000. None of them is 60000 characters long.
+```
+Then check whether your extractor already reports what it could not read, and whether anything consumes it:
+```bash
+grep -n "unread_pages\|figure_pages" server/extract.js server/contra.js
+```
+
+**VERIFY** — ours returned both and Contra took only `.text`:
+```
+extract.text         -> used
+extract.unread_pages -> dropped   ("the honest gap, surfaced loudly downstream")
+extract.figure_pages -> dropped
+```
+So a 60-page agreement whose Schedule B is a scan was reviewed on the 50 readable pages and could come back clean, with nothing anywhere saying so.
+
+**EXECUTE** — keep the cap; something has to bound the prompt. Measure the cut instead of just making it:
+```js
+const fullText = String(extract.text || "");
+const CAP = 60000;
+const text = fullText.slice(0, CAP);
+const truncated = fullText.length > CAP;
+const unreadPages = extract.unread_pages || [];
+```
+Store `extract_chars`, the full length before the cap, the truncation flag and the unread pages on the review. Then make the verdict depend on them:
+```js
+const inputPartial = !!rev.extract_truncated || unread.length > 0;
+const complete = coverage.sections_returned >= coverage.sections_expected
+              && coverage.rules_returned >= coverage.rules_expected
+              && !inputPartial;
+```
+A review whose *input* was partial cannot be written `done`, however well the model performed on the part it saw. Say which reason applied and by how much, and put it where a reader looks — **above** the issue counts, and in the exported document:
+```
+PARTIAL READ — only the first 60,000 of 184,220 characters were read.
+Anything in the unread portion was not assessed.
+```
+
+This is step 14's defect one layer earlier: that one was the model never running, this is the model running on a fragment. Both end in a confident clean.
+
 ---
 
 # Order of work
@@ -441,7 +489,8 @@ Dependencies, not severity.
 | Then | 09 | One interceptor; makes every later manual test trustworthy |
 | Then | 07, 08, 10, 11, 12, 13 | Independent of each other — any order |
 | Then | 14 | A feature, and step 07 must land first or its decisions duplicate |
-| Last | 15 | The largest change — easier once the rest is stable |
+| Then | 15 | The largest change — easier once the rest is stable |
+| Last | 16 | Do it alongside step 14 if you can — same defect, one layer earlier |
 
 ---
 
