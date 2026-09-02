@@ -68,6 +68,16 @@ export async function buildReviewDocx(review) {
     color: !assessed || review.status === "partial" ? R_COLOR.breach : (review.issue_count ? R_COLOR.breach : V_COLOR.present),
   })]));
   if (!assessed && review.run_note) body.push(line([new TextRun({ text: String(review.run_note), size: 16, color: MUTE })]));
+  // WHAT WAS ACTUALLY READ. A "clean" on a contract whose second half was never
+  // seen is worse than no verdict, because it is trusted — and the reader of this
+  // document has no other way to find out.
+  const cov = rep.coverage || {};
+  if (cov.extract_truncated || (cov.unread_pages || []).length) {
+    const bits = [];
+    if (cov.extract_truncated) bits.push(`only the first ${Number(cov.extract_chars || 0).toLocaleString()} of ${Number(cov.extract_full_chars || 0).toLocaleString()} characters were read`);
+    if ((cov.unread_pages || []).length) bits.push(`${cov.unread_pages.length} page(s) could not be read: ${cov.unread_pages.slice(0, 12).join(", ")}`);
+    body.push(line([new TextRun({ text: `PARTIAL READ — ${bits.join("; ")}. Anything in the unread portion was not assessed.`, bold: true, size: 16, color: R_COLOR.breach })]));
+  }
 
   if (rep.summary) { body.push(label("Summary")); body.push(line([new TextRun({ text: rep.summary, size: 20, color: DIM })])); }
 

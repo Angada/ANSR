@@ -7,7 +7,7 @@ function reviewCell(r) {
   if (r.status === "error" || r.status === "not_assessed")
     return `<span style="color:var(--red);font-weight:600" title="${esc(r.run_note || "this review did not run")}">not assessed</span>`;
   if (r.status === "partial")
-    return `<span style="color:var(--amber,#d9a441);font-weight:600" title="the model did not cover every section or rule">partly checked${r.issue_count ? ` · ${r.issue_count}` : ""}</span>`;
+    return `<span style="color:var(--amber,#d9a441);font-weight:600" title="${esc(r.run_note || "not every section or rule was covered")}">partly checked${r.issue_count ? ` · ${r.issue_count}` : ""}</span>`;
   if (r.issue_count == null) return `<span style="color:var(--dim2)">—</span>`;
   return r.issue_count
     ? `<span style="color:var(--red);font-weight:600">${r.issue_count}</span>`
@@ -584,11 +584,17 @@ function reportView(r) {
       <div class="g"><div class="gv">${breaches}</div><div class="gl">rule breaches</div></div>
       <div class="g"><div class="gv">${findings.length}</div><div class="gl">findings</div></div>
       <div class="g"><div class="gv">${flagged}<span style="font-size:14px;color:var(--line2)">/${verdicts.length || "—"}</span></div><div class="gl">sections flagged</div></div></div>`;
+  // Say what was read BEFORE showing counts built from it.
+  const cov = rep.coverage || {};
+  const partial = (cov.extract_truncated || (cov.unread_pages || []).length) ? `<div class="partialbar">
+      <b>Partial read</b> — ${cov.extract_truncated ? `only the first ${Number(cov.extract_chars || 0).toLocaleString()} of ${Number(cov.extract_full_chars || 0).toLocaleString()} characters were read` : ""}${cov.extract_truncated && (cov.unread_pages || []).length ? "; " : ""}${(cov.unread_pages || []).length ? `${cov.unread_pages.length} page(s) could not be read` : ""}.
+      Anything in the unread portion was not assessed.
+    </div>` : "";
   const summary = rep.summary ? `<p class="rsummary">${esc(rep.summary)}</p>` : "";
   const rc = checks.length ? `<div class="rsec-lbl">Rule checks</div><div style="margin-bottom:22px">${checks.map((c) => `<div class="rcrow"><span class="rcp ${c.result || "check"}">${String(c.result || "check").toUpperCase()}</span><span style="flex:1">${esc(c.rule || c.section_key || "")} — ${esc(c.note || c.found || "")}</span>${clauseChips(c.refs)}${decCtl(c.section_key || "whole-contract", fkey(c.rule))}</div>`).join("")}</div>` : "";
   const fnd = findings.length ? `<div class="rsec-lbl">Whole-contract findings</div><div style="margin-bottom:22px">${findings.map((f) => `<div class="frow ${f.severity === "high" ? "hi" : f.severity === "med" ? "med" : ""}"><b>${esc(String(f.kind || "finding").replace(/_/g, " "))}</b> · ${esc(f.note || "")}${clauseChips(f.refs)}${decCtl("whole-contract", fkey(f.kind + " " + (f.note || "")))}</div>`).join("")}</div>` : "";
   const secs = verdicts.length ? `<div class="rsec-lbl">Section review <span style="color:var(--dim2);font-weight:400">· click to ask</span></div><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr))">${verdicts.map((v) => `<div class="schip" onclick="askBox('${esc(v.key)}')"><span style="flex:1">${esc(String(v.key || "").replace(/_/g, " "))}</span><span class="sdot" style="background:${VCOLOR[v.verdict] || "#B4B2A9"}"></span><span style="font-size:11px;font-weight:600;color:${VCOLOR[v.verdict] || "#7A7266"}">${VLABEL[v.verdict] || v.verdict || ""}</span>${decCtl(v.key, null)}</div>`).join("")}</div>` : "";
-  const doc = `<div class="report-doc">${glance}
+  const doc = `<div class="report-doc">${partial}${glance}
     <div style="padding:20px 26px 24px">${summary}${rc}${fnd}${secs}
       <div style="margin-top:20px;padding-top:12px;border-top:1px solid var(--line);font-family:var(--mono);font-size:10px;color:#A79F93;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><span>Prepared by Contra · ${esc(r.contract_name || "")}</span><span>an AI product by The Kettle Black</span></div></div></div>`;
   const ask = `<div class="askbox" style="margin-top:16px">

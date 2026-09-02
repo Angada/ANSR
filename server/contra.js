@@ -14,7 +14,7 @@ import { markupDocx } from "./contra-redline.js";
 // Every column of contra_review EXCEPT the heavy/raw blobs (original_file bytea,
 // contract_doc) — used for reads that don't need the original bytes, so we never
 // serialise the uploaded file into a JSON response. The /docx route still SELECT *s.
-const REVIEW_COLS = "id, batch_id, contract_name, archetype_id, archetype_ids, status, verdicts, findings, rule_checks, report, issue_count, run_mode, run_note, coverage, detect_confidence, detected, marked_doc_path, extract_md, original_ext, party1, party2, created_at, updated_at";
+const REVIEW_COLS = "id, batch_id, contract_name, archetype_id, archetype_ids, status, verdicts, findings, rule_checks, report, issue_count, run_mode, run_note, coverage, extract_chars, extract_full_chars, extract_truncated, unread_pages, figure_pages, detect_confidence, detected, marked_doc_path, extract_md, original_ext, party1, party2, created_at, updated_at";
 
 // snap LLM verdict keys onto the archetype's section keys (model-adherence safety)
 // ---- canonical section vocabulary -----------------------------------------
@@ -325,7 +325,18 @@ export function mountContra(app, upload) {
       const reviews = [];
       for (const f of files) {
         const extract = await extractFile(f.path, f.originalname);
-        const text = String(extract.text || "").slice(0, 60000);
+        // MEASURE THE CUT, DON'T JUST MAKE IT. The cap is fine — something has to
+        // bound the prompt — but taking the first 60,000 characters and saying
+        // nothing means a long MSA is reviewed on its opening pages and reported as
+        // though it were whole. extractFile also hands back unread_pages and
+        // figure_pages ("the honest gap, surfaced loudly downstream", per that
+        // file); both were dropped on the floor here.
+        const fullText = String(extract.text || "");
+        const CAP = 60000;
+        const text = fullText.slice(0, CAP);
+        const truncated = fullText.length > CAP;
+        const unreadPages = extract.unread_pages || [];
+        const figurePages = extract.figure_pages || [];
         let detected = [];
         if (archetypes.length) {
           const dout = await runPipeline("contra-detect", {
@@ -343,9 +354,11 @@ export function mountContra(app, upload) {
         const ext = extname(f.originalname).toLowerCase();
         const origBuf = ext === ".docx" ? readFileSync(f.path) : null;   // keep .docx for redline markup
         const rrow = (await q(
-          `insert into contra_review(batch_id,contract_name,extract_md,detected,archetype_id,detect_confidence,status,original_file,original_ext)
-           values($1,$2,$3,$4::jsonb,$5,$6,'detected',$7,$8) returning id, contract_name, archetype_id, detect_confidence`,
-          [b.id, f.originalname, text, JSON.stringify(detected), top?.archetype_id || null, top?.confidence || null, origBuf, ext]
+          `insert into contra_review(batch_id,contract_name,extract_md,detected,archetype_id,detect_confidence,status,original_file,original_ext,
+                                     extract_chars,extract_full_chars,extract_truncated,unread_pages,figure_pages)
+           values($1,$2,$3,$4::jsonb,$5,$6,'detected',$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb) returning id, contract_name, archetype_id, detect_confidence`,
+          [b.id, f.originalname, text, JSON.stringify(detected), top?.archetype_id || null, top?.confidence || null, origBuf, ext,
+           text.length, fullText.length, truncated, JSON.stringify(unreadPages), JSON.stringify(figurePages)]
         )).rows[0];
         reviews.push({ ...rrow, detected });
         try { rmSync(f.path); } catch { /* ignore */ }
@@ -425,12 +438,33 @@ export function mountContra(app, upload) {
                          sections_returned: new Set(verdicts.filter((v) => v.key && !v.unmatched).map((v) => v.key)).size,
                          unmatched_verdicts: verdicts.filter((v) => v.unmatched).length,
                          rules_expected: allRules.length, rules_returned: rule_checks.length };
-      const complete = coverage.sections_returned >= coverage.sections_expected
-                    && coverage.rules_returned >= coverage.rules_expected;
+      // A REVIEW CANNOT BE MORE COMPLETE THAN THE TEXT IT READ. Two ways the input was
+  // already partial before the model saw it: the extract was capped (a long MSA
+  // reviewed on its opening pages), and pages the extractor could not read at all
+  // (a scanned Schedule B). Either one means "clean" is a claim about a fraction of
+  // the document, and the reviewer has no way to know that from the report.
+  const unread = Array.isArray(rev.unread_pages) ? rev.unread_pages : [];
+  const figures = Array.isArray(rev.figure_pages) ? rev.figure_pages : [];
+  coverage.extract_truncated = !!rev.extract_truncated;
+  coverage.extract_chars = rev.extract_chars || null;
+  coverage.extract_full_chars = rev.extract_full_chars || null;
+  coverage.unread_pages = unread;
+  coverage.figure_pages = figures;
+  const inputPartial = !!rev.extract_truncated || unread.length > 0;
+  const complete = coverage.sections_returned >= coverage.sections_expected
+                    && coverage.rules_returned >= coverage.rules_expected
+                    && !inputPartial;
       const report = { title: "Contract Review", generated_at: new Date().toISOString(), archetypes: archetypes.map((a) => a.name), meta, parties: { a: party1, b: party2 }, summary: rp.summary || "", verdicts, rule_checks, findings, redlines, sections: outlineForPrompt, coverage, complete };
-      await q(`update contra_review set status=$9, verdicts=$2::jsonb, rule_checks=$3::jsonb, findings=$4::jsonb, report=$5::jsonb, issue_count=$6, party1=$7, party2=$8, run_mode='ai', coverage=$10::jsonb, updated_at=now() where id=$1`,
+      const partialWhy = [
+        rev.extract_truncated ? `only the first ${Number(rev.extract_chars || 0).toLocaleString()} of ${Number(rev.extract_full_chars || 0).toLocaleString()} characters were read — the rest of the contract was not seen` : "",
+        unread.length ? `${unread.length} page${unread.length === 1 ? "" : "s"} could not be read (${unread.slice(0, 8).join(", ")}${unread.length > 8 ? "…" : ""})` : "",
+        coverage.sections_returned < coverage.sections_expected ? `${coverage.sections_expected - coverage.sections_returned} section(s) were not verdicted` : "",
+        coverage.rules_returned < coverage.rules_expected ? `${coverage.rules_expected - coverage.rules_returned} rule(s) were not checked` : "",
+      ].filter(Boolean).join("; ");
+      if (!complete) report.partial_why = partialWhy;
+      await q(`update contra_review set status=$9, run_note=case when $9='partial' then $11 else run_note end, verdicts=$2::jsonb, rule_checks=$3::jsonb, findings=$4::jsonb, report=$5::jsonb, issue_count=$6, party1=$7, party2=$8, run_mode='ai', coverage=$10::jsonb, updated_at=now() where id=$1`,
         [id, JSON.stringify(verdicts), JSON.stringify(rule_checks), JSON.stringify(findings), JSON.stringify(report), issue_count, party1, party2,
-         complete ? "done" : "partial", JSON.stringify(coverage)]);
+         complete ? "done" : "partial", JSON.stringify(coverage), partialWhy || null]);
 
       // timeline (newest-first on read): the review event + one row per finding + redline
       // NOT 0. Every other writer allocates with nextSeq(); this one restarted at
