@@ -12,6 +12,12 @@ const esc = (s) => String(s ?? "").replace(/[&<>"'`]/g, (m) => ({ "&": "&amp;", 
 // Any href built from stored or model-supplied text. Blocks javascript:, data:
 // and everything else that is not a real web link.
 const safeUrl = (u) => (/^https?:\/\//i.test(String(u || "")) ? String(u) : "#");
+// Every list below comes from a MODEL, and a model that is asked for an array will
+// sometimes return a string. `(v || []).length` is then truthy on that string while
+// `.map` is undefined, so the throw takes out the whole render — the page keeps the
+// old markup and the ideas simply never appear. That exact bug blanked the results
+// page once already (FEED_SIGNAL). Coerce, never trust the shape.
+const arr = (v) => (Array.isArray(v) ? v : v ? [v] : []);
 // India time (IST) — always show Asia/Kolkata regardless of the viewer's device
 // India format, IST — "29-09-2026 · 2:09 pm" (platform standard)
 const fmtDT = (ts) => { if (!ts) return ""; const p = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }).formatToParts(new Date(ts)).reduce((a, x) => ((a[x.type] = x.value), a), {}); return `${p.day}-${p.month}-${p.year} · ${p.hour}:${p.minute} ${(p.dayPeriod || "").toLowerCase()}`; };
@@ -119,16 +125,19 @@ window.setView = (v) => {
 // and live in Admin — one registry, no shadow copies. A business rule here
 // carries the app's operating parameters + the instruction, nothing else.
 let BR = null, BRCFG = null;
+// INDUSTRY FIRST. Everything below only narrows what the industry gate already
+// let through, so the box that defines the industry belongs at the top — it is
+// also the one screen you set up once when pointing RayDar at a new sector.
 const BR_GROUPS = [
-  ["relevance", "Levers — what counts as relevant", "The dials that decide which feed items survive the sweep to become evidence and an idea's sources: an AI relevance gate for your audience, a sport/celebrity/gaming blocklist, and a keyword-strictness fallback. Tune these when the sweep surfaces off-topic videos."],
-  ["guardrails", "Guardrails — who this is for", "Applied to EVERY idea prompt and enforced in code on the feed: items outside the allowed languages are dropped from the sweep, with the reason shown."],
+  ["guardrails", "Industry & Theme — set this up first", "Everything that makes RayDar about YOUR sector, in one place: the words an item must mention, how the AI judges on-topic, who you are writing for, and the series and themes you publish into. Change these five and the same engine works for a different industry — no code."],
+  ["relevance", "Levers — what counts as relevant", "The dials that decide which feed items survive the sweep to become evidence and an idea's sources: an AI relevance gate for your audience, a blocklist of off-sector noise, and a keyword-strictness fallback. The gate and the blocklist are also editable in Industry & Theme above — same settings, either place."],
   ["journey", "The sweep, step by step", "The dials of your hunger sweep — what gets swept when you start from Trend Spotting, whether SEO steers it (optional per batch), and who counts as the cohort."],
   ["integration", "Sources — how each API is called", "Per source: the exact query parameters, the prompt every batch of its items runs through, its model override and its on/off gate."],
   ["scoring", "Scoring — how ideas get ranked", "score = gap·w₁ + velocity·w₂ + strategic·w₃ + historical·w₄. Change the weights, change the ordering of every board."],
 ];
 const BR_EXPLAIN = {
   relevance: "The relevance levers. RayDar was surfacing viral-but-irrelevant clips (boxing, football, Roblox) because one word like 'career' counted as a match. These dials decide what survives to become evidence AND an idea's sources: the AI relevance gate judges each item for your audience (edit the exact criteria in the instruction box below), the blocklist hard-drops sport/celebrity/gaming, and keyword strictness sets the fallback bar for when the AI gate is off.",
-  guardrails: "The audience contract: India-English job seekers, INR, Indian workplace idiom. Languages here are ENFORCED — a Tamil/Kannada/Hinglish video is dropped at collection (reason shown in the sweep's dropped list), not just discouraged in the prompt.",
+  guardrails: "The audience contract, and the industry contract. Languages here are ENFORCED — a Tamil/Kannada/Hinglish video is dropped at collection (reason shown in the sweep's dropped list), not just discouraged in the prompt.",
   trend_spotting: "Your INITIAL HUNGER SWEEP — starting from Trend Spotting, this frames the cohort's hunger and picks the demand topics that get swept.",
   seo_inputs: "The OPTIONAL SEO route. When a batch includes SEO, your pasted/uploaded research becomes real YouTube/Reddit search queries (and gets its own ✨ idea board). Not in the batch = not used.",
   talentmind: "The cohort route — when a sweep starts from TalentMind, this defines who counts (job seekers only, tenure cap) and how their corpus becomes chips.",
@@ -174,6 +183,7 @@ async function renderBizRules() {
   try {
     if (!BR) BR = (await (await fetch("/api/wh/rules")).json()).rules || {};
     if (!BRCFG) BRCFG = await (await fetch("/api/config")).json();
+    if (!THEMES.length) await loadThemes();   // the Industry panel embeds the theme editor
   } catch { host.innerHTML = `<p class="intro">could not load the rules</p>`; return; }
   const F = (id, r) => (BR_FIELDS[id] || []).map(([k, label, type]) => {
     const v = (r.collection || {})[k];
@@ -206,11 +216,87 @@ async function renderBizRules() {
           <textarea data-adv rows="6" style="width:340px;max-width:80vw;font-family:ui-monospace,monospace;font-size:11px;margin-top:6px">${esc(JSON.stringify(r.collection || {}, null, 2))}</textarea></details>
       </div>
     </div>`;
+  // ---- the INDUSTRY panel -------------------------------------------------
+  // Six settings decide which sector RayDar is pointed at, and they used to be
+  // spread across two rule cards, an AI-pipeline prompt and a modal three clicks
+  // away — so re-aiming the app meant knowing where all four lived. They are
+  // gathered here, in the order you'd actually set them up. Nothing is moved:
+  // each still lives in its own rule and stays editable in its own card. This
+  // panel writes to BOTH `guardrails` and `relevance`.
+  const sec = (n, title, hint, body) => `
+    <div style="border-top:1px solid var(--line);padding:14px 0 4px">
+      <div style="display:flex;align-items:baseline;gap:9px;flex-wrap:wrap">
+        <span style="font-family:var(--mono);font-size:11px;color:var(--grn);font-weight:700">${n}</span>
+        <b style="font-size:13px">${esc(title)}</b>
+      </div>
+      <p style="font-size:12px;color:var(--dim2);margin:4px 0 9px;line-height:1.5">${hint}</p>
+      ${body}
+    </div>`;
+  const fld = (label, inp, wide) => `<label style="display:flex;flex-direction:column;gap:4px;font-size:11.5px;color:var(--dim)${wide ? ";flex-basis:100%" : ""}">${esc(label)}${inp}</label>`;
+  const txt = (k, v, w) => `<input data-ind="${k}" data-t="t" value="${esc(v ?? "")}" style="width:${w || "180px"}">`;
+  const lst = (k, v) => `<input data-ind="${k}" data-t="l" value="${esc(Array.isArray(v) ? v.join(", ") : (v || ""))}" style="width:100%">`;
+  const industryCard = (g, rel) => {
+    const gc = g.collection || {}, rc = rel.collection || {};
+    return `
+    <div class="brcard" data-rule="guardrails" data-industry style="background:var(--panel,#101613);border:1px solid var(--grn);border-radius:12px;padding:16px 18px;margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+        <b style="font-size:15px">Industry &amp; Theme</b>
+        <span style="font-family:var(--mono);font-size:10.5px;color:var(--dim2)">guardrails + relevance</span>
+        <span style="margin-left:auto;font-size:11px;color:var(--dim2)">one Save writes both rules</span>
+      </div>
+      <p style="font-size:12.5px;color:var(--dim);line-height:1.55;margin:7px 0 2px">Set these once when you point RayDar at a sector. Read top to bottom: <b>1</b> is the widest gate and <b>4</b> is the narrowest — each step only narrows what the one above let through.</p>
+
+      ${sec(1, "The words an item must mention — the Master Theme", "The widest gate, applied at collection before anything is scored. A video whose title and description mention <b>none</b> of these is dropped and never costs quota. Leave empty to switch the gate off.",
+        `<div style="display:flex;gap:12px;flex-wrap:wrap">${fld("Master Theme words", lst("g.domain_terms", gc.domain_terms), true)}</div>`)}
+
+      ${sec(2, "How the AI judges on-topic", "The instruction behind the relevance gate — this is the prompt that decides <b>on_topic</b> for every item that survived step 1. Say who the audience is and, plainly, what does <b>not</b> belong. Also the hard blocklist: a title containing any blocked word is dropped outright.",
+        `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+          ${fld("AI relevance gate on", `<input type="checkbox" data-ind="r.ai_relevance" data-t="b" ${rc.ai_relevance ? "checked" : ""} style="width:16px;height:16px">`)}
+          ${fld("Blocklist on", `<input type="checkbox" data-ind="r.noise_filter" data-t="b" ${rc.noise_filter ? "checked" : ""} style="width:16px;height:16px">`)}
+          ${fld("Keyword strictness when the gate is off", `<input data-ind="r.min_keywords" data-t="n" value="${esc(rc.min_keywords ?? 2)}" style="width:90px">`)}
+        </div>
+        <label style="font-size:11.5px;color:var(--dim)">The on-topic instruction</label>
+        <textarea data-ind="r.__prompt" rows="3" style="width:100%;font-size:12px;margin:4px 0 8px">${esc(rel.prompt || "")}</textarea>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">${fld("Blocklist — drop any title containing these", lst("r.noise_terms", rc.noise_terms), true)}</div>
+        <p style="font-size:11.5px;color:var(--amber,#d9a441);margin:7px 0 0;line-height:1.5">Check this list when you change sector. It is tuned for careers, so it blocks <i>actor, movie, bollywood, cinema</i> — exactly the words a fashion or entertainment brief would need to keep.</p>`)}
+
+      ${sec(3, "Who you are writing for", "Prepended to every idea prompt, and the language list is enforced in code on the feed — an item outside it is dropped at collection with the reason shown.",
+        `<div style="display:flex;gap:12px;flex-wrap:wrap">
+          ${fld("Audience", txt("g.audience", gc.audience, "260px"))}
+          ${fld("Brand", txt("g.brand", gc.brand))}
+          ${fld("Region", txt("g.region", gc.region, "120px"))}
+          ${fld("Currency", txt("g.currency", gc.currency, "90px"))}
+          ${fld("Allowed languages (ISO codes — 'all' disables the filter)", lst("g.languages", gc.languages), true)}
+          ${fld("Sector idiom — the words this audience actually uses", lst("g.idiom", gc.idiom), true)}
+        </div>`)}
+
+      ${sec(4, "Series and themes — what you publish into", "Every idea is routed to a series and a theme. Describe a theme in your own words and RayDar works out the search terms; nothing saves until you press Save on that theme. This is the same editor as Demand Setting &rsaquo; edit concepts — edit in either place.",
+        `<div data-themehost>${seriesEditor()}${conceptEditor()}</div>`)}
+
+      <div style="border-top:1px solid var(--line);padding-top:14px;margin-top:6px">
+        <label style="font-size:11.5px;color:var(--dim)">The voice — sent with every idea prompt (edit freely)</label>
+        <textarea data-pr rows="3" style="width:100%;font-size:12px;margin:4px 0 8px">${esc(g.prompt || "")}</textarea>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+          <input data-want placeholder="or just say it — “we're a fashion brand writing for Indian women 22-35”" style="flex:1;min-width:240px;font-size:12.5px"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();askBizRule('guardrails')}">
+          <button class="btn" onclick="askBizRule('guardrails')">Apply my words ▸</button>
+        </div>
+        <div data-prop style="display:none;font-size:12px;border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:8px"></div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn" onclick="saveIndustry()">Save industry &amp; guardrails</button>
+          <span data-msg style="font-size:12px;color:var(--grn)"></span>
+          <details style="margin-left:auto;font-size:11px;color:var(--dim2)"><summary style="cursor:pointer">advanced (raw JSON)</summary>
+            <textarea data-adv rows="6" style="width:340px;max-width:80vw;font-family:ui-monospace,monospace;font-size:11px;margin-top:6px">${esc(JSON.stringify(gc, null, 2))}</textarea></details>
+        </div>
+      </div>
+    </div>`;
+  };
   const byCat = {}; for (const [id, r] of Object.entries(BR)) (byCat[r.category || "other"] ||= []).push([id, r]);
   host.innerHTML = `<p class="intro"><b>BUSINESS RULES</b> — RayDar's own dials. Nothing here is generic: these are the actual parameters of your sweep, the actual prompts each source runs through, and the filter that decides what gets dropped. Saved rules apply to the very next sweep.</p>`
     + BR_GROUPS.filter(([c]) => byCat[c]).map(([c, title, sub]) =>
       `<div style="margin:20px 0 4px"><b style="color:var(--grn);font-size:13px;letter-spacing:.06em;text-transform:uppercase">${esc(title)}</b>
-        <p style="font-size:12px;color:var(--dim2);margin:3px 0 10px">${esc(sub)}</p></div>` + byCat[c].map(([id, r]) => card(id, r)).join("")).join("");
+        <p style="font-size:12px;color:var(--dim2);margin:3px 0 10px">${esc(sub)}</p></div>`
+      + byCat[c].map(([id, r]) => (id === "guardrails" ? industryCard(r, BR.relevance || {}) : card(id, r))).join("")).join("");
 }
 // plain English → a PROPOSED change (params + instruction), shown as a diff you confirm
 window.askBizRule = async (id) => {
@@ -238,6 +324,48 @@ window.acceptBizProp = (id) => {
     if (f.dataset.t === "b") f.checked = !!v; else if (f.dataset.t === "l") f.value = Array.isArray(v) ? v.join(", ") : String(v); else f.value = v;
   });
   el.querySelector("[data-prop]").innerHTML = `<span style="color:var(--grn)">applied to the fields — press <b>Save</b> to commit</span>`;
+};
+// The Industry panel edits fields belonging to TWO rules — guardrails (audience,
+// master theme, voice) and relevance (the on-topic prompt, the blocklist, the
+// gate). Each field carries its owner in its key, `g.` or `r.`, so one Save
+// writes both without either rule losing the settings this panel doesn't show.
+window.saveIndustry = async () => {
+  const el = document.querySelector("[data-industry]"); if (!el) return;
+  const msg = el.querySelector("[data-msg]");
+  let g = {};
+  try { g = JSON.parse(el.querySelector("[data-adv]").value || "{}"); }
+  catch { msg.textContent = "invalid JSON in advanced"; return; }
+  msg.textContent = "saving…";
+  // Read the relevance rule FRESH. This used to start from the BR cache, which this
+  // same function nulls on its way out — so pressing Save twice without leaving the
+  // page threw on the second press and silently saved nothing. Re-reading also means
+  // the keys this panel doesn't show survive a change someone else just made.
+  let relNow = {};
+  try { relNow = ((await (await fetch("/api/wh/rules")).json()).rules || {}).relevance || {}; }
+  catch { msg.textContent = "could not read the current rules — nothing saved"; return; }
+  const r = { ...(relNow.collection || {}) };   // keep unshown keys
+  let relPrompt = relNow.prompt || "";
+  el.querySelectorAll("[data-ind]").forEach((f) => {
+    const [own, ...rest] = f.dataset.ind.split(".");
+    const k = rest.join("."), t = f.dataset.t;
+    if (k === "__prompt") { relPrompt = f.value; return; }
+    const v = t === "b" ? f.checked : t === "n" ? Number(f.value)
+      : t === "l" ? f.value.split(",").map((x) => x.trim()).filter(Boolean) : f.value.trim();
+    (own === "r" ? r : g)[k] = v;
+  });
+  const put = (id, body) => fetch(`/api/wh/rules/${id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const [a, b] = await Promise.all([
+    put("guardrails", { collection: g, prompt: el.querySelector("[data-pr]").value }),
+    put("relevance", { collection: r, prompt: relPrompt }),
+  ]);
+  BR = null; GUARD = null;
+  if (!a.ok || !b.ok) { msg.textContent = `partly saved — ${!a.ok ? "guardrails" : "relevance"} failed`; return; }
+  // Repaint from the SAVED state. Without this the panel kept rendering off the
+  // cache it just invalidated — so the brand name in the theme editor's intro
+  // still showed the previous value until you navigated away and back.
+  await renderBizRules();
+  const m = document.querySelector("[data-industry] [data-msg]");
+  if (m) m.textContent = "saved ✓ — applies to the next sweep";
 };
 window.saveBizRule = async (id) => {
   const el = document.querySelector(`[data-rule="${id}"]`); if (!el) return;
@@ -417,10 +545,48 @@ window.delSeo = async (id) => { await fetch(`/api/wh/seo/${id}/delete`, { method
 // the 1Up sub-series it routes to, and what counts as on/off-theme. Nothing is
 // saved until they press Save — the compile only ever proposes.
 let THEMES = [], SERIES = [], TDRAFT = {};
+// The client's name was typed into the theme editor's intro. It is a SETTING —
+// guardrails.brand — so a different industry doesn't read someone else's name.
+const brandName = () => (BR?.guardrails?.collection?.brand) || GUARD?.brand || "your team";
 async function loadThemes() {
   try { const j = await (await fetch("/api/wh/themes")).json(); THEMES = j.themes || []; SERIES = j.series || []; }
   catch { THEMES = []; SERIES = []; }
 }
+// The series (content properties) a theme routes into. The theme editor only ever
+// offered these as a dropdown, so a new industry had no way to name its own
+// properties without a migration. Add, rename, retire — same table the dropdown reads.
+function seriesEditor() {
+  const row = (s, i) => `<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+      <input id="sn-${i}" value="${esc(s.name)}" style="width:150px" title="series name">
+      <input id="ss-${i}" value="${esc(s.stage || "")}" placeholder="what it's for" style="flex:1;min-width:160px">
+      <label style="font-size:11.5px;color:var(--dim);display:flex;align-items:center;gap:5px">
+        <input type="checkbox" id="sa-${i}" ${s.active ? "checked" : ""} style="width:15px;height:15px">on</label>
+      <button class="btn small" onclick="saveSeries(${i},'${esc(s.name).replace(/'/g, "\\'")}')">Save</button>
+    </div>`;
+  return `<div style="border:1px solid var(--line);border-radius:9px;padding:11px 12px;margin-bottom:12px">
+    <b style="font-size:12px">Series — the properties you publish into</b>
+    <p style="font-size:11.5px;color:var(--dim2);margin:3px 0 9px">A theme is routed to one of these. Retiring a series keeps it on old ideas; it just stops being offered.</p>
+    ${SERIES.map(row).join("")}
+    <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px dotted var(--line)">
+      <input id="sn-new" placeholder="+ a new series" style="width:150px">
+      <input id="ss-new" placeholder="what it's for" style="flex:1;min-width:160px">
+      <button class="btn small" onclick="addSeries()">Add series</button>
+    </div></div>`;
+}
+window.saveSeries = async (i, oldName) => {
+  const name = $(`#sn-${i}`)?.value.trim(); if (!name) return;
+  await fetch("/api/wh/franchise", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: oldName, stage: $(`#ss-${i}`)?.value.trim(), active: !!$(`#sa-${i}`)?.checked }) });
+  if (name !== oldName) await fetch("/api/wh/franchise", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, stage: $(`#ss-${i}`)?.value.trim(), active: !!$(`#sa-${i}`)?.checked }) });
+  await loadThemes(); reThemes();
+};
+window.addSeries = async () => {
+  const name = $("#sn-new")?.value.trim(); if (!name) return;
+  await fetch("/api/wh/franchise", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name, stage: $("#ss-new")?.value.trim(), active: true }) });
+  await loadThemes(); reThemes();
+};
 function conceptEditor() {
   const active = THEMES.filter((t) => t.active && t.name !== "Emerging");
   const retired = THEMES.filter((t) => !t.active);
@@ -449,15 +615,15 @@ function conceptEditor() {
           <input id="tt-${i}" value="${esc((d.terms ?? c.terms ?? t.terms ?? []).join(", "))}" placeholder="the phrases sent to YouTube / Reddit">
           <div class="tcomp-n">These are the exact queries the sweep runs. Edit freely — they're yours.</div></div></div>
         ${c.question ? `<div class="tcomp-r"><span class="tk">The question in their head</span><div class="tv">${esc(c.question)}</div></div>` : ""}
-        ${(c.registers || []).length ? `<div class="tcomp-r"><span class="tk">Usual feeling</span><div class="tv">${(c.registers || []).map((r) => `<span class="rcp-term">${esc(r)}</span>`).join("")}</div></div>` : ""}
-        ${(c.on_theme || []).length ? `<div class="tcomp-r"><span class="tk">Counts as on-theme</span><div class="tv">${(c.on_theme || []).map((r) => `<span class="rcp-term">${esc(r)}</span>`).join("")}</div></div>` : ""}
-        ${(c.off_theme || []).length ? `<div class="tcomp-r"><span class="tk">Must NOT be collected</span><div class="tv">${(c.off_theme || []).map((r) => `<span class="rcp-term">${esc(r)}</span>`).join("")}</div></div>` : ""}
+        ${arr(c.registers).length ? `<div class="tcomp-r"><span class="tk">Usual feeling</span><div class="tv">${arr(c.registers).map((r) => `<span class="rcp-term">${esc(r)}</span>`).join("")}</div></div>` : ""}
+        ${arr(c.on_theme).length ? `<div class="tcomp-r"><span class="tk">Counts as on-theme</span><div class="tv">${arr(c.on_theme).map((r) => `<span class="rcp-term">${esc(r)}</span>`).join("")}</div></div>` : ""}
+        ${arr(c.off_theme).length ? `<div class="tcomp-r"><span class="tk">Must NOT be collected</span><div class="tv">${arr(c.off_theme).map((r) => `<span class="rcp-term">${esc(r)}</span>`).join("")}</div></div>` : ""}
       </div>` : `<div class="tcomp-empty">Not worked out yet — describe it above, then press <b>✨ Work out the logic from this</b>. RayDar will suggest the searches to fire; you confirm before anything saves.
         ${(t.terms || []).length ? `<div class="tcomp-n" style="margin-top:6px">Currently searching: ${(t.terms || []).map(esc).join(" · ")}</div>` : ""}</div>`}
     </div>`;
   };
   return `<div class="tset">
-    <p class="tset-i">These are Talent500's own themes, in Talent500's words. Write what each one <b>is</b> — RayDar turns your description into the searches it fires, where the idea gets routed, and what to ignore. You confirm everything before it saves.</p>
+    <p class="tset-i">These are ${esc(brandName())}'s own themes, in ${esc(brandName())}'s words. Write what each one <b>is</b> — RayDar turns your description into the searches it fires, where the idea gets routed, and what to ignore. You confirm everything before it saves.</p>
     ${active.map(card).join("")}
     <div class="tcard tcard-new">
       <div class="tcard-h">
@@ -482,7 +648,7 @@ window.compileTheme = async (i, name) => {
   if (j.error) { if (msg) msg.textContent = ""; return rdAlert("Couldn't work it out", j.error); }
   TDRAFT[name] = { description, franchise: $(`#tf-${i}`)?.value, compiled: j.compiled, terms: j.compiled?.terms || [] };
   if (msg) msg.textContent = j.mode === "ai" ? "✓ suggested — check it, then Save" : "✓ starting point (no AI enabled) — edit, then Save";
-  renderHunger();
+  reThemes();
 };
 window.saveTheme = async (oldName, i) => {
   const d = TDRAFT[oldName] || {};
@@ -546,7 +712,12 @@ async function _suggestInto(name, el, btn) {
 }
 window.suggestTerms = (i, name) => _suggestInto(($(`#cn-${i}`)?.value.trim() || name), $(`#ct-${i}`), event?.currentTarget);
 window.suggestTermsNew = () => _suggestInto($("#cn-new")?.value.trim(), $("#ct-new"), event?.currentTarget);
-async function refreshTopics() { ALL_TOPICS = (await (await fetch("/api/wh/topics")).json()).topics || []; renderHunger(); }
+// Themes are editable from TWO surfaces now — the Demand Setting modal and the
+// Industry & Theme panel in Settings — so a theme action must repaint whichever
+// one the user is actually standing on. Repainting Hunger while Settings is open
+// wrote the update into a hidden panel and looked like nothing happened.
+function reThemes() { if (VIEW === "settings") renderBizRules(); else renderHunger(); }
+async function refreshTopics() { ALL_TOPICS = (await (await fetch("/api/wh/topics")).json()).topics || []; reThemes(); }
 window.saveConcept = async (oldName, i) => {
   const body = { old_name: oldName, name: $(`#cn-${i}`).value.trim(), terms: $(`#ct-${i}`).value, franchise: $(`#cf-${i}`).value.trim(), strategic_weight: $(`#cw-${i}`).value.trim() };
   if (!body.name) return;
@@ -919,7 +1090,7 @@ function conceptWhy(board) {
 function storyReason(s) {
   const g = s.topic_guide || {}, brd = s.score_breakdown || {}, w = brd.weights || {};
   const bar = (l, v) => `<div class="sbar"><span>${l}</span><span class="track2"><span class="fill2" style="width:${Math.round((Number(v) || 0) * 100)}%"></span></span><span>${(Number(v) || 0).toFixed(2)}</span></div>`;
-  return `${g.take ? `<div class="why"><b>Take:</b> ${esc(g.take)}</div>${(g.beats || []).length ? `<ul>${(g.beats || []).map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}` : ""}
+  return `${g.take ? `<div class="why"><b>Take:</b> ${esc(g.take)}</div>${arr(g.beats).length ? `<ul>${arr(g.beats).map((b) => `<li>${esc(b)}</li>`).join("")}</ul>` : ""}` : ""}
     <div class="why"><b>Why now:</b> ${esc(s.why_now || "—")}</div>
     ${s.why_relevant ? `<div class="why"><b>Why relevant:</b> ${esc(s.why_relevant)}</div>` : ""}
     <div class="why"><b>Evidence:</b> ${esc(s.evidence || "—")}</div>
@@ -1000,7 +1171,7 @@ function pipelineTrace(s) {
       ["Guardrails", "India / English brief prepended · propose, never assert"],
       ["Heading", `“${esc(s.heading)}”`],
       ["Angle taken", g.take ? esc(g.take) : esc(s.summary || "—")],
-      ["Beats", (g.beats || []).length ? `<ul class="tbeats">${g.beats.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""],
+      ["Beats", arr(g.beats).length ? `<ul class="tbeats">${arr(g.beats).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""],
     ])}
     ${step(6, "Validate — evidence + fact-check", "raydar-contradiction · research APIs", [
       ["Evidence", esc(s.evidence || "—")],
@@ -1198,7 +1369,10 @@ window.fsigTab = (btn, t) => {
 };
 function renderIdeas(stories, franchises) {
   const host = $("#stageIdeas");
-  if (!stories) { host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each concept becomes a <b>story board</b>: a lead idea plus alternative angles, all ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
+  // Clearing the SCREEN has to clear the MEMORY too — this used to return early and
+  // leave _RENDER holding the last batch, so "New sweep" showed the previous sweep's
+  // evidence report on step 2 while claiming to be a fresh run.
+  if (!stories) { _RENDER = { stories: null, franchises: [] }; host.innerHTML = `<p class="intro"><b>IDEAS</b> appear here once the sweep completes — each concept becomes a <b>story board</b>: a lead idea plus alternative angles, all ranked by signal strength.</p><div class="empty">// awaiting sweep //</div>`; return; }
   _RENDER = { stories, franchises };
   TOPIC_Q = Object.fromEntries((ALL_TOPICS || []).map((t) => [t.name, t.question]));
   // ONCE YOU'VE JUDGED SOMETHING IT LEAVES THE LIST. The working list only
@@ -1389,10 +1563,14 @@ async function renderBatchPick() {
 // clears the current batch and drops you back on the Hunger screen, armed
 window.startNewSweep = () => {
   BATCH = null; TOPICS = []; ROUTES = { trend: false, seo: false, talentmind: false }; TM = null;
-  SWEEP_PROMPT = ""; RECAP = null; STAGE = 1;
+  SWEEP_PROMPT = ""; RECAP = null; FEED_SIGNAL = [];
   setView("sweep"); $("#track").classList.remove("at-ideas");
-  renderHunger(); renderIdeas(null); renderBatchPick(); rail();
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  renderHunger(); renderIdeas(null); renderBatchPick();
+  // goStage(1) — NOT `STAGE = 1; rail()`. Only goStage sets the hidden flags on the
+  // three panels, so setting STAGE by hand moved the rail's highlight to "01 Demand
+  // Setting" while leaving that panel hidden and the PREVIOUS batch's report on
+  // screen: no feed picker, no run button, and no obvious way back.
+  goStage(1);
 };
 
 // ---- Library view ----------------------------------------------------------
@@ -1838,12 +2016,12 @@ function outlineBlock(s) {
   if (o.__error) return `<div class="ferr"><div class="ferr-r">${esc(o.__error)}</div></div>
     <div style="margin-top:8px"><button class="btn small" onclick="loadOutline(${s.id}, true)">Try again</button></div>`;
   const g = o._grounding || {};
-  const list = (t, a) => (a || []).length ? `<div class="ol-r"><div class="ol-k">${t}</div><ul class="ol-ul">${a.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
+  const list = (t, a) => arr(a).length ? `<div class="ol-r"><div class="ol-k">${t}</div><ul class="ol-ul">${arr(a).map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : "";
   return `
     ${o.premise ? `<div class="ol-prem">${esc(o.premise)}</div>` : ""}
     ${o.reader ? `<div class="ol-r"><div class="ol-k">Who's reading</div><div>${esc(o.reader)}</div></div>` : ""}
     ${o.why_this_wins ? `<div class="ol-r"><div class="ol-k">The opening</div><div>${esc(o.why_this_wins)}</div></div>` : ""}
-    ${(o.sections || []).length ? `<div class="ol-secs">${(o.sections).map((x, i) => `
+    ${arr(o.sections).length ? `<div class="ol-secs">${arr(o.sections).map((x, i) => `
       <div class="ol-sec"><div class="ol-sh"><span class="ol-n">${String(i + 1).padStart(2, "0")}</span>${esc(x.heading || "")}</div>
         ${x.covers ? `<div class="ol-c">${esc(x.covers)}</div>` : ""}
         ${x.evidence ? `<div class="ol-e">${esc(x.evidence)}</div>` : ""}</div>`).join("")}</div>` : ""}
@@ -1873,7 +2051,12 @@ window.loadOutline = async (id, force) => {
     const r = await (await fetch(`/api/wh/story/${id}/outline`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ regenerate: !!force }) })).json();
     _OUTLINES[id] = r.outline || { __error: r.error || "could not build the outline" };
   } catch { _OUTLINES[id] = { __error: "could not reach the server" }; }
-  paintOutline(id);
+  // paintOutline used to sit OUTSIDE this guard, so a bad shape in the returned
+  // outline threw during render and left the panel stuck on "Reading the comments…"
+  // for good — no error, and no Try again button, because that only draws in the
+  // __error branch this never reached.
+  try { paintOutline(id); }
+  catch (e) { _OUTLINES[id] = { __error: `the outline came back in a shape this screen could not read (${e.message})` }; paintOutline(id); }
 };
 function paintOutline(id) {
   const host = document.getElementById(`ol-${id}`);

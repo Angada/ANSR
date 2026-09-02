@@ -59,7 +59,7 @@ const istStamp = () => { const p = new Intl.DateTimeFormat("en-GB", { timeZone: 
 // Each: how we query it (collection) + the AI prompt + a model override
 // (""=use the pipeline default) + a gate. Stored in wh_business_rule(name=id).
 const RULE_DEFAULTS = {
-  youtube:    { app: "RayDar", pipeline: "trend-detect", collection: { regionCode: "IN", relevanceLanguage: "en", publishedDays: 30, maxResults: 20, commentsTopVideos: 5, commentsPerVideo: 20,
+  youtube:    { app: "RayDar", pipeline: "trend-detect", collection: { regionCode: "IN", relevanceLanguage: "en", publishedDays: 30, maxResults: 20, commentsTopVideos: 12, commentsPerVideo: 60,   // comments cost 1 quota unit vs a search 100 — depth here is nearly free
       // the YouTube FILTER — enforced deterministically at collection (drops shown with reasons, quota never spent on their comments)
       excludeShorts: true, minDurationSec: 20,   // anything shorter is a Short/meme — editable in Settings
       minViews: 500, minComments: 0, blockChannels: [],   // quality floors + a permanent channel block list
