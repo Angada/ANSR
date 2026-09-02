@@ -1489,6 +1489,9 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
             and exists(
               select 1 from ql_register r
                where r.status='active' and ($1::bigint is null or r.id=$1)
+                 and (coalesce(jsonb_array_length(r.doc_types),0) = 0
+                      or exists (select 1 from jsonb_array_elements_text(r.doc_types) t
+                                  where lower(t) = lower(coalesce(d.doc_type,''))))
                  and not exists(select 1 from ql_register_hit h where h.register_id=r.id and h.document_id=d.id))
           order by d.id limit $2`, [registerId, limit]
       )).rows;
@@ -1498,6 +1501,9 @@ The MODELS define the skeleton and the house's standard positions: include EVERY
         `select count(*) c from ql_document d
           where exists(select 1 from ql_version v where v.document_id=d.id and v.c1_text is not null)
             and exists(select 1 from ql_register r where r.status='active' and ($1::bigint is null or r.id=$1)
+                 and (coalesce(jsonb_array_length(r.doc_types),0) = 0
+                      or exists (select 1 from jsonb_array_elements_text(r.doc_types) t
+                                  where lower(t) = lower(coalesce(d.doc_type,''))))
               and not exists(select 1 from ql_register_hit h where h.register_id=r.id and h.document_id=d.id))`, [registerId]
       )).rows[0]?.c || 0);
       res.json({ processed: done, remaining });

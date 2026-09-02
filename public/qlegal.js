@@ -853,7 +853,11 @@ const HIT_COLS = [
   { key: "doc", label: "Contract", get: (h) => h.title || h.filename, noFilter: true },
   { key: "type", label: "Type", get: (h) => h.doc_type || "unclassified" },
   { key: "present", label: "Answer", get: (h) => h.present || "—",
-    opts: [{ id: "yes", label: "yes" }, { id: "no", label: "no" }, { id: "unclear", label: "unclear" }],
+    opts: [{ id: "yes", label: "yes" ,
+    // yes | no | unclear are ranked, not alphabetical — without a cmp the label
+    // "yes first" actually produced no -> unclear -> yes
+    cmp: (a, b) => ({ yes: 0, unclear: 1, no: 2 }[String(a.present || "").toLowerCase()] ?? 3)
+               - ({ yes: 0, unclear: 1, no: 2 }[String(b.present || "").toLowerCase()] ?? 3) }, { id: "no", label: "no" }, { id: "unclear", label: "unclear" }],
     sortLabels: ["yes → unclear", "unclear → yes"] },
   { key: "value", label: "Value", get: (h) => h.value || "—" },
   { key: "detail", label: "Detail", get: (h) => h.answer || "", noFilter: true },
@@ -895,15 +899,28 @@ window.editRegister = (id) => { const r = REGISTERS.find((x) => Number(x.id) ===
 window.delRegister = (id, name) => rdConfirm("Delete this standing question?", `“${name}” and its answers across the estate will be removed.`, async () => { await fetch(`/api/qlegal/register/${id}`, { method: "DELETE" }); renderRegisters(); });
 window.runRegisterSweep = async (registerId) => {
   const host = document.getElementById("regproc"); let total = 0;
+  let lastRemaining = null, stalled = false;
   for (let pass = 0; pass < 40; pass++) {
     if (host) host.innerHTML = `<div class="meter"><div class="cmstep now"><span class="cmi"><img class="potspin" src="/brand/assets/logos/pot.png" alt=""></span><span>reading the estate — ${total} contract${total === 1 ? "" : "s"} answered…</span></div></div>`;
     let j; try { j = await (await fetch("/api/qlegal/registers/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ register_id: registerId, limit: 10 }) })).json(); } catch { break; }
     total += j.processed || 0;
+    // STOP WHEN IT STOPS SHRINKING. `remaining` used to count documents that this
+    // sweep can never answer (a question scoped to a doc type nothing in the estate
+    // has), so both conditions stayed non-zero and the loop ran all 40 passes —
+    // re-answering the same handful of contracts, roughly four model calls each per
+    // pass, then reporting "200 contracts answered" on a five-contract estate.
+    // The server-side scope is fixed; this is the belt to that pair of braces.
     if (!j.processed || !j.remaining) break;
+    if (lastRemaining !== null && j.remaining >= lastRemaining) { stalled = true; break; }
+    lastRemaining = j.remaining;
   }
   if (host) host.innerHTML = "";
   if (REG_OPEN) { await openRegister(REG_OPEN.register.id); } else { await renderRegisters(); }
-  rdAlert("Estate answered", `${total} contract${total === 1 ? "" : "s"} answered. New contracts answer these questions automatically as they arrive.`);
+  // report contracts, not passes: `total` counts documents processed across passes,
+  // so a document answered twice used to be reported as two contracts
+  rdAlert("Estate answered", stalled
+    ? `${total} contract${total === 1 ? "" : "s"} answered. Some contracts could not be answered — they may have no readable transcript, or no question applies to their type.`
+    : `${total} contract${total === 1 ? "" : "s"} answered. New contracts answer these questions automatically as they arrive.`);
 };
 window.fixHit = (id, present, answer, value) => {
   const { ov, close } = _ov(`<h3>Correct the answer</h3>
@@ -975,7 +992,17 @@ const OBL_COLS = [
   { key: "status", label: "Status", get: (o) => o.status || "—" },
   // Bucketed, not per-date: one chip per calendar day would be a list, not a
   // filter. "Overdue" and "next 30 days" are the questions people actually ask.
-  { key: "due", label: "Due", get: (o) => dueBucket(o.due_date), sortLabels: ["soonest first", "latest first"] },
+  // The chips are BUCKET LABELS, so with no cmp colfSort fell back to
+  // localeCompare and "soonest first" ordered them alphabetically:
+  //   later -> next 30 days -> next 90 days -> no date -> overdue
+  // In a task manager, overdue sorted LAST. Sort by the real date, with overdue
+  // first and undated last, and keep the bucket as the readable chip.
+  { key: "due", label: "Due", get: (o) => dueBucket(o.due_date),
+    cmp: (a, b) => {
+      const t = (o) => (o.due_date ? new Date(o.due_date).getTime() : Number.POSITIVE_INFINITY);
+      return t(a) - t(b);
+    },
+    sortLabels: ["soonest first", "latest first"] },
 ];
 
 async function renderObligations() {

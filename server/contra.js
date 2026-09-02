@@ -51,13 +51,30 @@ function snapKeys(verdicts, keys, labels) {
   const set = new Set(keys);
   const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
   const byNorm = {}; keys.forEach((k, i) => { byNorm[norm(k)] = k; byNorm[norm(labels[i])] = k; });
-  return (verdicts || []).map((v) => {
+  const out = (verdicts || []).map((v) => {
     if (set.has(v.key)) return v;
-    const n = norm(v.key);
+    const n = norm(canonKey(v.key));
     if (byNorm[n]) return { ...v, key: byNorm[n] };
+    // A MISSING KEY MUST NOT MATCH EVERYTHING. norm("") is "", and
+    // "particulars".includes("") is true — so every verdict the model failed to
+    // key was snapped onto whichever section happened to be first, which was then
+    // reported risky/missing several times over and inflated issue_count by one
+    // per unkeyed verdict, while the sections actually at risk showed nothing.
+    // A 1-2 character key matched almost as promiscuously.
+    if (n.length < 3) return { ...v, key: null, unmatched: true };
     const hit = keys.find((k, i) => norm(k).includes(n) || n.includes(norm(k)) || norm(labels[i]).includes(n) || n.includes(norm(labels[i])));
-    return hit ? { ...v, key: hit } : v;
+    return hit ? { ...v, key: hit } : { ...v, key: v.key || null, unmatched: true };
   });
+  // one verdict per section, worst wins — duplicates were counted repeatedly
+  const rank = { missing: 3, risky: 2, non_standard: 1, present: 0 };
+  const best = new Map();
+  const loose = [];
+  for (const v of out) {
+    if (!v.key || v.unmatched) { loose.push(v); continue; }
+    const prev = best.get(v.key);
+    if (!prev || (rank[v.verdict] ?? -1) > (rank[prev.verdict] ?? -1)) best.set(v.key, v);
+  }
+  return [...best.values(), ...loose];
 }
 const nextSeq = async (id) => Number((await q(`select coalesce(max(seq),-1)+1 s from contra_change where review_id=$1`, [id])).rows[0].s);
 
@@ -401,7 +418,12 @@ export function mountContra(app, upload) {
       // rule_check per rule. Fewer means it did not finish — and a contract that
       // was only half-checked must not be reported with the same confidence as one
       // that was fully checked, because the half it skipped is where the breach is.
-      const coverage = { sections_expected: keys.length, sections_returned: new Set(verdicts.map((v) => v.key)).size,
+      // count only verdicts that landed on a real section — an unmatched one is a
+  // verdict the model failed to key, and counting it as coverage would let a
+  // half-keyed reply look complete
+  const coverage = { sections_expected: keys.length,
+                         sections_returned: new Set(verdicts.filter((v) => v.key && !v.unmatched).map((v) => v.key)).size,
+                         unmatched_verdicts: verdicts.filter((v) => v.unmatched).length,
                          rules_expected: allRules.length, rules_returned: rule_checks.length };
       const complete = coverage.sections_returned >= coverage.sections_expected
                     && coverage.rules_returned >= coverage.rules_expected;
