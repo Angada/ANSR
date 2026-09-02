@@ -12,7 +12,17 @@
 -- Up looks for journeys people tell. Same sweep, different demand.
 -- ============================================================================
 
-update wh_franchise set active = true where name = 'Way Up';
+-- ONE-SHOT. Unguarded, this re-activated Way Up on every single restart — so the
+-- team turning the series off in Settings was undone by the next container start,
+-- with nothing to explain it. Introducing the series is a one-time act; keeping it
+-- on is the team's decision, not this file's.
+do $$
+begin
+  if not exists (select 1 from schema_oneshot where key = '047_way_up_activate') then
+    update wh_franchise set active = true where name = 'Way Up';
+    insert into schema_oneshot(key) values ('047_way_up_activate');
+  end if;
+end $$;
 
 -- Way Up's own themes. Search terms aim at first-person career STORIES, not
 -- how-to answers — the phrasing someone uses when telling what happened to

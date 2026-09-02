@@ -17,6 +17,27 @@
 -- Idempotent: keyed on a deterministic path per source row.
 -- ============================================================================
 
+-- ----------------------------------------------------------------------------
+-- These three columns did not exist. This file selected them anyway, so it threw
+-- on EVERY boot — and server/migrate.js logs a failure as a warning and moves on,
+-- counting only successes. The result: the entire Q-Legal audit backfill below has
+-- never once run, and nothing in the boot log said so. Create them first.
+-- ----------------------------------------------------------------------------
+alter table ql_log add column if not exists input_tokens  int;
+alter table ql_log add column if not exists output_tokens int;
+alter table ql_log add column if not exists cost_usd      numeric(12,6);
+
+-- The four inserts below each anti-join audit_log on an unindexed text column.
+-- Unguarded they re-scanned the whole (unbounded, append-only) audit table at every
+-- container start. A backfill is by definition a one-time historical replay — the
+-- live middleware records everything from here on — so it runs once and retires.
+create index if not exists audit_log_backfill_path_idx on audit_log(path)
+  where path like '/backfill/%';
+
+do $$
+begin
+if exists (select 1 from schema_oneshot where key = '046_qlegal_audit_backfill') then return; end if;
+
 -- 1 · every gated AI call Q-Legal made
 insert into audit_log (at, actor, role, app, action, path, status, ms, object_type, detail)
 select l.created_at,
@@ -66,3 +87,6 @@ select coalesce(c.resolved_at, c.created_at),
          'confidence', c.confidence, 'why', left(coalesce(c.why, ''), 200))
   from ql_confirm c
  where not exists (select 1 from audit_log a where a.path = '/backfill/ql_confirm/' || c.id);
+
+insert into schema_oneshot(key) values ('046_qlegal_audit_backfill');
+end $$;

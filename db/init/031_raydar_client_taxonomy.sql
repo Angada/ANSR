@@ -29,8 +29,17 @@ alter table wh_franchise add column if not exists parent text;
 alter table wh_franchise add column if not exists blurb  text;
 
 -- retire our invented routing targets (keep the rows — stories point at them)
-update wh_franchise set active = false
- where name in ('Stack Up', 'Pay Up', 'TrAIbe × Accelor', 'The Hot Seat');
+-- ONE-SHOT: retiring them is a decision taken once. Re-run every boot, it meant a
+-- series the team deliberately brought back was switched off again at the next
+-- restart, with nothing in the app to explain why.
+do $$
+begin
+  if not exists (select 1 from schema_oneshot where key = '031_retire_invented_series') then
+    update wh_franchise set active = false
+     where name in ('Stack Up', 'Pay Up', 'TrAIbe × Accelor', 'The Hot Seat');
+    insert into schema_oneshot(key) values ('031_retire_invented_series');
+  end if;
+end $$;
 
 -- the two real properties + 1Up's three sub-series, in Supriya's own wording
 insert into wh_franchise(name, stage, format_home, parent, blurb, active) values
@@ -42,16 +51,28 @@ insert into wh_franchise(name, stage, format_home, parent, blurb, active) values
    'Resume tips and fixes — framing over content.', true),
   ('Way Up', 'narrative series', 'Long-form storytelling', null,
    'A longer form storytelling series following a GCC leader''s journey, career arc, key decisions and lessons learned — documentary and human interest in tone, versus 1Up''s tips format.', false)
-on conflict (name) do update set stage=excluded.stage, format_home=excluded.format_home,
-  parent=excluded.parent, blurb=excluded.blurb, active=excluded.active;
+-- do NOTHING, not do UPDATE. This seed used to overwrite stage, format_home,
+-- parent, blurb AND active on every boot, so any edit the content team made to
+-- the client taxonomy — including switching a series off — was reverted at the
+-- next container restart. 014 was already changed away from `do update` for
+-- exactly this reason; this file kept the pattern.
+on conflict (name) do nothing;
 
--- Skill Up already exists from 014 — restate it in the client's words, under 1Up
-update wh_franchise
-   set parent = '1Up', active = true,
-       stage = 'AI and upskilling',
-       format_home = 'Listicle · short-form',
-       blurb = 'AI and upskilling focused — e.g. "5 skills you need to land your next role".'
- where name = 'Skill Up';
+-- Skill Up already exists from 014 — restate it in the client's words, under 1Up.
+-- ONE-SHOT: unguarded this re-asserted parent, active, stage, format_home and blurb
+-- at every boot, so Skill Up could never be edited or switched off for good.
+do $$
+begin
+  if not exists (select 1 from schema_oneshot where key = '031_skill_up_restate') then
+    update wh_franchise
+       set parent = '1Up', active = true,
+           stage = 'AI and upskilling',
+           format_home = 'Listicle · short-form',
+           blurb = 'AI and upskilling focused — e.g. "5 skills you need to land your next role".'
+     where name = 'Skill Up';
+    insert into schema_oneshot(key) values ('031_skill_up_restate');
+  end if;
+end $$;
 
 update wh_franchise set blurb = 'Where a theme that fits none of the above is parked and watched.'
  where name = 'Emerging' and blurb is null;

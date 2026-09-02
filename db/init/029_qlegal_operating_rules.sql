@@ -16,8 +16,18 @@ alter table ql_rule add column if not exists params jsonb not null default '{}':
 alter table ql_rule add column if not exists explain text;      -- what this lever controls, in plain English
 
 -- retire the prose seeds (invariants, not controls) — leaves any human-authored rule alone
-delete from ql_rule where code in
-  ('source-of-truth','grounding','confirm-dont-guess','lazy-versioning','tag-vocabulary','notice-extraction','obligation-reminders');
+-- ONE-SHOT: 022 re-inserts these seven codes on every boot and this deleted them
+-- again immediately, so each restart quietly churned seven rows. Harmless while
+-- nobody used those codes — but ql_rule.code is free text, so a lawyer recreating a
+-- rule under one of these names would have found it gone after the next restart.
+do $$
+begin
+  if not exists (select 1 from schema_oneshot where key = '029_retire_prose_seeds') then
+    delete from ql_rule where code in
+      ('source-of-truth','grounding','confirm-dont-guess','lazy-versioning','tag-vocabulary','notice-extraction','obligation-reminders');
+    insert into schema_oneshot(key) values ('029_retire_prose_seeds');
+  end if;
+end $$;
 
 -- the real levers, one per pipeline step. body = the prompt guidance injected at
 -- call time; params = the numbers the code actually reads (server/qlegal.js).
